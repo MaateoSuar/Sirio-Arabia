@@ -5,6 +5,7 @@ import os
 from .extensions import db, migrate
 from .config import Config
 from . import models
+from flask_migrate import upgrade
 
 
 def create_app():
@@ -14,6 +15,15 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
+
+    # Optional: Auto-run migrations on startup when AUTO_MIGRATE=1
+    if os.getenv("AUTO_MIGRATE") == "1":
+        with app.app_context():
+            try:
+                upgrade()
+            except Exception:
+                # Do not crash the app if migrations fail; rely on logs for details
+                pass
 
     # Register blueprints
     from .views.main import bp as main_bp
