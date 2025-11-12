@@ -3,6 +3,7 @@ builder = "paketobuildpacks/builder:base"
 
 [env]
 PORT = "8080"
+BP_PYTHON_VERSION = "3.10.*"
 
 [[services]]
 name = "sirio-arabia-crm"
