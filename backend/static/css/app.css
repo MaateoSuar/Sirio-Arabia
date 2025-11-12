@@ -1,0 +1,36 @@
+:root{--brand:#0f3d4c;--brand-700:#09303b;--accent:#0d6efd;--ink:#111827;--muted:#6b7280}
+
+/* Typography */
+body{font-family:'Poppins',system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial}
+h1,h2,.sidebar-title{font-family:'Playfair Display','Poppins',serif}
+h1,h2{letter-spacing:.2px}
+.text-secondary{color:var(--muted)!important}
+
+/* Sidebar blue with subtle marble/texture using layered gradients */
+.sidebar-blue{color:#e6f2f6}
+.sidebar-blue .sidebar-inner{height:100%;background:
+  radial-gradient(1200px 600px at -10% -20%, rgba(255,255,255,.06) 0%, rgba(255,255,255,0) 60%),
+  radial-gradient(800px 400px at 120% 0%, rgba(255,255,255,.05) 0%, rgba(255,255,255,0) 55%),
+  linear-gradient(135deg, #0f4c5c 0%, #0d3f4e 40%, #0b3240 100%);
+  box-shadow: inset -1px 0 0 rgba(255,255,255,.06);
+}
+.sidebar-title{font-size:.85rem;text-transform:uppercase;letter-spacing:.09em;color:#cbe3ec;opacity:.9}
+
+/* Nav link ghost buttons */
+.nav-link-ghost{color:#d9ecf2;border-radius:.5rem;position:relative;padding:.6rem .9rem;font-weight:500}
+.nav-link-ghost:hover{background:rgba(255,255,255,.08);color:#fff;transform:translateX(2px)}
+.nav-link-ghost:focus{outline:2px solid rgba(13,110,253,.35);outline-offset:2px}
+.nav-link-ghost.active{background:linear-gradient(180deg, rgba(13,110,253,.22), rgba(13,110,253,.18));color:#fff;border:1px solid rgba(13,110,253,.35)}
+
+/* Content area */
+.card{border:1px solid #eef1f4;border-radius:.8rem;overflow:hidden}
+.card .card-body{padding:1rem 1.25rem}
+.table>thead{font-size:.9rem}
+.display-6{font-weight:600}
+.badge.bg-primary{background:var(--brand)!important}
+
+/* Buttons tweak */
+.btn-primary{background-color:var(--accent);border-color:var(--accent)}
+.btn-primary:hover{filter:brightness(.95)}
+.btn-outline-secondary{color:var(--ink);border-color:#e5e7eb}
+.btn-outline-secondary:hover{background:#f9fafb}

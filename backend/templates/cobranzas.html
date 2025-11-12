@@ -1,0 +1,88 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 mb-0">Cobranzas</h1>
+  <form class="d-flex align-items-end gap-2" method="get">
+    <div class="btn-group" role="group">
+      <input type="checkbox" class="btn-check" id="st_acobrar" autocomplete="off" name="status" value="A_COBRAR" {{ 'checked' if 'A_COBRAR' in request.args.getlist('status') else '' }}>
+      <label class="btn btn-sm btn-outline-secondary" for="st_acobrar">A cobrar</label>
+      <input type="checkbox" class="btn-check" id="st_cobrado" autocomplete="off" name="status" value="COBRADO" {{ 'checked' if 'COBRADO' in request.args.getlist('status') else '' }}>
+      <label class="btn btn-sm btn-outline-secondary" for="st_cobrado">Cobrado</label>
+    </div>
+    <input type="date" class="form-control" name="from" value="{{ request.args.get('from','') }}">
+    <input type="date" class="form-control" name="to" value="{{ request.args.get('to','') }}">
+    <button class="btn btn-sm btn-outline-secondary">Filtrar</button>
+  </form>
+</div>
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Cliente</th>
+            <th>Empresa</th>
+            <th>Entrega efectiva</th>
+            <th>Monto</th>
+            <th>Forma de pago</th>
+            <th>Pago estimado</th>
+            <th>Cobro efectivo</th>
+            <th>Status</th>
+            <th class="text-end">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for c in items %}
+          <tr>
+            <td>{{ c.order.client.apellido }} {{ c.order.client.nombre }}</td>
+            <td>{{ c.order.company.nombre }}</td>
+            <td>{{ c.fecha_entrega_efectiva.strftime('%d/%m/%Y') if c.fecha_entrega_efectiva else '-' }}</td>
+            <td>
+              <form class="d-flex gap-1" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}">
+                <input name="monto" type="number" step="0.01" class="form-control form-control-sm" style="max-width:120px" value="{{ c.monto or '' }}">
+            </td>
+            <td>
+                <select name="forma_pago" class="form-select form-select-sm" style="max-width:150px">
+                  <option value="">-</option>
+                  <option value="EFECTIVO" {{ 'selected' if c.forma_pago and c.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
+                  <option value="CHEQUE" {{ 'selected' if c.forma_pago and c.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
+                  <option value="TRANSFERENCIA" {{ 'selected' if c.forma_pago and c.forma_pago.value=='TRANSFERENCIA' else '' }}>Transferencia</option>
+                  <option value="NO_SE_SABE" {{ 'selected' if c.forma_pago and c.forma_pago.value=='NO_SE_SABE' else '' }}>No se sabe</option>
+                </select>
+            </td>
+            <td>
+                <input name="pago_estimado" type="date" class="form-control form-control-sm" style="max-width:160px" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}">
+            </td>
+            <td>{{ c.fecha_cobro_efectiva.strftime('%d/%m/%Y') if c.fecha_cobro_efectiva else '-' }}</td>
+            <td>
+              {% if c.status == 'COBRADO' %}
+                <span class="badge bg-success">COBRADO</span>
+              {% elif c.status == 'ATRASADO' %}
+                <span class="badge bg-danger">ATRASADO</span>
+              {% else %}
+                <span class="badge bg-secondary">A COBRAR</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              {% if not c.fecha_cobro_efectiva %}
+                <div class="btn-group">
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
+                  </form>
+                  <form method="post" action="{{ url_for('main.cobranzas_mark_cobrado', order_id=c.order.id) }}" onsubmit="return confirm('Confirmar COBRADO?')">
+                    <button class="btn btn-sm btn-primary">Marcar cobrado</button>
+                  </form>
+                </div>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">Sin cobranzas</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

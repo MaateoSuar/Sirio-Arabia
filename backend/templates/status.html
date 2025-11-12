@@ -1,0 +1,92 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 mb-0">Status Mercadería</h1>
+  <form class="d-flex align-items-end gap-2" method="get">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="status" value="EN_CAMINO" id="st1" {{ 'checked' if 'EN_CAMINO' in request.args.getlist('status') else '' }}>
+      <label class="form-check-label" for="st1">En camino</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="status" value="ATRASADO" id="st2" {{ 'checked' if 'ATRASADO' in request.args.getlist('status') else '' }}>
+      <label class="form-check-label" for="st2">Atrasado</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="status" value="ENTREGADO" id="st3" {{ 'checked' if 'ENTREGADO' in request.args.getlist('status') else '' }}>
+      <label class="form-check-label" for="st3">Entregado</label>
+    </div>
+    <input type="date" class="form-control" name="from" value="{{ request.args.get('from','') }}">
+    <input type="date" class="form-control" name="to" value="{{ request.args.get('to','') }}">
+    <button class="btn btn-sm btn-outline-secondary">Filtrar</button>
+  </form>
+  </div>
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Cliente</th>
+            <th>Empresa</th>
+            <th>Fecha compra</th>
+            <th>Entrega estimada</th>
+            <th>Entrega efectiva</th>
+            <th>Precio</th>
+            <th>Forma pago</th>
+            <th>Status</th>
+            <th class="text-end">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for s in items %}
+          <tr>
+            <td>{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
+            <td>{{ s.order.company.nombre }}</td>
+            <td>{{ s.fecha_compra.strftime('%d/%m/%Y') if s.fecha_compra else '-' }}</td>
+            <td>{{ s.fecha_entrega_estimada.strftime('%d/%m/%Y') if s.fecha_entrega_estimada else '-' }}</td>
+            <td>{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>
+            <td>
+              <form class="d-flex gap-1" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}">
+                <input name="precio" type="number" step="0.01" class="form-control form-control-sm" style="max-width:120px" value="{{ s.precio or '' }}">
+            </td>
+            <td>
+                <select name="forma_pago" class="form-select form-select-sm" style="max-width:150px">
+                  <option value="">-</option>
+                  <option value="EFECTIVO" {{ 'selected' if s.forma_pago and s.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
+                  <option value="CHEQUE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
+                  <option value="TRANSFERENCIA" {{ 'selected' if s.forma_pago and s.forma_pago.value=='TRANSFERENCIA' else '' }}>Transferencia</option>
+                  <option value="NO_SE_SABE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='NO_SE_SABE' else '' }}>No se sabe</option>
+                </select>
+            </td>
+            <td>
+              {% if s.status == 'ENTREGADO' %}
+                <span class="badge bg-success">ENTREGADO</span>
+              {% elif s.status == 'ATRASADO' %}
+                <span class="badge bg-danger">ATRASADO</span>
+              {% else %}
+                <span class="badge bg-secondary">EN CAMINO</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              {% if not s.fecha_entrega_efectiva %}
+                <div class="btn-group">
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
+                  </form>
+                  <form method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}" onsubmit="return confirm('Marcar como ENTREGADO?')">
+                    <button class="btn btn-sm btn-primary">Marcar entregado</button>
+                  </form>
+                </div>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">Sin pedidos en seguimiento</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

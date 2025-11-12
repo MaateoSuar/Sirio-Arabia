@@ -1,0 +1,149 @@
+from datetime import datetime, timedelta, date
+from enum import Enum
+from .extensions import db
+
+
+class RelationStatus(str, Enum):
+    TRABAJA = "TRABAJA"
+    TRABAJABA = "TRABAJABA"
+    A_INCORPORAR = "A_INCORPORAR"
+
+
+class PaymentMethod(str, Enum):
+    EFECTIVO = "EFECTIVO"
+    CHEQUE = "CHEQUE"
+    TRANSFERENCIA = "TRANSFERENCIA"
+    NO_SE_SABE = "NO_SE_SABE"
+
+
+class ClientCompanyLink(db.Model):
+    __tablename__ = "client_company_link"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+    status = db.Column(db.Enum(RelationStatus), nullable=False, default=RelationStatus.TRABAJA)
+
+    __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_client_company"),)
+
+
+class ClientBranch(db.Model):
+    __tablename__ = "client_branch"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    nombre = db.Column(db.String(120), nullable=False)
+
+    __table_args__ = (db.UniqueConstraint("client_id", "nombre", name="uq_client_branch_name"),)
+
+
+class Client(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    apellido = db.Column(db.String(120), nullable=False)
+    nombre = db.Column(db.String(120), nullable=False)
+    sucursal = db.Column(db.String(120))
+    fecha_incorporacion = db.Column(db.Date, default=date.today)
+    telefono = db.Column(db.String(50))
+    mail = db.Column(db.String(255))
+
+    links = db.relationship("ClientCompanyLink", backref="client", cascade="all, delete-orphan")
+    orders = db.relationship("Order", backref="client", cascade="all, delete-orphan")
+    branches = db.relationship("ClientBranch", backref="client", cascade="all, delete-orphan")
+
+    @property
+    def empresas_trabaja(self):
+        return [l for l in self.links if l.status == RelationStatus.TRABAJA]
+
+    @property
+    def empresas_trabajaba(self):
+        return [l for l in self.links if l.status == RelationStatus.TRABAJABA]
+
+    @property
+    def empresas_a_incorporar(self):
+        return [l for l in self.links if l.status == RelationStatus.A_INCORPORAR]
+
+
+class Company(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(200), nullable=False, unique=True)
+    demora_despacho_promedio_dias = db.Column(db.Integer, default=0)
+    plazo_pago_promedio_dias = db.Column(db.Integer, default=30)
+    mail_pedido = db.Column(db.String(255))
+    mail_pago = db.Column(db.String(255))
+
+    links = db.relationship("ClientCompanyLink", backref="company", cascade="all, delete-orphan")
+    orders = db.relationship("Order", backref="company", cascade="all, delete-orphan")
+
+
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+
+    sucursal = db.Column(db.String(120))
+    branch_id = db.Column(db.Integer, db.ForeignKey("client_branch.id"))
+    nota = db.Column(db.Text)
+    descripcion = db.Column(db.Text)
+
+    precio_final = db.Column(db.Numeric(12, 2))
+    forma_pago = db.Column(db.Enum(PaymentMethod))
+
+    # Snapshots from company at order time
+    demora_despacho_promedio_dias = db.Column(db.Integer)
+    mail_pedido = db.Column(db.String(255))
+
+    logistics = db.relationship("LogisticsStatus", uselist=False, backref="order", cascade="all, delete-orphan")
+    collection = db.relationship("Collection", uselist=False, backref="order", cascade="all, delete-orphan")
+
+
+class LogisticsStatus(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False, unique=True)
+
+    fecha_compra = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_entrega_estimada = db.Column(db.DateTime)
+    fecha_entrega_efectiva = db.Column(db.DateTime)
+
+    precio = db.Column(db.Numeric(12, 2))
+    forma_pago = db.Column(db.Enum(PaymentMethod))
+
+    nota = db.Column(db.Text)
+    descripcion = db.Column(db.Text)
+
+    @property
+    def status(self):
+        if self.fecha_entrega_efectiva:
+            return "ENTREGADO"
+        if self.fecha_entrega_estimada and datetime.utcnow() > self.fecha_entrega_estimada:
+            return "ATRASADO"
+        return "EN CAMINO"
+
+
+class Collection(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False, unique=True)
+
+    fecha_entrega_efectiva = db.Column(db.DateTime)
+    monto = db.Column(db.Numeric(12, 2))
+    forma_pago = db.Column(db.Enum(PaymentMethod))
+
+    fecha_pago_estimada = db.Column(db.DateTime)
+    fecha_cobro_efectiva = db.Column(db.DateTime)
+
+    @property
+    def status(self):
+        if self.fecha_cobro_efectiva:
+            return "COBRADO"
+        if self.fecha_pago_estimada and datetime.utcnow() > self.fecha_pago_estimada:
+            return "ATRASADO"
+        return "EN CAMINO"
+
+
+class OrderAttachment(db.Model):
+    __tablename__ = "order_attachment"
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    order = db.relationship("Order", backref=db.backref("attachments", cascade="all, delete-orphan"))

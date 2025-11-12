@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArabiaTrack - CRM</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="components/navbar.js"></script>
+    <script src="components/sidebar.js"></script>
+</head>
+<body class="bg-gray-50">
+    <custom-navbar></custom-navbar>
+    
+    <div class="flex">
+        <custom-sidebar></custom-sidebar>
+        
+        <main class="flex-1 p-8">
+            <div class="max-w-7xl mx-auto">
+                <!-- Dashboard Overview -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-lg shadow">
+                        <h3 class="text-lg font-medium text-gray-900">Total Clientes</h3>
+                        <p class="text-3xl font-bold text-blue-600">124</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow">
+                        <h3 class="text-lg font-medium text-gray-900">Pedidos Activos</h3>
+                        <p class="text-3xl font-bold text-orange-500">18</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow">
+                        <h3 class="text-lg font-medium text-gray-900">Cobranzas Pendientes</h3>
+                        <p class="text-3xl font-bold text-red-500">7</p>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="bg-white p-6 rounded-lg shadow mb-8">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-gray-800">Actividad Reciente</h2>
+                        <a href="#" class="text-blue-600 hover:text-blue-800">Ver todo</a>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0 bg-blue-100 p-2 rounded-full">
+                                <i data-feather="user-plus" class="text-blue-600"></i>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-gray-900">Nuevo cliente agregado: <span class="text-blue-600">Juan Pérez</span></p>
+                                <p class="text-sm text-gray-500">Hace 2 horas</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0 bg-green-100 p-2 rounded-full">
+                                <i data-feather="shopping-cart" class="text-green-600"></i>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-gray-900">Nuevo pedido registrado para <span class="text-blue-600">Empresa XYZ</span></p>
+                                <p class="text-sm text-gray-500">Hace 5 horas</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="clientes.html" class="bg-white p-4 rounded-lg shadow flex items-center hover:bg-gray-50 transition-colors">
+                        <div class="bg-blue-100 p-3 rounded-full mr-4">
+                            <i data-feather="users" class="text-blue-600"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-medium text-gray-900">Clientes</h3>
+                            <p class="text-sm text-gray-500">Administrar legajos</p>
+                        </div>
+                    </a>
+                    <a href="empresas.html" class="bg-white p-4 rounded-lg shadow flex items-center hover:bg-gray-50 transition-colors">
+                        <div class="bg-green-100 p-3 rounded-full mr-4">
+                            <i data-feather="briefcase" class="text-green-600"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-medium text-gray-900">Empresas</h3>
+                            <p class="text-sm text-gray-500">Gestionar empresas</p>
+                        </div>
+                    </a>
+                    <a href="pedidos.html" class="bg-white p-4 rounded-lg shadow flex items-center hover:bg-gray-50 transition-colors">
+                        <div class="bg-orange-100 p-3 rounded-full mr-4">
+                            <i data-feather="shopping-cart" class="text-orange-600"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-medium text-gray-900">Pedidos</h3>
+                            <p class="text-sm text-gray-500">Registrar nuevos</p>
+                        </div>
+                    </a>
+                    <a href="cobranzas.html" class="bg-white p-4 rounded-lg shadow flex items-center hover:bg-gray-50 transition-colors">
+                        <div class="bg-red-100 p-3 rounded-full mr-4">
+                            <i data-feather="dollar-sign" class="text-red-600"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-medium text-gray-900">Cobranzas</h3>
+                            <p class="text-sm text-gray-500">Seguimiento</p>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        feather.replace();
+    </script>
+    <script src="script.js"></script>
+<script src="https://huggingface.co/deepsite/deepsite-badge.js"></script>
+</body>
+</html>

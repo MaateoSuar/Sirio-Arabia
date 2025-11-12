@@ -1,0 +1,62 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 mb-0">Dashboard</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-primary" href="{{ url_for('main.pedidos') }}">Nuevo Pedido</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('main.clientes') }}">Nuevo Cliente</a>
+  </div>
+  
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="text-secondary small">Pedidos (mes)</div>
+        <div class="display-6">—</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="text-secondary small">Cobranzas pendientes</div>
+        <div class="display-6">—</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="text-secondary small">En camino</div>
+        <div class="display-6">—</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="text-secondary small">Atrasados</div>
+        <div class="display-6 text-danger">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h2 class="h6 text-secondary">Accesos rápidos</h2>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <a href="{{ url_for('main.clientes') }}" class="btn btn-light border">Clientes</a>
+      <a href="{{ url_for('main.empresas') }}" class="btn btn-light border">Empresas</a>
+      <a href="{{ url_for('main.pedidos') }}" class="btn btn-light border">Pedidos</a>
+      <a href="{{ url_for('main.status') }}" class="btn btn-light border">Status</a>
+      <a href="{{ url_for('main.cobranzas') }}" class="btn btn-light border">Cobranzas</a>
+      <a href="{{ url_for('main.historial') }}" class="btn btn-light border">Historial</a>
+      <a href="{{ url_for('main.crm') }}" class="btn btn-light border">CRM</a>
+    </div>
+  </div>
+  
+</div>
+{% endblock %}

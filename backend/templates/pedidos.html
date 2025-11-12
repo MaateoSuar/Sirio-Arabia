@@ -1,0 +1,138 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 mb-0">Registro de Venta / Pedido</h1>
+  <div></div>
+</div>
+<div class="card mb-4">
+  <div class="card-body">
+    <form class="row g-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
+      <div class="col-md-3">
+        <input type="date" class="form-control" id="pedido_fecha" value="{{ today }}">
+      </div>
+      <div class="col-md-3">
+        <select class="form-select" id="pedido_cliente" name="client_id">
+          <option value="">Cliente...</option>
+          {% for c in clientes %}
+            <option value="{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select class="form-select" id="pedido_branch" name="branch_id">
+          <option value="">Sucursal del cliente...</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select class="form-select" id="pedido_empresa" name="company_id">
+          <option value="">Empresa...</option>
+          {% for e in empresas %}
+            <option value="{{ e.id }}" data-mail="{{ e.mail_pedido or '' }}">{{ e.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12">
+        <input type="text" class="form-control" id="pedido_nota" name="nota" placeholder="Nota">
+      </div>
+      <div class="col-12">
+        <textarea class="form-control" id="pedido_descripcion" name="descripcion" rows="6" placeholder="Descripción del pedido (puedes pegar texto desde WhatsApp)"></textarea>
+      </div>
+      <div class="col-md-4">
+        <input type="email" class="form-control" id="pedido_mail_pedido" placeholder="Mail de pedido de la empresa (se completa al elegir empresa)" disabled>
+      </div>
+      <div class="col-md-4">
+        <input type="number" step="0.01" class="form-control" id="pedido_precio" name="precio_final" placeholder="Precio final (opcional)">
+      </div>
+      <div class="col-md-4">
+        <select class="form-select" id="pedido_forma_pago" name="forma_pago" required>
+          <option value="">Seleccione forma de pago</option>
+          <option value="EFECTIVO">Efectivo</option>
+          <option value="CHEQUE">Cheque</option>
+          <option value="TRANSFERENCIA">Transferencia</option>
+          <option value="NO_SE_SABE">No se sabe</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <input type="file" name="attachments" id="pedido_attachments" class="form-control" multiple accept="image/*">
+      </div>
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="button" id="gmail-draft-btn">Enviar pedido por mail</button>
+        <button class="btn btn-outline-secondary" type="submit">Crear Pedido</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  (function(){
+    const clienteSel = document.getElementById('pedido_cliente');
+    const empresaSel = document.getElementById('pedido_empresa');
+    const mailInput = document.getElementById('pedido_mail_pedido');
+    const notaInput = document.getElementById('pedido_nota');
+    const descInput = document.getElementById('pedido_descripcion');
+    const precioInput = document.getElementById('pedido_precio');
+    const formaPagoSel = document.getElementById('pedido_forma_pago');
+    const fechaInput = document.getElementById('pedido_fecha');
+    const branchSel = document.getElementById('pedido_branch');
+
+    // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
+    empresaSel?.addEventListener('change', ()=>{
+      const opt = empresaSel.options[empresaSel.selectedIndex];
+      mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
+    });
+
+    const gmailBtn = document.getElementById('gmail-draft-btn');
+    gmailBtn?.addEventListener('click', function(){
+      const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
+      const to = (empresaOpt && empresaOpt.getAttribute('data-mail')) || '';
+      const clienteText = clienteSel.options[clienteSel.selectedIndex]?.text || '';
+      const empresaText = empresaOpt?.text || '';
+      const fecha = fechaInput?.value || '';
+      const suc = branchSel?.options[branchSel.selectedIndex]?.text || '';
+      const nota = notaInput?.value || '';
+      const desc = descInput?.value || '';
+      const precio = precioInput?.value || '';
+      const forma = formaPagoSel?.value || '';
+
+      const subject = encodeURIComponent(`Pedido ${empresaText} - ${clienteText}`);
+      const bodyLines = [
+        `Fecha: ${fecha}`,
+        `Cliente: ${clienteText}`,
+        `Empresa: ${empresaText}`,
+        `Sucursal: ${suc}`,
+        `Forma de pago: ${forma}`,
+        `Precio final: ${precio || '-'}`,
+        '',
+        `Descripción:`,
+        desc,
+        '',
+        `Nota:`,
+        nota
+      ];
+      const body = encodeURIComponent(bodyLines.join('\n'));
+      const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}&body=${body}`;
+      window.open(url, '_blank');
+    });
+
+    // Load branches when client changes
+    async function loadBranches(clientId){
+      if(!branchSel) return;
+      branchSel.innerHTML = '<option value="">Sucursal del cliente...</option>';
+      if(!clientId) return;
+      try{
+        const res = await fetch(`/api/clientes/${clientId}/sucursales`);
+        const items = await res.json();
+        for(const b of items){
+          const opt = document.createElement('option');
+          opt.value = b.id;
+          opt.textContent = b.label;
+          branchSel.appendChild(opt);
+        }
+      }catch(e){/* noop */}
+    }
+    clienteSel?.addEventListener('change', ()=>{
+      const id = clienteSel.value;
+      loadBranches(id);
+    });
+  })();
+</script>
+{% endblock %}
