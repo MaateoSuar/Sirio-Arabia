@@ -6,4 +6,4 @@ PORT = "8080"
 
 [[services]]
 name = "sirio-arabia-crm"
-start = "python -m backend.app"
+start = "python app.py"
