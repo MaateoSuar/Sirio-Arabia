@@ -2,16 +2,61 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Cobranzas</h1>
-  <form class="d-flex align-items-end gap-2" method="get">
-    <div class="btn-group" role="group">
-      <input type="checkbox" class="btn-check" id="st_acobrar" autocomplete="off" name="status" value="A_COBRAR" {{ 'checked' if 'A_COBRAR' in request.args.getlist('status') else '' }}>
-      <label class="btn btn-sm btn-outline-secondary" for="st_acobrar">A cobrar</label>
-      <input type="checkbox" class="btn-check" id="st_cobrado" autocomplete="off" name="status" value="COBRADO" {{ 'checked' if 'COBRADO' in request.args.getlist('status') else '' }}>
-      <label class="btn btn-sm btn-outline-secondary" for="st_cobrado">Cobrado</label>
+  <style>
+    .cob-filter .btn { 
+      border-width: 2px; 
+      transition: transform .12s ease, box-shadow .12s ease, background-color .15s, color .15s, border-color .15s;
+      box-shadow: 0 4px 0 rgba(0,0,0,.18), 0 8px 16px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.22);
+      border-radius: .5rem;
+      position: relative; overflow: hidden;
+    }
+    .cob-filter .btn:hover { transform: translateY(-1px); box-shadow: 0 5px 0 rgba(0,0,0,.2), 0 10px 18px rgba(0,0,0,.1), inset 0 1px 0 rgba(255,255,255,.22); }
+    .cob-filter .btn:active, .cob-filter .btn.btn-pressed { transform: translateY(2px) scale(.985); box-shadow: 0 1px 0 rgba(0,0,0,.18), inset 0 2px 0 rgba(255,255,255,.18); }
+    .cob-filter .btn.active { transform: translateY(1px) scale(.99); box-shadow: inset 0 4px 10px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.2); }
+    .cob-filter .btn .ripple { position:absolute; border-radius:999px; transform:translate(-50%,-50%); pointer-events:none; width:14px; height:14px; animation:ripple .6s ease-out forwards; opacity:.9; }
+    @keyframes ripple { from{width:14px;height:14px;opacity:.45;} to{width:420px;height:420px;opacity:0;} }
+    .date-soft { border-radius:.75rem; box-shadow:0 4px 10px rgba(0,0,0,.06); background:#fff; }
+    .date-soft .input-group-text { background:#f3f4f6; border:1px solid #e5e7eb; }
+    .date-soft .form-control { background:#fafafa; border:1px solid #e5e7eb; min-height:36px; font-size:.9rem; }
+    .date-soft .form-control:focus { background:#fff; border-color:#86b7fe; box-shadow:0 0 0 .2rem rgba(13,110,253,.15); }
+    .date-soft .btn-clear { border:1px solid #e5e7eb; background:#fff; padding:.25rem .5rem; color:#6c757d; }
+    .date-soft .btn-clear:hover { background:#f8f9fa; }
+    /* Asegurar calendario por encima de componentes Bootstrap */
+    .flatpickr-calendar { z-index: 2000; }
+    .flatpickr-calendar.open { z-index: 3050; }
+    /* Colores activos */
+    .cob-filter .btn-outline-primary:hover,
+    .cob-filter .btn-outline-primary.active,
+    .cob-filter .btn-outline-primary.active:hover { background:#0d6efd; color:#fff; border-color:#0d6efd; }
+    .cob-filter .btn-outline-success:hover,
+    .cob-filter .btn-outline-success.active,
+    .cob-filter .btn-outline-success.active:hover { background:#198754; color:#fff; border-color:#198754; }
+    /* Asegurar espacio para Acciones */
+    .w-actions { min-width: 150px; }
+  </style>
+  <form id="cobFilter" class="d-flex align-items-end gap-2" method="get">
+    <div class="btn-group cob-filter" role="group" aria-label="Filtros de cobranza">
+      <button type="button" class="btn btn-sm btn-outline-primary {{ 'active' if 'A_COBRAR' in request.args.getlist('status') else '' }}" data-status="A_COBRAR" aria-pressed="{{ 'true' if 'A_COBRAR' in request.args.getlist('status') else 'false' }}">A cobrar</button>
+      <button type="button" class="btn btn-sm btn-outline-success {{ 'active' if 'COBRADO' in request.args.getlist('status') else '' }}" data-status="COBRADO" aria-pressed="{{ 'true' if 'COBRADO' in request.args.getlist('status') else 'false' }}">Cobrado</button>
     </div>
-    <input type="date" class="form-control" name="from" value="{{ request.args.get('from','') }}">
-    <input type="date" class="form-control" name="to" value="{{ request.args.get('to','') }}">
-    <button class="btn btn-sm btn-outline-secondary">Filtrar</button>
+    {% for st in request.args.getlist('status') %}
+      <input type="hidden" name="status" value="{{ st }}">
+    {% endfor %}
+    <div class="input-group input-group-sm date-soft" style="width: 240px; overflow: hidden;">
+      <span class="input-group-text" id="cob-from-addon" style="background:#f8f9fa">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/></svg>
+      </span>
+      <input type="text" class="form-control" aria-describedby="cob-from-addon" placeholder="Desde" name="from" value="{{ request.args.get('from','') }}" data-datepicker>
+      <button class="btn btn-clear btn-sm" type="button" data-clear="from">×</button>
+    </div>
+    <div class="input-group input-group-sm date-soft" style="width: 240px; overflow: hidden;">
+      <span class="input-group-text" id="cob-to-addon" style="background:#f8f9fa">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/></svg>
+      </span>
+      <input type="text" class="form-control" aria-describedby="cob-to-addon" placeholder="Hasta" name="to" value="{{ request.args.get('to','') }}" data-datepicker>
+      <button class="btn btn-clear btn-sm" type="button" data-clear="to">×</button>
+    </div>
+    <button class="btn btn-sm btn-outline-dark" type="button" id="cobBtnClearAll">Limpiar filtros</button>
   </form>
 </div>
 <div class="card">
@@ -28,7 +73,7 @@
             <th>Pago estimado</th>
             <th>Cobro efectivo</th>
             <th>Status</th>
-            <th class="text-end">Acciones</th>
+            <th class="text-end w-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -38,11 +83,15 @@
             <td>{{ c.order.company.nombre }}</td>
             <td>{{ c.fecha_entrega_efectiva.strftime('%d/%m/%Y') if c.fecha_entrega_efectiva else '-' }}</td>
             <td>
-              <form class="d-flex gap-1" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}">
-                <input name="monto" type="number" step="0.01" class="form-control form-control-sm" style="max-width:120px" value="{{ c.monto or '' }}">
+              <form id="upd{{ c.order.id }}" class="d-flex gap-1" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}">
+                <div class="input-group input-group-sm" style="max-width: 240px">
+                  <span class="input-group-text">$</span>
+                  <input id="montoDisp{{ c.order.id }}" type="text" class="form-control form-control-sm js-cob-monto js-currency" data-hidden="montoHid{{ c.order.id }}" data-raw="{{ c.monto or '' }}" value="" autocomplete="off" inputmode="numeric">
+                  <input type="hidden" name="monto" id="montoHid{{ c.order.id }}" value="">
+                </div>
             </td>
             <td>
-                <select name="forma_pago" class="form-select form-select-sm" style="max-width:150px">
+                <select name="forma_pago" class="form-select form-select-sm js-cob-forma" style="width: 150px" form="upd{{ c.order.id }}">
                   <option value="">-</option>
                   <option value="EFECTIVO" {{ 'selected' if c.forma_pago and c.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
                   <option value="CHEQUE" {{ 'selected' if c.forma_pago and c.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
@@ -51,7 +100,7 @@
                 </select>
             </td>
             <td>
-                <input name="pago_estimado" type="date" class="form-control form-control-sm" style="max-width:160px" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}">
+                <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Pago estimado" style="width:130px" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}" form="upd{{ c.order.id }}">
             </td>
             <td>{{ c.fecha_cobro_efectiva.strftime('%d/%m/%Y') if c.fecha_cobro_efectiva else '-' }}</td>
             <td>
@@ -64,16 +113,60 @@
               {% endif %}
             </td>
             <td class="text-end">
-              {% if not c.fecha_cobro_efectiva %}
-                <div class="btn-group">
-                  <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
+              <div class="d-flex justify-content-end flex-wrap gap-2">
+                {% if not c.fecha_cobro_efectiva %}
                   </form>
-                  <form method="post" action="{{ url_for('main.cobranzas_mark_cobrado', order_id=c.order.id) }}" onsubmit="return confirm('Confirmar COBRADO?')">
-                    <button class="btn btn-sm btn-primary">Marcar cobrado</button>
-                  </form>
+                  <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#markPaid{{ c.order.id }}">Cobrado</button>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+                <div class="btn-group btn-group-sm" role="group">
+                  <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ c.order.id }}" title="Eliminar">
+                    <i class="bi bi-trash"></i>
+                  </button>
                 </div>
-              {% else %}
-                <span class="text-muted">—</span>
+              </div>
+
+              <div class="modal fade" id="delOrder{{ c.order.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Eliminar Pedido</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                      ¿Confirmas eliminar el pedido?
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                      <form method="post" action="{{ url_for('main.pedidos_delete', order_id=c.order.id) }}">
+                        <button class="btn btn-danger">Eliminar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {% if not c.fecha_cobro_efectiva %}
+              <div class="modal fade" id="markPaid{{ c.order.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                      <h5 class="modal-title">Confirmar cobro</h5>
+                      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                      ¿Confirmas marcar este pedido como COBRADO?
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                      <form method="post" action="{{ url_for('main.cobranzas_mark_cobrado', order_id=c.order.id) }}">
+                        <button class="btn btn-success">Confirmar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
               {% endif %}
             </td>
           </tr>
@@ -85,4 +178,136 @@
     </div>
   </div>
 </div>
+<script>
+(function(){
+  document.querySelectorAll('.js-cob-monto').forEach(function(el){
+    el.addEventListener('change', function(){
+      // asegurar sincronización antes de enviar
+      try{
+        var hidId = el.getAttribute('data-hidden');
+        var hid = hidId ? document.getElementById(hidId) : null;
+        if (hid) {
+          var raw = (String(el.value||'').replace(/\D+/g,'')).replace(/^0+(?!$)/,'');
+          hid.value = raw;
+        }
+      }catch(e){}
+      var f = el.closest('form');
+      if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+    });
+  });
+  document.querySelectorAll('.js-cob-forma').forEach(function(el){
+  function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+  function integerPart(v){ if(v==null) return ''; var s=String(v).replace(',', '.'); var parts=s.split('.'); return onlyDigits(parts[0]); }
+  function fmtThousands(v){ if(!v) return ''; v=v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+  document.querySelectorAll('.js-currency').forEach(function(el){
+    var hid = document.getElementById(el.getAttribute('data-hidden'));
+    var syncRaw = function(){ var raw=integerPart(el.value); if(hid) hid.value=raw; };
+    var syncFormat = function(){ var raw=integerPart(el.value); el.value=fmtThousands(raw); };
+    el.addEventListener('input', syncRaw);
+    el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
+    // init con data-raw para evitar mostrar .00
+    var initial = el.getAttribute('data-raw') || el.value;
+    el.value = fmtThousands(integerPart(initial));
+    syncRaw();
+  });
+  function syncAndSubmit(formEl){
+    if (!formEl) return;
+    formEl.querySelectorAll('.js-currency').forEach(function(inp){
+      var hidId = inp.getAttribute('data-hidden');
+      var hid = hidId ? document.getElementById(hidId) : null;
+      var raw = (String(inp.value||inp.getAttribute('data-raw')||'').replace(/\D+/g,'')).replace(/^0+(?!$)/,'');
+      if (hid) hid.value = raw;
+    });
+    (formEl.requestSubmit ? formEl.requestSubmit() : formEl.submit());
+  }
+  el.addEventListener('change', function(){
+    var f = el.form || el.closest('form');
+    syncAndSubmit(f);
+  });
+  });
+  document.querySelectorAll('.js-cob-estimado').forEach(function(el){
+    el.addEventListener('change', function(){
+      var f = el.form || el.closest('form');
+      syncAndSubmit(f);
+    });
+  });
+})();
+</script>
+<script>
+(function(){
+  var form = document.getElementById('cobFilter');
+  if (!form) return;
+  function addHidden(name, value) {
+    var input = document.createElement('input'); input.type='hidden'; input.name=name; input.value=value; form.appendChild(input); return input;
+  }
+  function removeHidden(name, value) {
+    Array.from(form.querySelectorAll('input[type="hidden"][name="'+name+'"]')).forEach(function(i){ if(i.value===value) i.remove(); });
+  }
+  Array.from(form.querySelectorAll('button[data-status]')).forEach(function(btn){
+    btn.addEventListener('click', function(ev){
+      // ripple + pressed
+      try {
+        var rect = btn.getBoundingClientRect();
+        var ripple = document.createElement('span');
+        ripple.className = 'ripple';
+        var stc = btn.getAttribute('data-status');
+        ripple.style.background = stc==='A_COBRAR' ? 'rgba(13,110,253,.30)' : 'rgba(25,135,84,.30)';
+        ripple.style.left = (ev.clientX - rect.left) + 'px';
+        ripple.style.top  = (ev.clientY - rect.top) + 'px';
+        btn.appendChild(ripple); setTimeout(function(){ ripple.remove(); }, 600);
+      } catch(e){}
+      btn.classList.add('btn-pressed'); setTimeout(function(){ btn.classList.remove('btn-pressed'); }, 160);
+      var st = btn.getAttribute('data-status');
+      var active = btn.classList.contains('active');
+      if (active) { btn.classList.remove('active'); btn.setAttribute('aria-pressed','false'); removeHidden('status', st); }
+      else { btn.classList.add('active'); btn.setAttribute('aria-pressed','true'); addHidden('status', st); }
+      form.submit();
+    });
+  });
+  Array.from(form.querySelectorAll('button.btn-clear')).forEach(function(btn){
+    btn.addEventListener('click', function(){ var target=btn.getAttribute('data-clear'); var input=form.querySelector('input[name="'+target+'"]'); if (input) input.value=''; form.submit(); });
+  });
+  var clearAll = document.getElementById('cobBtnClearAll');
+  if (clearAll) {
+    clearAll.addEventListener('click', function(){
+      Array.from(form.querySelectorAll('input[type="hidden"][name="status"]')).forEach(function(i){ i.remove(); });
+      Array.from(form.querySelectorAll('button[data-status].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+      var from=form.querySelector('input[name="from"]'); var to=form.querySelector('input[name="to"]'); if(from) from.value=''; if(to) to.value=''; form.submit();
+    });
+  }
+})();
+(function(){
+  function mountFlatpickr(){
+    var nodes = document.querySelectorAll('input[data-datepicker]');
+    if (!nodes.length) return;
+    nodes.forEach(function(el){
+      flatpickr(el, {
+        altInput: true,
+        altFormat: 'd/m/Y',
+        dateFormat: 'Y-m-d',
+        allowInput: true,
+        disableMobile: true,
+        onChange: function(){
+          var form = document.getElementById('cobFilter'); if(!form) return;
+          var from = form.querySelector('input[name="from"]');
+          var to = form.querySelector('input[name="to"]');
+          if(from&&to&&from.value&&to.value){ form.submit(); }
+        }
+      });
+    });
+  }
+  if (typeof window.flatpickr === 'function') {
+    mountFlatpickr();
+  } else {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+    s.onload = mountFlatpickr;
+    document.head.appendChild(s);
+    var l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+    document.head.appendChild(l);
+  }
+})();
+</script>
 {% endblock %}

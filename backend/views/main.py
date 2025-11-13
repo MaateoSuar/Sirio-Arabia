@@ -4,6 +4,7 @@ import os
 import requests
 from ..extensions import db
 from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, PaymentMethod, ClientBranch, OrderAttachment
+from sqlalchemy import func
 
 bp = Blueprint("main", __name__)
 
@@ -261,11 +262,26 @@ def status_mark_entregado(order_id: int):
 def status_update(order_id: int):
     logistics = LogisticsStatus.query.filter_by(order_id=order_id).first_or_404()
     precio = request.form.get("precio", type=float)
-    forma_pago = request.form.get("forma_pago") or None
+    forma_pago_raw = request.form.get("forma_pago")
+    forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
     if precio is not None:
         logistics.precio = precio
-    if forma_pago:
-        logistics.forma_pago = PaymentMethod(forma_pago)
+    if forma_pago_raw is not None:
+        logistics.forma_pago = forma_pago
+    # Mantener consistencia con cobranzas si existe registro
+    coll = Collection.query.filter_by(order_id=order_id).first()
+    if coll:
+        if precio is not None:
+            coll.monto = precio
+        if forma_pago_raw is not None:
+            coll.forma_pago = forma_pago
+    # Mantener consistencia con la Orden
+    order = Order.query.get(order_id)
+    if order:
+        if precio is not None:
+            order.precio_final = precio
+        if forma_pago_raw is not None:
+            order.forma_pago = forma_pago
     db.session.commit()
     return redirect(url_for("main.status"))
 
@@ -314,15 +330,29 @@ def cobranzas_mark_cobrado(order_id: int):
 def cobranzas_update(order_id: int):
     coll = Collection.query.filter_by(order_id=order_id).first_or_404()
     monto = request.form.get("monto", type=float)
-    forma_pago = request.form.get("forma_pago") or None
+    forma_pago_raw = request.form.get("forma_pago")
+    forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
     pago_estimado = request.form.get("pago_estimado")
     if monto is not None:
         coll.monto = monto
-    if forma_pago:
-        coll.forma_pago = PaymentMethod(forma_pago)
-    # Permitir limpiar la fecha si viene vacío
+    if forma_pago_raw is not None:
+        coll.forma_pago = forma_pago
     if pago_estimado is not None:
         coll.fecha_pago_estimada = datetime.fromisoformat(pago_estimado) if pago_estimado else None
+    # Mantener consistencia con status si existe registro
+    logistics = LogisticsStatus.query.filter_by(order_id=order_id).first()
+    if logistics:
+        if monto is not None:
+            logistics.precio = monto
+        if forma_pago_raw is not None:
+            logistics.forma_pago = forma_pago
+    # Mantener consistencia con la Orden
+    order = Order.query.get(order_id)
+    if order:
+        if monto is not None:
+            order.precio_final = monto
+        if forma_pago_raw is not None:
+            order.forma_pago = forma_pago
     db.session.commit()
     return redirect(url_for("main.cobranzas"))
 
@@ -335,7 +365,59 @@ def historial():
 
 @bp.get("/crm")
 def crm():
-    return render_template("crm.html", active="crm")
+    rows = []
+    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    for c in clients:
+        # Última compra y empresa más reciente
+        last_order = Order.query.filter_by(client_id=c.id).order_by(Order.created_at.desc()).first()
+        last_date = last_order.created_at if last_order else None
+        last_company = last_order.company.nombre if last_order else "-"
+        # # Compras cobradas
+        cobradas = (
+            db.session.query(func.count(Collection.id))
+            .join(Order, Collection.order_id == Order.id)
+            .filter(Order.client_id == c.id, Collection.fecha_cobro_efectiva.isnot(None))
+            .scalar()
+        ) or 0
+        # Compra promedio (precio_final de Order)
+        avg_compra = (
+            db.session.query(func.avg(Order.precio_final))
+            .filter(Order.client_id == c.id)
+            .scalar()
+        )
+        # Marcas (empresas) con las que compró
+        empresas = (
+            db.session.query(Company.nombre)
+            .join(Order, Order.company_id == Company.id)
+            .filter(Order.client_id == c.id)
+            .distinct()
+            .all()
+        )
+        marcas = ", ".join(sorted([e[0] for e in empresas])) if empresas else "-"
+        # Categorización simple por relación
+        label_map = {
+            RelationStatus.TRABAJA.value: "Trabaja",
+            RelationStatus.TRABAJABA.value: "Trabajaba",
+            RelationStatus.A_INCORPORAR.value: "A Incorporar",
+        }
+        cats: dict[str, int] = {}
+        for l in c.links:
+            key = label_map.get(getattr(l.status, "value", str(l.status)), str(l.status))
+            cats[key] = cats.get(key, 0) + 1
+        categorias_presentes = [k for k, v in cats.items() if v]
+        categ = ", ".join(categorias_presentes) or "-"
+        rows.append(
+            {
+                "cliente": f"{c.apellido} {c.nombre}",
+                "empresa": last_company,
+                "ultima_compra": last_date,
+                "cobradas": int(cobradas),
+                "promedio": float(avg_compra) if avg_compra is not None else None,
+                "marcas": marcas,
+                "categ": categ,
+            }
+        )
+    return render_template("crm.html", active="crm", items=rows)
 
 
 @bp.post("/pedidos/<int:order_id>/edit")
@@ -346,11 +428,19 @@ def pedidos_edit(order_id: int):
     precio_final = request.form.get("precio_final", type=float)
     if precio_final is not None:
         o.precio_final = precio_final
-    forma_pago = request.form.get("forma_pago") or None
-    if forma_pago:
-        o.forma_pago = PaymentMethod(forma_pago)
+        # Sincronizar con logistics y collection
         if o.logistics:
-            o.logistics.forma_pago = o.forma_pago
+            o.logistics.precio = precio_final
+        if o.collection:
+            o.collection.monto = precio_final
+    forma_pago_raw = request.form.get("forma_pago")
+    forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
+    if forma_pago_raw is not None:
+        o.forma_pago = forma_pago
+        if o.logistics:
+            o.logistics.forma_pago = forma_pago
+        if o.collection:
+            o.collection.forma_pago = forma_pago
     db.session.commit()
     return redirect(url_for("main.historial"))
 

@@ -40,9 +40,13 @@
               {% endif %}
             </td>
             <td class="text-end">
-              <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ o.id }}">Editar</button>
-                <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ o.id }}">Eliminar</button>
+              <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ o.id }}" title="Editar">
+                  <i class="bi bi-pencil-square"></i>
+                </button>
+                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ o.id }}" title="Eliminar">
+                  <i class="bi bi-trash"></i>
+                </button>
               </div>
 
               <div class="modal fade" id="editOrder{{ o.id }}" tabindex="-1" aria-hidden="true">
@@ -53,7 +57,7 @@
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <form method="post" action="{{ url_for('main.pedidos_edit', order_id=o.id) }}">
-                      <div class="modal-body row g-3">
+                      <div class="modal-body row g-3 text-start">
                         <div class="col-12">
                           <label class="form-label">Nota</label>
                           <input name="nota" class="form-control" value="{{ o.nota }}">
@@ -64,7 +68,11 @@
                         </div>
                         <div class="col-md-6">
                           <label class="form-label">Precio final</label>
-                          <input name="precio_final" type="number" step="0.01" class="form-control" value="{{ o.precio_final or '' }}">
+                          <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input id="pfDisp{{ o.id }}" type="text" class="form-control js-currency" data-hidden="pfHid{{ o.id }}" value="{{ o.precio_final or '' }}" autocomplete="off" inputmode="numeric">
+                            <input type="hidden" name="precio_final" id="pfHid{{ o.id }}" value="{{ o.precio_final or '' }}">
+                          </div>
                         </div>
                         <div class="col-md-6">
                           <label class="form-label">Forma de pago</label>
@@ -93,8 +101,8 @@
                       <h5 class="modal-title">Eliminar Pedido</h5>
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <div class="modal-body">
-                      ¿Confirmás eliminar el pedido #{{ o.id }}?
+                    <div class="modal-body text-center">
+                      ¿Confirmas eliminar el pedido?
                     </div>
                     <div class="modal-footer">
                       <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
@@ -115,4 +123,19 @@
     </div>
   </div>
 </div>
+<script>
+(function(){
+  function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+  function integerPart(v){ if(v==null) return ''; var s=String(v).replace(',', '.'); var p=s.split('.'); return onlyDigits(p[0]); }
+  function fmtThousands(v){ if(!v) return ''; v=v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+  document.querySelectorAll('.js-currency').forEach(function(el){
+    var hid = document.getElementById(el.getAttribute('data-hidden'));
+    var syncRaw = function(){ var raw=integerPart(el.value); if(hid) hid.value=raw; };
+    var syncFormat = function(){ var raw=integerPart(el.value); el.value=fmtThousands(raw); };
+    el.addEventListener('input', syncRaw);
+    el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
+    syncFormat(); syncRaw();
+  });
+})();
+</script>
 {% endblock %}

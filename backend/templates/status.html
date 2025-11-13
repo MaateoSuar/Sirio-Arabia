@@ -2,24 +2,131 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Status Mercadería</h1>
-  <form class="d-flex align-items-end gap-2" method="get">
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" name="status" value="EN_CAMINO" id="st1" {{ 'checked' if 'EN_CAMINO' in request.args.getlist('status') else '' }}>
-      <label class="form-check-label" for="st1">En camino</label>
+  <style>
+    .filter-group .btn { 
+      border-width: 2px; 
+      transition: transform .12s ease, box-shadow .12s ease, background-color .15s, color .15s, border-color .15s;
+      box-shadow: 0 4px 0 rgba(0,0,0,.18), 0 8px 16px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.22);
+      border-radius: .5rem;
+      position: relative;
+    }
+    .filter-group .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 0 rgba(0,0,0,.2), 0 10px 18px rgba(0,0,0,.1), inset 0 1px 0 rgba(255,255,255,.22);
+    }
+    .filter-group .btn:active { 
+      transform: translateY(2px) scale(.985);
+      box-shadow: 0 1px 0 rgba(0,0,0,.18), inset 0 2px 0 rgba(255,255,255,.18);
+    }
+    .filter-group .btn.active { 
+      transform: translateY(1px) scale(.99);
+      box-shadow: inset 0 4px 10px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.2);
+    }
+    .filter-group .btn.btn-pressed {
+      transform: translateY(2px) scale(.985);
+      box-shadow: 0 1px 0 rgba(0,0,0,.22), inset 0 2px 0 rgba(255,255,255,.18) !important;
+    }
+    /* Ripple + Flash effect */
+    .filter-group .btn { overflow: hidden; }
+    .filter-group .btn .ripple {
+      position: absolute;
+      border-radius: 999px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      width: 14px; height: 14px;
+      background: rgba(0,0,0,.18); /* será sobrescrito por JS según estado */
+      animation: ripple .6s ease-out forwards;
+      opacity: 0.9;
+    }
+    .filter-group .btn.btn-flash {
+      box-shadow: 0 0 0 6px rgba(0,0,0,.08), 0 5px 0 rgba(0,0,0,.2), 0 10px 18px rgba(0,0,0,.1), inset 0 1px 0 rgba(255,255,255,.22) !important;
+    }
+    @keyframes ripple {
+      from { width: 14px; height: 14px; opacity: .45; }
+      to { width: 420px; height: 420px; opacity: 0; }
+    }
+    /* Forzar contraste correcto en hover/active */
+    .filter-group .btn-outline-secondary:hover,
+    .filter-group .btn-outline-secondary.active,
+    .filter-group .btn-outline-secondary.active:hover { 
+      background-color: #6c757d; color: #fff; border-color: #6c757d; 
+    }
+    .filter-group .btn-outline-secondary.active { 
+      background-color: #6c757d; color: #fff; border-color: #6c757d; 
+    }
+    .filter-group .btn-outline-danger:hover,
+    .filter-group .btn-outline-danger.active,
+    .filter-group .btn-outline-danger.active:hover { 
+      background-color: #dc3545; color: #fff; border-color: #dc3545; 
+    }
+    .filter-group .btn-outline-success:hover,
+    .filter-group .btn-outline-success.active,
+    .filter-group .btn-outline-success.active:hover { 
+      background-color: #198754; color: #fff; border-color: #198754; 
+    }
+    /* Inactivo: En camino con recuadro gris visible */
+    .filter-group .btn-outline-secondary { 
+      border-color: #6c757d; color: #6c757d; background-color: #fff; 
+    }
+    /* Date pickers: tarjeta suave con sombra */
+    .date-soft { 
+      border-radius: .75rem; 
+      box-shadow: 0 4px 10px rgba(0,0,0,.06);
+      background: #fff;
+    }
+    .date-soft .input-group-text { 
+      background: #f3f4f6; border: 1px solid #e5e7eb; 
+    }
+    .date-soft .form-control { 
+      background: #fafafa; border: 1px solid #e5e7eb; 
+      min-height: 36px; font-size: .9rem; 
+    }
+    .date-soft .form-control:focus { 
+      background: #fff; border-color: #86b7fe; box-shadow: 0 0 0 .2rem rgba(13,110,253,.15);
+    }
+    .date-soft .btn-clear { 
+      border: 1px solid #e5e7eb; background: #fff; 
+      padding: .25rem .5rem; 
+      color: #6c757d;
+    }
+    .date-soft .btn-clear:hover { 
+      background: #f8f9fa; 
+    }
+    /* Asegurar espacio para acciones */
+    .w-actions { min-width: 150px; }
+  </style>
+  <form id="statusFilter" class="d-flex align-items-end gap-2" method="get">
+    <div class="btn-group filter-group" role="group" aria-label="Filtros de estado">
+      <button type="button" class="btn btn-sm btn-outline-secondary {{ 'active' if 'EN_CAMINO' in request.args.getlist('status') else '' }}" data-status="EN_CAMINO" aria-pressed="{{ 'true' if 'EN_CAMINO' in request.args.getlist('status') else 'false' }}">En camino</button>
+      <button type="button" class="btn btn-sm btn-outline-danger {{ 'active' if 'ATRASADO' in request.args.getlist('status') else '' }}" data-status="ATRASADO" aria-pressed="{{ 'true' if 'ATRASADO' in request.args.getlist('status') else 'false' }}">Atrasado</button>
+      <button type="button" class="btn btn-sm btn-outline-success {{ 'active' if 'ENTREGADO' in request.args.getlist('status') else '' }}" data-status="ENTREGADO" aria-pressed="{{ 'true' if 'ENTREGADO' in request.args.getlist('status') else 'false' }}">Entregado</button>
     </div>
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" name="status" value="ATRASADO" id="st2" {{ 'checked' if 'ATRASADO' in request.args.getlist('status') else '' }}>
-      <label class="form-check-label" for="st2">Atrasado</label>
+    {% for st in request.args.getlist('status') %}
+      <input type="hidden" name="status" value="{{ st }}">
+    {% endfor %}
+    <div class="input-group input-group-sm date-soft" style="width: 240px; overflow: hidden;">
+      <span class="input-group-text" id="from-addon" style="background:#f8f9fa">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/>
+        </svg>
+      </span>
+      <input type="text" class="form-control" aria-describedby="from-addon" placeholder="Desde" name="from" value="{{ request.args.get('from','') }}" data-datepicker>
+      <button class="btn btn-clear btn-sm" type="button" data-clear="from">×</button>
     </div>
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" name="status" value="ENTREGADO" id="st3" {{ 'checked' if 'ENTREGADO' in request.args.getlist('status') else '' }}>
-      <label class="form-check-label" for="st3">Entregado</label>
+    <div class="input-group input-group-sm date-soft" style="width: 240px; overflow: hidden;">
+      <span class="input-group-text" id="to-addon" style="background:#f8f9fa">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/>
+        </svg>
+      </span>
+      <input type="text" class="form-control" aria-describedby="to-addon" placeholder="Hasta" name="to" value="{{ request.args.get('to','') }}" data-datepicker>
+      <button class="btn btn-clear btn-sm" type="button" data-clear="to">×</button>
     </div>
-    <input type="date" class="form-control" name="from" value="{{ request.args.get('from','') }}">
-    <input type="date" class="form-control" name="to" value="{{ request.args.get('to','') }}">
-    <button class="btn btn-sm btn-outline-secondary">Filtrar</button>
-  </form>
-  </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-dark" type="button" id="btnClearAll">Limpiar filtros</button>
+    </div>
+    </form>
+    </div>
 <div class="card">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -34,7 +141,7 @@
             <th>Precio</th>
             <th>Forma pago</th>
             <th>Status</th>
-            <th class="text-end">Acciones</th>
+            <th class="text-end w-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -46,17 +153,22 @@
             <td>{{ s.fecha_entrega_estimada.strftime('%d/%m/%Y') if s.fecha_entrega_estimada else '-' }}</td>
             <td>{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>
             <td>
-              <form class="d-flex gap-1" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}">
-                <input name="precio" type="number" step="0.01" class="form-control form-control-sm" style="max-width:120px" value="{{ s.precio or '' }}">
+              <div class="input-group input-group-sm" style="max-width: 140px">
+                <span class="input-group-text">$</span>
+                <input id="priceDisp{{ s.order.id }}" form="upd{{ s.order.id }}" type="text" class="form-control form-control-sm js-price js-currency" data-hidden="priceHid{{ s.order.id }}" data-raw="{{ s.precio or '' }}" value="" autocomplete="off" inputmode="numeric">
+                <input type="hidden" name="precio" id="priceHid{{ s.order.id }}" form="upd{{ s.order.id }}" value="">
+              </div>
             </td>
             <td>
-                <select name="forma_pago" class="form-select form-select-sm" style="max-width:150px">
+              <form id="upd{{ s.order.id }}" class="d-inline-flex align-items-center gap-2 flex-nowrap" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}">
+                <select name="forma_pago" class="form-select form-select-sm js-forma" style="max-width:150px">
                   <option value="">-</option>
                   <option value="EFECTIVO" {{ 'selected' if s.forma_pago and s.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
                   <option value="CHEQUE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
                   <option value="TRANSFERENCIA" {{ 'selected' if s.forma_pago and s.forma_pago.value=='TRANSFERENCIA' else '' }}>Transferencia</option>
                   <option value="NO_SE_SABE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='NO_SE_SABE' else '' }}>No se sabe</option>
                 </select>
+              </form>
             </td>
             <td>
               {% if s.status == 'ENTREGADO' %}
@@ -68,25 +180,233 @@
               {% endif %}
             </td>
             <td class="text-end">
-              {% if not s.fecha_entrega_efectiva %}
-                <div class="btn-group">
-                  <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
-                  </form>
-                  <form method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}" onsubmit="return confirm('Marcar como ENTREGADO?')">
-                    <button class="btn btn-sm btn-primary">Marcar entregado</button>
-                  </form>
+              <div class="d-flex justify-content-end flex-wrap gap-2">
+                {% if not s.fecha_entrega_efectiva %}
+                  <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#deliverOrder{{ s.order.id }}">Entregar</button>
+                {% endif %}
+                <div class="btn-group btn-group-sm" role="group">
+                  <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ s.order.id }}" title="Eliminar">
+                    <i class="bi bi-trash"></i>
+                  </button>
                 </div>
-              {% else %}
-                <span class="text-muted">—</span>
+              </div>
+
+              {% if not s.fecha_entrega_efectiva %}
+              <div class="modal fade" id="deliverOrder{{ s.order.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                      <h5 class="modal-title">Confirmar entrega</h5>
+                      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                      ¿Confirmas marcar este pedido como ENTREGADO?
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                      <form method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}">
+                        <button class="btn btn-success">Confirmar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
               {% endif %}
+
+              <div class="modal fade" id="delOrder{{ s.order.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Eliminar Pedido</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                      ¿Confirmas eliminar el pedido?
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                      <form method="post" action="{{ url_for('main.pedidos_delete', order_id=s.order.id) }}">
+                        <button class="btn btn-danger">Eliminar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="text-center text-muted py-4">Sin pedidos en seguimiento</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4">Sin pedidos en seguimiento</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 </div>
+<script>
+  (function() {
+    var form = document.getElementById('statusFilter');
+    if (!form) return;
+    function addHidden(name, value) {
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+      return input;
+    }
+    function removeHidden(name, value) {
+      var inputs = Array.from(form.querySelectorAll('input[type="hidden"][name="' + name + '"]'));
+      inputs.forEach(function(i){ if(i.value === value) i.remove(); });
+    }
+    Array.from(form.querySelectorAll('button[data-status]')).forEach(function(btn){
+      btn.addEventListener('click', function(ev){
+        // Ripple visual
+        try {
+          var rect = btn.getBoundingClientRect();
+          var ripple = document.createElement('span');
+          ripple.className = 'ripple';
+          ripple.style.left = (ev.clientX - rect.left) + 'px';
+          ripple.style.top = (ev.clientY - rect.top) + 'px';
+          // Color por estado
+          var stc = btn.getAttribute('data-status');
+          var color = 'rgba(0,0,0,.18)';
+          if (stc === 'EN_CAMINO') color = 'rgba(108,117,125,.30)';
+          else if (stc === 'ATRASADO') color = 'rgba(220,53,69,.30)';
+          else if (stc === 'ENTREGADO') color = 'rgba(25,135,84,.30)';
+          ripple.style.background = color;
+          btn.appendChild(ripple);
+          setTimeout(function(){ if (ripple && ripple.parentNode) ripple.parentNode.removeChild(ripple); }, 500);
+        } catch (e) { /* ignore */ }
+        // Feedback de presión/flash
+        btn.classList.add('btn-pressed','btn-flash');
+        setTimeout(function(){ btn.classList.remove('btn-pressed'); }, 160);
+        setTimeout(function(){ btn.classList.remove('btn-flash'); }, 260);
+        var st = btn.getAttribute('data-status');
+        var active = btn.classList.contains('active');
+        if (active) {
+          btn.classList.remove('active');
+          btn.setAttribute('aria-pressed', 'false');
+          removeHidden('status', st);
+        } else {
+          btn.classList.add('active');
+          btn.setAttribute('aria-pressed', 'true');
+          addHidden('status', st);
+        }
+        form.submit();
+      });
+    });
+    Array.from(form.querySelectorAll('button.btn-clear')).forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var target = btn.getAttribute('data-clear');
+        var input = form.querySelector('input[name="' + target + '"]');
+        if (input) { input.value = ''; }
+        form.submit();
+      });
+    });
+
+    var clearAll = document.getElementById('btnClearAll');
+    if (clearAll) {
+      clearAll.addEventListener('click', function(){
+        // limpiar estados
+        Array.from(form.querySelectorAll('input[type="hidden"][name="status"]')).forEach(function(i){ i.remove(); });
+        Array.from(form.querySelectorAll('button[data-status].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+        // limpiar fechas
+        var from = form.querySelector('input[name="from"]');
+        var to = form.querySelector('input[name="to"]');
+        if (from) from.value = '';
+        if (to) to.value = '';
+        form.submit();
+      });
+    }
+  })();
+</script>
+<!-- Flatpickr CDN -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+  (function(){
+    function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+    function integerPart(v){
+      if (v == null) return '';
+      var s = String(v).trim().replace(/\s+/g,'');
+      // Caso servidor: 25000.00 o 25000,00 => tomar parte entera
+      var m = s.match(/^(\d+)([\.,]\d{1,2})?$/);
+      if (m) return m[1];
+      // Caso usuario con miles: quitar todo lo no numérico (puntos, comas)
+      return onlyDigits(s);
+    }
+    function fmtThousands(v){ if(!v) return ''; v = v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+    // currency inputs: update hidden raw on input; format visible only on blur
+    document.querySelectorAll('.js-currency').forEach(function(el){
+      var hidId = el.getAttribute('data-hidden');
+      var hid = hidId ? document.getElementById(hidId) : null;
+      var syncRaw = function(){ var raw = integerPart(el.value); if(hid) hid.value = raw; };
+      var syncFormat = function(){ var raw = integerPart(el.value); el.value = fmtThousands(raw); };
+      el.addEventListener('input', syncRaw);
+      el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
+      // init desde data-raw si existe
+      var initial = el.getAttribute('data-raw') || el.value;
+      el.value = fmtThousands(integerPart(initial));
+      syncRaw();
+    });
+
+    // Al cambiar forma de pago, enviar el form sincronizando primero el precio oculto
+    document.querySelectorAll('form select.js-forma').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        var form = sel.closest('form');
+        if (!form) return;
+        var cur = form.querySelector('.js-currency');
+        if (cur) {
+          var hidId = cur.getAttribute('data-hidden');
+          var hid = hidId ? document.getElementById(hidId) : null;
+          var raw = integerPart(cur.value || cur.getAttribute('data-raw') || '');
+          if (hid) hid.value = raw;
+        }
+        (form.requestSubmit ? form.requestSubmit() : form.submit());
+      });
+    });
+    var nodes = document.querySelectorAll('input[data-datepicker]');
+    if (!nodes.length) return;
+    nodes.forEach(function(el){
+      var fp = flatpickr(el, {
+        altInput: true,
+        altFormat: 'd/m/Y',
+        dateFormat: 'Y-m-d',
+        allowInput: true,
+        disableMobile: true,
+        onChange: function() {
+          // Sólo enviar si ambos (from y to) tienen valor
+          var form = document.getElementById('statusFilter');
+          if (!form) return;
+          var from = form.querySelector('input[name="from"]');
+          var to = form.querySelector('input[name="to"]');
+          if (from && to && from.value && to.value) {
+            form.submit();
+          }
+        }
+      });
+    });
+  })();
+  </script>
+<script>
+  (function(){
+    // Auto-submit al cambiar precio o forma de pago
+    document.querySelectorAll('.js-price').forEach(function(el){
+      el.addEventListener('change', function(){
+        var formId = el.getAttribute('form');
+        var f = formId ? document.getElementById(formId) : null;
+        if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+      });
+    });
+    document.querySelectorAll('.js-forma').forEach(function(el){
+      el.addEventListener('change', function(){
+        var f = el.closest('form');
+        if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+      });
+    });
+  })();
+</script>
+<!-- Bootstrap Icons -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 {% endblock %}
+
