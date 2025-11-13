@@ -310,6 +310,23 @@ def cobranzas_mark_cobrado(order_id: int):
     return redirect(url_for("main.cobranzas"))
 
 
+@bp.post("/cobranzas/<int:order_id>/update")
+def cobranzas_update(order_id: int):
+    coll = Collection.query.filter_by(order_id=order_id).first_or_404()
+    monto = request.form.get("monto", type=float)
+    forma_pago = request.form.get("forma_pago") or None
+    pago_estimado = request.form.get("pago_estimado")
+    if monto is not None:
+        coll.monto = monto
+    if forma_pago:
+        coll.forma_pago = PaymentMethod(forma_pago)
+    # Permitir limpiar la fecha si viene vacío
+    if pago_estimado is not None:
+        coll.fecha_pago_estimada = datetime.fromisoformat(pago_estimado) if pago_estimado else None
+    db.session.commit()
+    return redirect(url_for("main.cobranzas"))
+
+
 @bp.get("/historial")
 def historial():
     orders = Order.query.order_by(Order.created_at.desc()).all()
