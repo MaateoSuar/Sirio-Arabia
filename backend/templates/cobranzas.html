@@ -34,7 +34,7 @@
     /* Asegurar espacio para Acciones */
     .w-actions { min-width: 150px; }
   </style>
-  <form id="cobFilter" class="d-flex align-items-end gap-2" method="get">
+  <form id="cobFilter" class="d-flex align-items-end gap-2 mt-3" method="get">
     <div class="btn-group cob-filter" role="group" aria-label="Filtros de cobranza">
       <button type="button" class="btn btn-sm btn-outline-primary {{ 'active' if 'A_COBRAR' in request.args.getlist('status') else '' }}" data-status="A_COBRAR" aria-pressed="{{ 'true' if 'A_COBRAR' in request.args.getlist('status') else 'false' }}">A cobrar</button>
       <button type="button" class="btn btn-sm btn-outline-success {{ 'active' if 'COBRADO' in request.args.getlist('status') else '' }}" data-status="COBRADO" aria-pressed="{{ 'true' if 'COBRADO' in request.args.getlist('status') else 'false' }}">Cobrado</button>
@@ -61,17 +61,17 @@
 </div>
 <div class="card">
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
+    <div class="table-responsive table-mobile-cards">
+      <table class="table table-hover align-middle mb-0 table-cobranzas">
         <thead class="table-light">
           <tr>
             <th>Cliente</th>
             <th>Empresa</th>
-            <th>Entrega efectiva</th>
+            <th class="d-none d-md-table-cell">Entrega efectiva</th>
             <th>Monto</th>
             <th>Forma de pago</th>
             <th>Pago estimado</th>
-            <th>Cobro efectivo</th>
+            <th class="d-none d-md-table-cell">Cobro efectivo</th>
             <th>Status</th>
             <th class="text-end w-actions">Acciones</th>
           </tr>
@@ -81,17 +81,17 @@
           <tr>
             <td>{{ c.order.client.apellido }} {{ c.order.client.nombre }}</td>
             <td>{{ c.order.company.nombre }}</td>
-            <td>{{ c.fecha_entrega_efectiva.strftime('%d/%m/%Y') if c.fecha_entrega_efectiva else '-' }}</td>
-            <td>
+            <td class="d-none d-md-table-cell">{{ c.fecha_entrega_efectiva.strftime('%d/%m/%Y') if c.fecha_entrega_efectiva else '-' }}</td>
+            <td class="col-money">
               <form id="upd{{ c.order.id }}" class="d-flex gap-1" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}">
-                <div class="input-group input-group-sm" style="max-width: 240px">
+                <div class="input-group input-group-sm js-cob-price-group">
                   <span class="input-group-text">$</span>
                   <input id="montoDisp{{ c.order.id }}" type="text" class="form-control form-control-sm js-cob-monto js-currency" data-hidden="montoHid{{ c.order.id }}" data-raw="{{ c.monto or '' }}" value="" autocomplete="off" inputmode="numeric">
                   <input type="hidden" name="monto" id="montoHid{{ c.order.id }}" value="">
                 </div>
             </td>
-            <td>
-                <select name="forma_pago" class="form-select form-select-sm js-cob-forma" style="width: 150px" form="upd{{ c.order.id }}">
+            <td class="col-forma">
+                <select name="forma_pago" class="form-select form-select-sm js-cob-forma" form="upd{{ c.order.id }}">
                   <option value="">-</option>
                   <option value="EFECTIVO" {{ 'selected' if c.forma_pago and c.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
                   <option value="CHEQUE" {{ 'selected' if c.forma_pago and c.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
@@ -100,9 +100,9 @@
                 </select>
             </td>
             <td>
-                <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Pago estimado" style="width:130px" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}" form="upd{{ c.order.id }}">
+                <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Pago estimado" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}" form="upd{{ c.order.id }}">
             </td>
-            <td>{{ c.fecha_cobro_efectiva.strftime('%d/%m/%Y') if c.fecha_cobro_efectiva else '-' }}</td>
+            <td class="d-none d-md-table-cell">{{ c.fecha_cobro_efectiva.strftime('%d/%m/%Y') if c.fecha_cobro_efectiva else '-' }}</td>
             <td>
               {% if c.status == 'COBRADO' %}
                 <span class="badge bg-success">COBRADO</span>

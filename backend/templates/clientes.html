@@ -15,8 +15,9 @@
 </div>
 <div class="card">
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0 table-relaxed w-100">
+    <div class="desktop-table">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 table-relaxed w-100">
         <thead class="table-light">
           <tr>
             <th>Apellido</th>
@@ -137,8 +138,10 @@
           <tr><td colspan="6" class="text-center text-muted py-4">Sin clientes</td></tr>
         {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
+    <div class="mobile-cards"></div>
   </div>
 </div>
 {% endblock %}

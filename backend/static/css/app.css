@@ -1,4 +1,4 @@
-:root{--brand:#0f3d4c;--brand-700:#09303b;--accent:#0d6efd;--ink:#111827;--muted:#6b7280}
+:root{--brand:#0f3d4c;--brand-700:#09303b;--accent:#0d6efd;--ink:#111827;--muted:#6b7280;--teal:#0f766e}
 
 /* Typography */
 body{font-family:'Poppins',system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial}
@@ -34,3 +34,152 @@ h1,h2{letter-spacing:.2px}
 .btn-primary:hover{filter:brightness(.95)}
 .btn-outline-secondary{color:var(--ink);border-color:#e5e7eb}
 .btn-outline-secondary:hover{background:#f9fafb}
+
+/* Responsive table->cards framework */
+.desktop-table{display:block}
+.mobile-cards{display:none}
+@media (max-width: 767.98px){
+  .desktop-table{display:none}
+  .mobile-cards{display:flex; flex-direction:column; gap:.75rem}
+  .mobile-cards .mc-card{background:#fff; border:1px solid #e5e7eb; border-radius:.75rem; box-shadow:0 2px 8px rgba(0,0,0,.05); padding:.75rem .9rem}
+  .mobile-cards .mc-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:.5rem}
+  .mobile-cards .mc-title{font-weight:600; font-size:1rem; color:#0f3d4c}
+  .mobile-cards .mc-body{display:grid; grid-template-columns:1fr; row-gap:.35rem}
+  .mobile-cards .mc-row{display:flex; justify-content:space-between; gap:.5rem}
+  /* Filas anchas (dinero/controles): label arriba, valor a 100% */
+  .mobile-cards .mc-row.mc-row-wide{flex-direction:column; align-items:stretch}
+  .mobile-cards .mc-row.mc-row-wide .mc-label{margin-bottom:.15rem}
+  .mobile-cards .mc-row.mc-row-wide .mc-value{width:100%}
+  .mobile-cards .mc-row.mc-row-wide .mc-value .input-group{width:100%}
+  .mobile-cards .mc-row.mc-row-wide .mc-value .form-control,
+  .mobile-cards .mc-row.mc-row-wide .mc-value .form-select{width:100%; font-size:16px; min-height:44px}
+  .mobile-cards .mc-label{color:#6b7280; font-weight:600; font-size:.88rem}
+  .mobile-cards .mc-value{color:#111827; font-size:.95rem; text-align:right}
+  .mobile-cards .mc-actions{margin-top:.5rem; display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end}
+  .mobile-cards .mc-more{margin-top:.5rem}
+  .mobile-cards .mc-more-toggle{border:1px solid #e5e7eb; background:#f9fafb; color:#0f766e; padding:.35rem .6rem; border-radius:.5rem; font-size:.9rem}
+}
+
+/* Interacciones globales con acento petróleo */
+.btn{transition:background-color .15s ease, box-shadow .15s ease, transform .04s ease}
+.btn:active{transform:scale(.98)}
+.btn:focus{box-shadow:0 0 0 .2rem rgba(15,118,110,.15)!important}
+.btn:focus-visible{outline:2px solid rgba(15,118,110,.35)!important; outline-offset:2px}
+.btn-primary:hover,.btn-primary:focus{filter:brightness(.95); box-shadow:0 0 0 .25rem rgba(15,118,110,.25)!important}
+.btn-outline-secondary:hover,
+.btn-outline-secondary:focus{color:var(--teal)!important; background:rgba(15,118,110,.06)!important; border-color:rgba(15,118,110,.55)!important; box-shadow:0 0 0 .25rem rgba(15,118,110,.2)!important}
+.btn-light:hover,
+.btn-light:focus{color:var(--teal)!important; background:#f8fafc!important; border-color:rgba(15,118,110,.35)!important; box-shadow:0 0 0 .25rem rgba(15,118,110,.2)!important}
+
+/* Danger buttons: conservar rojo pero con halo petróleo en focus para coherencia */
+.btn-danger:hover,.btn-danger:focus{filter:brightness(.97); box-shadow:0 0 0 .25rem rgba(15,118,110,.25)!important}
+.btn-outline-danger:hover,.btn-outline-danger:focus{color:#dc3545!important; background:rgba(220,53,69,.06)!important; border-color:rgba(220,53,69,.65)!important; box-shadow:0 0 0 .25rem rgba(15,118,110,.2)!important}
+
+@media (max-width: 767.98px){
+  html{font-size:15px}
+  body{line-height:1.4}
+  h1{font-size:1.35rem}
+  h2{font-size:1.1rem}
+  h1.h4{font-size:1.15rem}
+  .navbar .navbar-brand{font-size:1rem}
+  .navbar .navbar-nav .nav-link{padding:.65rem 1rem;font-size:.95rem}
+  .card .card-body{padding:.75rem 1rem}
+  .card .card-footer{padding:.6rem .9rem}
+  .form-label{font-size:.95rem}
+  .form-control,.form-select{font-size:1rem}
+  .btn{padding:.5rem .8rem;font-size:.95rem}
+  .btn.btn-sm{padding:.45rem .6rem;font-size:.9rem}
+  .table{font-size:13px}
+  .table thead th{white-space:normal}
+  .table td,.table th{vertical-align:middle}
+  /* Para tablas con inputs (status/cobranzas), usar auto layout para no recortar campos */
+  .table.table-tight, .table.table-cobranzas{ table-layout:auto !important }
+  /* Asegurar visibilidad mínima de grupos de precio en mobile */
+  .js-price-group, .js-cob-price-group{ min-width:120px }
+  /* Evitar superposición de títulos y acciones en headers */
+  main > .d-flex.mb-4{flex-wrap:wrap; row-gap:.5rem}
+  .table input.form-control, .table select.form-select{min-width:0; width:100%}
+  /* Formularios dentro de celdas: ocupar toda la línea para no recortar controles */
+  .table form.d-inline-flex, .table form.d-flex{display:block!important; width:100%}
+  .table .d-inline-flex{flex-wrap:wrap}
+  /* Grupos de precio/monto: ancho completo y mayor legibilidad */
+  .js-price-group, .js-cob-price-group{width:100%!important; min-width:180px}
+  .js-price-group .form-control, .js-cob-price-group .form-control{width:100%; font-size:16px; line-height:1.25; padding:.5rem .6rem; min-height:44px}
+  .table .input-group{width:100%}
+  .table .input-group .input-group-text{padding:.25rem .45rem; margin-right:.35rem; flex:0 0 auto}
+  .table .input-group .form-control{flex:1 1 auto; min-width:0}
+  .table select.form-select{flex:1 1 auto; min-width:0; font-size:16px}
+  /* Select de forma de pago: full width en mobile */
+  .js-forma, .js-cob-forma, .js-cob-estimado{width:100%!important}
+  /* Afinado para vista en cards: dar aire extra a campos de dinero */
+  .table-mobile-cards .js-price-group,
+  .table-mobile-cards .js-cob-price-group,
+  .table-mobile-cards .js-forma,
+  .table-mobile-cards .js-cob-forma,
+  .table-mobile-cards .js-cob-estimado{ margin-top:.25rem }
+  .w-actions{min-width:100px}
+  .col-actions .btn-group{flex-wrap:wrap}
+  /* Botonera de acciones en tablas: mantener horizontal en pantallas chicas */
+  .table .btn-group{flex-wrap:nowrap}
+  .table .btn-group form{display:inline-block}
+  .table .btn-group .btn{white-space:nowrap}
+  /* Legajo de Clientes: reducir padding extra en mobile */
+  .table-relaxed th, .table-relaxed td{padding:.35rem .5rem}
+  /* Cobranzas: botones del filtro más chicos y separados del título */
+  #cobFilter{ margin-top:.75rem }
+  .cob-filter .btn{ padding:.32rem .56rem; font-size:.85rem; border-radius:.45rem }
+  /* Primario: mantener color pero sumar halo petróleo en hover/focus */
+  .btn-primary:hover,.btn-primary:focus{filter:brightness(.95); box-shadow:0 0 0 .25rem rgba(15,118,110,.25)!important}
+
+  /* Secundario outline: usar petróleo en hover/focus */
+  .btn-outline-secondary:hover,
+  .btn-outline-secondary:focus{
+    color:var(--teal)!important;
+    background:rgba(15,118,110,.06)!important;
+    border-color:rgba(15,118,110,.55)!important;
+    box-shadow:0 0 0 .25rem rgba(15,118,110,.2)!important;
+  }
+}
+
+/* XS aún más compacto */
+@media (max-width: 575.98px){
+  html{font-size:13.25px}
+  .row.g-3{ --bs-gutter-x:.6rem; --bs-gutter-y:.6rem }
+  .input-group-sm .input-group-text{font-size:.85rem}
+  .form-label{font-size:.88rem}
+  .form-control,.form-select{font-size:.92rem}
+  .btn{padding:.42rem .64rem; font-size:.88rem}
+  .btn.btn-sm{padding:.36rem .5rem; font-size:.82rem}
+  .table{font-size:11px}
+  .table th,.table td{padding:.3rem .4rem}
+  .table .input-group,.table select.form-select,.table input.form-control{min-width:0; width:100%}
+  .table .form-control.form-control-sm,.table .form-select.form-select-sm{padding:.22rem .45rem;height:auto;font-size:.85rem}
+  .table .btn-group .btn{padding:.26rem .4rem;font-size:.8rem}
+  .badge{font-size:.68rem; padding:.28em .42em}
+  .w-actions{min-width:90px}
+  .col-actions .btn-group{flex-wrap:wrap}
+  .alert{padding:.45rem .65rem; font-size:.85rem}
+}
+
+/* Muy pequeñas (ej. 360px) */
+@media (max-width: 399.98px){
+  html{font-size:12.75px}
+  .table{font-size:10.5px}
+  .table th,.table td{padding:.26rem .35rem}
+  .table .btn-group .btn{padding:.24rem .36rem;font-size:.78rem}
+  .badge{font-size:.62rem}
+  .alert{font-size:.8rem}
+}
+
+/* Control responsivo para campos de precio/forma pago en tablas */
+@media (min-width: 768px){
+  .js-price-group{max-width:120px; min-width:120px}
+  .js-forma{max-width:150px}
+  /* Cobranzas controles desktop */
+  .js-cob-price-group{max-width:180px; min-width:140px}
+  .js-cob-forma{max-width:150px}
+  .js-cob-estimado{max-width:160px}
+  /* Forzar ancho mínimo de columna de dinero para evitar clipping del input */
+  .table-tight td.col-money, .table-tight th.col-money,
+  .table-cobranzas td.col-money, .table-cobranzas th.col-money{min-width: 140px}
+}

@@ -1,12 +1,22 @@
 {% extends 'layout.html' %}
 {% block content %}
+<style>
+@media (max-width: 767.98px){
+  .dash .display-6{font-size:1.5rem}
+  .dash .card .card-body{padding:.6rem .75rem}
+  .dash h2.h6{font-size:.95rem}
+  .dash .kpi .small{font-size:.8rem}
+  .dash .chart-sm{height:200px!important}
+}
+</style>
+<div class="dash">
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 mb-0">Dashboard</h1>
 </div>
 
 <div class="row g-3 mb-3">
   <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0" style="border-top:4px solid #0f766e">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #0f766e">
       <div class="card-body">
         <div class="text-secondary small">Pedidos (mes)</div>
         <div class="display-6">{{ kpis.pedidos_mes }}</div>
@@ -14,7 +24,7 @@
     </div>
   </div>
   <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0" style="border-top:4px solid #0ea5a3">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #0ea5a3">
       <div class="card-body">
         <div class="text-secondary small">Ventas del mes</div>
         <div class="display-6">${{ '%.0f'|format(kpis.ventas_mes_val) }}</div>
@@ -22,7 +32,7 @@
     </div>
   </div>
   <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0" style="border-top:4px solid #64748b">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #64748b">
       <div class="card-body">
         <div class="text-secondary small">Cobranzas pendientes</div>
         <div class="display-6">{{ kpis.cobranzas_pend_count }}</div>
@@ -31,7 +41,7 @@
     </div>
   </div>
   <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0" style="border-top:4px solid #dc3545">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #dc3545">
       <div class="card-body">
         <div class="text-secondary small">En camino / Atrasados</div>
         <div class="display-6">{{ kpis.en_camino }} / <span class="text-danger">{{ kpis.atrasados }}</span></div>
@@ -47,7 +57,7 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
           <h2 class="h6 mb-0">Ventas últimos 30 días</h2>
         </div>
-        <div style="height: 280px"><canvas id="salesChart"></canvas></div>
+        <div class="chart-sm" style="height: 280px"><canvas id="salesChart"></canvas></div>
       </div>
     </div>
   </div>
@@ -57,12 +67,12 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
           <h2 class="h6 mb-0">Top empresas por ventas</h2>
         </div>
-        <div style="height: 280px"><canvas id="topEmpChart"></canvas></div>
+        <div class="chart-sm" style="height: 280px"><canvas id="topEmpChart"></canvas></div>
       </div>
     </div>
   </div>
 </div>
-
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>

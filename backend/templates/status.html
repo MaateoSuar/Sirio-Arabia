@@ -134,15 +134,16 @@
     </div>
 <div class="card">
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0 table-tight">
+    <div class="desktop-table">
+      <div class="table-responsive table-mobile-cards">
+        <table class="table table-hover align-middle mb-0 table-tight">
         <thead class="table-light">
           <tr>
             <th class="col-client">Cliente</th>
             <th class="col-company">Empresa</th>
-            <th>Fecha compra</th>
-            <th>Entrega estimada</th>
-            <th>Entrega efectiva</th>
+            <th class="d-none d-md-table-cell">Fecha compra</th>
+            <th class="d-none d-md-table-cell">Entrega estimada</th>
+            <th class="d-none d-md-table-cell">Entrega efectiva</th>
             <th>Precio</th>
             <th>Forma pago</th>
             <th>Status</th>
@@ -154,19 +155,19 @@
           <tr>
             <td class="col-client">{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
             <td class="col-company">{{ s.order.company.nombre }}</td>
-            <td>{{ s.fecha_compra.strftime('%d/%m/%Y') if s.fecha_compra else '-' }}</td>
-            <td>{{ s.fecha_entrega_estimada.strftime('%d/%m/%Y') if s.fecha_entrega_estimada else '-' }}</td>
-            <td>{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>
-            <td>
-              <div class="input-group input-group-sm" style="max-width: 140px">
+            <td class="d-none d-md-table-cell">{{ s.fecha_compra.strftime('%d/%m/%Y') if s.fecha_compra else '-' }}</td>
+            <td class="d-none d-md-table-cell">{{ s.fecha_entrega_estimada.strftime('%d/%m/%Y') if s.fecha_entrega_estimada else '-' }}</td>
+            <td class="d-none d-md-table-cell">{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>
+            <td class="col-money">
+              <div class="input-group input-group-sm js-price-group">
                 <span class="input-group-text">$</span>
                 <input id="priceDisp{{ s.order.id }}" form="upd{{ s.order.id }}" type="text" class="form-control form-control-sm js-price js-currency" data-hidden="priceHid{{ s.order.id }}" data-raw="{{ s.precio or '' }}" value="" autocomplete="off" inputmode="numeric">
                 <input type="hidden" name="precio" id="priceHid{{ s.order.id }}" form="upd{{ s.order.id }}" value="">
               </div>
             </td>
-            <td>
+            <td class="col-forma">
               <form id="upd{{ s.order.id }}" class="d-inline-flex align-items-center gap-2 flex-nowrap" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}">
-                <select name="forma_pago" class="form-select form-select-sm js-forma" style="max-width:150px">
+                <select name="forma_pago" class="form-select form-select-sm js-forma">
                   <option value="">-</option>
                   <option value="EFECTIVO" {{ 'selected' if s.forma_pago and s.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
                   <option value="CHEQUE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
@@ -243,8 +244,10 @@
           <tr><td colspan="9" class="text-center text-muted py-4">Sin pedidos en seguimiento</td></tr>
         {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
+    <div class="mobile-cards"></div>
   </div>
 </div>
 <script>
