@@ -11,26 +11,210 @@ bp = Blueprint("main", __name__)
 
 @bp.get("/")
 def index():
-    return render_template("index.html", active="dashboard")
+    # KPIs y métricas para dashboard
+    today = date.today()
+    month_start = today.replace(day=1)
+    # Pedidos del mes
+    pedidos_mes = Order.query.filter(Order.created_at >= datetime.combine(month_start, datetime.min.time())).count()
+    # Ventas del mes (suma de precio_final)
+    ventas_mes_val = db.session.query(func.coalesce(func.sum(Order.precio_final), 0)).filter(Order.created_at >= datetime.combine(month_start, datetime.min.time())).scalar() or 0
+    # Cobranzas pendientes (cantidad y monto)
+    cobranzas_pend_count = Collection.query.filter(Collection.fecha_cobro_efectiva.is_(None)).count()
+    cobranzas_pend_monto = db.session.query(func.coalesce(func.sum(Collection.monto), 0)).filter(Collection.fecha_cobro_efectiva.is_(None)).scalar() or 0
+    # Status logística: en camino y atrasados
+    now_dt = datetime.utcnow()
+    en_camino = (
+        db.session.query(func.count(LogisticsStatus.id))
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        .filter((LogisticsStatus.fecha_entrega_estimada.is_(None)) | (LogisticsStatus.fecha_entrega_estimada >= now_dt))
+        .scalar()
+    ) or 0
+    atrasados = (
+        db.session.query(func.count(LogisticsStatus.id))
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+        .scalar()
+    ) or 0
+
+    # Series últimos 30 días
+    last_30 = [date.fromordinal(today.toordinal() - i) for i in range(29, -1, -1)]
+    labels = [d.strftime("%d/%m") for d in last_30]
+    iso_keys = [d.isoformat() for d in last_30]
+    sales_by_day = {k: 0.0 for k in iso_keys}
+    # Ventas por día: usar Order.created_at y precio_final
+    orders_last_30 = Order.query.filter(Order.created_at >= datetime.combine(last_30[0], datetime.min.time())).all()
+    for o in orders_last_30:
+        key = o.created_at.date().isoformat()
+        try:
+            sales_by_day[key] += float(o.precio_final or 0)
+        except Exception:
+            pass
+    daily_sales = [round(sales_by_day[k], 2) for k in iso_keys]
+
+    # Top 5 empresas por ventas últimos 30 días
+    from collections import defaultdict
+    ventas_por_empresa = defaultdict(float)
+    for o in orders_last_30:
+        if o.company and o.precio_final:
+            try:
+                ventas_por_empresa[o.company.nombre] += float(o.precio_final or 0)
+            except Exception:
+                continue
+    top_emp = sorted(ventas_por_empresa.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_emp_labels = [n for n, _ in top_emp]
+    top_emp_values = [round(v, 2) for _, v in top_emp]
+
+    kpis = {
+        "pedidos_mes": int(pedidos_mes),
+        "ventas_mes_val": float(ventas_mes_val or 0),
+        "cobranzas_pend_count": int(cobranzas_pend_count),
+        "cobranzas_pend_monto": float(cobranzas_pend_monto or 0),
+        "en_camino": int(en_camino),
+        "atrasados": int(atrasados),
+    }
+    charts = {
+        "labels": labels,
+        "daily_sales": daily_sales,
+        "top_emp_labels": top_emp_labels,
+        "top_emp_values": top_emp_values,
+    }
+    return render_template("index.html", active="dashboard", kpis=kpis, charts=charts)
 
 
-@bp.route("/clientes", methods=["GET", "POST"])
+@bp.get("/clientes")
 def clientes():
-    if request.method == "POST":
-        apellido = request.form.get("apellido", "").strip()
-        nombre = request.form.get("nombre", "").strip()
-        sucursal = request.form.get("sucursal", "").strip()
-        telefono = request.form.get("telefono", "").strip()
-        mail = request.form.get("mail", "").strip()
-        fecha_inc = request.form.get("fecha_incorporacion") or None
-        client = Client(apellido=apellido or "-", nombre=nombre or "-", sucursal=sucursal or None,
-                        telefono=telefono or None, mail=mail or None,
-                        fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
-        db.session.add(client)
-        db.session.commit()
-        return redirect(url_for("main.clientes"))
     items = Client.query.order_by(Client.apellido, Client.nombre).all()
-    return render_template("clientes.html", active="clientes", items=items)
+    companies = Company.query.order_by(Company.nombre).all()
+    return render_template("clientes.html", active="clientes", items=items, companies=companies)
+
+
+@bp.get("/clientes/nuevo")
+def clientes_new():
+    companies = Company.query.order_by(Company.nombre).all()
+    branches = [r[0] for r in db.session.query(Client.sucursal).filter(Client.sucursal.isnot(None)).distinct().order_by(Client.sucursal).all()]
+    return render_template("clientes_form.html", active="clientes", companies=companies, branches=branches)
+
+
+@bp.post("/clientes/nuevo")
+def clientes_create():
+    apellido = request.form.get("apellido", "").strip()
+    nombre = request.form.get("nombre", "").strip()
+    sucursal = request.form.get("sucursal", "").strip()
+    telefono = request.form.get("telefono", "").strip()
+    mail = request.form.get("mail", "").strip()
+    relacion = (request.form.get("relacion") or "").strip() or None
+    fecha_inc = request.form.get("fecha_incorporacion") or None
+    company_id = request.form.get("company_id", type=int)
+    client = Client(apellido=apellido or "-", nombre=nombre or "-", sucursal=sucursal or None,
+                    telefono=telefono or None, mail=mail or None,
+                    fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
+    db.session.add(client)
+    db.session.commit()
+    # Si se indicó relación y empresa, crear/actualizar vínculo; si no hay empresa, aplicar a vínculos existentes
+    if relacion and company_id:
+        try:
+            st = RelationStatus(relacion)
+            comp = Company.query.get(company_id)
+            if comp:
+                link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=comp.id).first()
+                if not link:
+                    link = ClientCompanyLink(client_id=client.id, company_id=comp.id, status=st)
+                    db.session.add(link)
+                else:
+                    link.status = st
+                db.session.commit()
+        except Exception:
+            pass
+    elif relacion:
+        try:
+            st = RelationStatus(relacion)
+            for l in client.links:
+                l.status = st
+            db.session.commit()
+        except Exception:
+            pass
+    return redirect(url_for("main.clientes"))
+
+
+# Gestión de vínculos desde Clientes (bilateral con Empresas)
+@bp.post("/clientes/<int:client_id>/links/add")
+def clientes_link_add(client_id: int):
+    client = Client.query.get_or_404(client_id)
+    company_id = request.form.get("company_id", type=int)
+    status = request.form.get("status") or RelationStatus.TRABAJA.value
+    comp = Company.query.get_or_404(company_id)
+    link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=comp.id).first()
+    if not link:
+        link = ClientCompanyLink(client_id=client.id, company_id=comp.id)
+        db.session.add(link)
+    link.status = RelationStatus(status)
+    db.session.commit()
+    return redirect(url_for("main.clientes"))
+
+
+@bp.post("/clientes/<int:client_id>/links/<int:link_id>/status")
+def clientes_link_update(client_id: int, link_id: int):
+    link = ClientCompanyLink.query.filter_by(id=link_id, client_id=client_id).first_or_404()
+    status = request.form.get("status") or None
+    if status:
+        link.status = RelationStatus(status)
+        db.session.commit()
+    return redirect(url_for("main.clientes"))
+
+
+@bp.post("/clientes/<int:client_id>/links/<int:link_id>/delete")
+def clientes_link_delete(client_id: int, link_id: int):
+    link = ClientCompanyLink.query.filter_by(id=link_id, client_id=client_id).first_or_404()
+    db.session.delete(link)
+    db.session.commit()
+    return redirect(url_for("main.clientes"))
+
+
+@bp.get("/clientes/<int:client_id>/editar")
+def clientes_edit_view(client_id: int):
+    client = Client.query.get_or_404(client_id)
+    companies = Company.query.order_by(Company.nombre).all()
+    branches = [r[0] for r in db.session.query(Client.sucursal).filter(Client.sucursal.isnot(None)).distinct().order_by(Client.sucursal).all()]
+    return render_template("clientes_form.html", active="clientes", client=client, companies=companies, branches=branches)
+
+
+@bp.post("/clientes/<int:client_id>/editar")
+def clientes_update(client_id: int):
+    obj = Client.query.get_or_404(client_id)
+    obj.apellido = request.form.get("apellido", obj.apellido)
+    obj.nombre = request.form.get("nombre", obj.nombre)
+    obj.sucursal = request.form.get("sucursal") or None
+    obj.telefono = request.form.get("telefono") or None
+    obj.mail = request.form.get("mail") or None
+    relacion = (request.form.get("relacion") or "").strip() or None
+    fecha_inc = request.form.get("fecha_incorporacion") or None
+    obj.fecha_incorporacion = date.fromisoformat(fecha_inc) if fecha_inc else obj.fecha_incorporacion
+    db.session.commit()
+    # Aplicar estado: si vino empresa, crear/actualizar vínculo; si no, aplicar a todos
+    company_id = request.form.get("company_id", type=int)
+    if relacion and company_id:
+        try:
+            st = RelationStatus(relacion)
+            comp = Company.query.get(company_id)
+            if comp:
+                link = ClientCompanyLink.query.filter_by(client_id=obj.id, company_id=comp.id).first()
+                if not link:
+                    link = ClientCompanyLink(client_id=obj.id, company_id=comp.id, status=st)
+                    db.session.add(link)
+                else:
+                    link.status = st
+                db.session.commit()
+        except Exception:
+            pass
+    elif relacion:
+        try:
+            st = RelationStatus(relacion)
+            for l in obj.links:
+                l.status = st
+            db.session.commit()
+        except Exception:
+            pass
+    return redirect(url_for("main.clientes"))
 
 
 @bp.post("/clientes/<int:client_id>/delete")
@@ -65,22 +249,106 @@ def api_clientes():
     return jsonify(res)
 
 
-@bp.route("/empresas", methods=["GET", "POST"])
+@bp.get("/api/clientes/<int:client_id>/empresas")
+def api_client_companies(client_id: int):
+    c = Client.query.get_or_404(client_id)
+    rows = []
+    for l in c.links:
+        if l.company:
+            rows.append({
+                "id": l.company.id,
+                "label": l.company.nombre,
+                "mail_pedido": l.company.mail_pedido or "",
+                "status": getattr(l.status, "value", str(l.status))
+            })
+    # Sort by name
+    rows.sort(key=lambda r: r["label"].lower())
+    return jsonify(rows)
+
+
+@bp.get("/empresas")
 def empresas():
-    if request.method == "POST":
-        nombre = request.form.get("nombre", "").strip()
-        demora = request.form.get("demora", type=int)
-        plazo = request.form.get("plazo", type=int)
-        mail_pedido = request.form.get("mail_pedido", "").strip() or None
-        mail_pago = request.form.get("mail_pago", "").strip() or None
-        company = Company(nombre=nombre or "-", demora_despacho_promedio_dias=demora or 0,
-                          plazo_pago_promedio_dias=plazo or 30, mail_pedido=mail_pedido, mail_pago=mail_pago)
-        db.session.add(company)
-        db.session.commit()
-        return redirect(url_for("main.empresas"))
     items = Company.query.order_by(Company.nombre).all()
     clients = Client.query.order_by(Client.apellido, Client.nombre).all()
     return render_template("empresas.html", active="empresas", items=items, clients=clients)
+
+
+@bp.get("/empresas/nueva")
+def empresas_new():
+    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    return render_template("empresas_form.html", active="empresas", clients=clients)
+
+
+@bp.post("/empresas/nueva")
+def empresas_create():
+    nombre = request.form.get("nombre", "").strip()
+    demora = request.form.get("demora", type=int)
+    plazo = request.form.get("plazo", type=int)
+    mail_pedido = request.form.get("mail_pedido", "").strip() or None
+    mail_pago = request.form.get("mail_pago", "").strip() or None
+    company = Company(nombre=nombre or "-", demora_despacho_promedio_dias=demora or 0,
+                      plazo_pago_promedio_dias=plazo or 30, mail_pedido=mail_pedido, mail_pago=mail_pago)
+    db.session.add(company)
+    db.session.flush()
+    client_ids = request.form.getlist("client_ids", type=int)
+    if client_ids:
+        for cid in client_ids:
+            c = Client.query.get(cid)
+            if not c:
+                continue
+            link = ClientCompanyLink.query.filter_by(client_id=cid, company_id=company.id).first()
+            if not link:
+                link = ClientCompanyLink(client_id=cid, company_id=company.id, status=RelationStatus.TRABAJA)
+                db.session.add(link)
+    db.session.commit()
+    return redirect(url_for("main.empresas"))
+
+
+@bp.get("/estado-clientes")
+def estado_clientes():
+    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    return render_template("estado_clientes.html", active="clientes", clients=clients)
+
+
+@bp.post("/estado-clientes/links/<int:link_id>/status")
+def estado_clientes_update(link_id: int):
+    link = ClientCompanyLink.query.get_or_404(link_id)
+    status = request.form.get("status") or None
+    if status:
+        link.status = RelationStatus(status)
+        db.session.commit()
+    return redirect(url_for("main.estado_clientes"))
+
+
+@bp.post("/estado-clientes/<int:client_id>/status")
+def estado_clientes_update_all(client_id: int):
+    client = Client.query.get_or_404(client_id)
+    status = request.form.get("status") or None
+    if status:
+        new_status = RelationStatus(status)
+        for l in client.links:
+            l.status = new_status
+        db.session.commit()
+    return redirect(url_for("main.estado_clientes"))
+
+
+@bp.get("/empresas/<int:company_id>/editar")
+def empresas_edit_view(company_id: int):
+    company = Company.query.get_or_404(company_id)
+    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    return render_template("empresas_form.html", active="empresas", company=company, clients=clients)
+
+
+@bp.post("/empresas/<int:company_id>/editar")
+def empresas_update(company_id: int):
+    obj = Company.query.get_or_404(company_id)
+    obj.nombre = request.form.get("nombre", obj.nombre)
+    obj.demora_despacho_promedio_dias = request.form.get("demora", type=int) or obj.demora_despacho_promedio_dias
+    obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
+    obj.mail_pedido = (request.form.get("mail_pedido") or None)
+    obj.mail_pago = (request.form.get("mail_pago") or None)
+    db.session.commit()
+    return redirect(url_for("main.empresas"))
 
 @bp.post("/empresas/<int:company_id>/links/add")
 def empresas_link_add(company_id: int):
@@ -164,6 +432,10 @@ def pedidos_create():
     precio_final = request.form.get("precio_final", type=float)
     forma_pago = request.form.get("forma_pago") or None
 
+    if not client_id:
+        abort(400, "Debe seleccionar un cliente")
+    if not company_id:
+        abort(400, "Debe seleccionar una empresa vinculada al cliente")
     if not forma_pago:
         abort(400, "La forma de pago es obligatoria")
 
@@ -236,7 +508,8 @@ def status():
             q = q.filter(LogisticsStatus.fecha_compra <= h)
         except Exception:
             pass
-    items = q.order_by(LogisticsStatus.fecha_compra.desc()).all()
+    # Mostrar primero el último agregado (proxy: id descendente)
+    items = q.order_by(LogisticsStatus.id.desc()).all()
     return render_template("status.html", active="status", items=items)
 
 
@@ -314,7 +587,8 @@ def cobranzas():
             q = q.filter(Collection.fecha_pago_estimada <= h)
         except Exception:
             pass
-    items = q.order_by(Collection.fecha_pago_estimada.desc()).all()
+    # Mostrar primero el último agregado (proxy: id descendente)
+    items = q.order_by(Collection.id.desc()).all()
     return render_template("cobranzas.html", active="cobranzas", items=items)
 
 
@@ -362,61 +636,78 @@ def historial():
     orders = Order.query.order_by(Order.created_at.desc()).all()
     return render_template("historial.html", active="historial", orders=orders)
 
-
 @bp.get("/crm")
 def crm():
     rows = []
     clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    # Mapeo de etiquetas
+    label_map = {
+        RelationStatus.TRABAJA.value: "Trabaja",
+        RelationStatus.TRABAJABA.value: "Trabajaba",
+        RelationStatus.A_INCORPORAR.value: "A Incorporar",
+    }
     for c in clients:
-        # Última compra y empresa más reciente
-        last_order = Order.query.filter_by(client_id=c.id).order_by(Order.created_at.desc()).first()
-        last_date = last_order.created_at if last_order else None
-        last_company = last_order.company.nombre if last_order else "-"
-        # # Compras cobradas
-        cobradas = (
-            db.session.query(func.count(Collection.id))
-            .join(Order, Collection.order_id == Order.id)
-            .filter(Order.client_id == c.id, Collection.fecha_cobro_efectiva.isnot(None))
-            .scalar()
-        ) or 0
-        # Compra promedio (precio_final de Order)
-        avg_compra = (
-            db.session.query(func.avg(Order.precio_final))
-            .filter(Order.client_id == c.id)
-            .scalar()
-        )
-        # Marcas (empresas) con las que compró
-        empresas = (
-            db.session.query(Company.nombre)
-            .join(Order, Order.company_id == Company.id)
-            .filter(Order.client_id == c.id)
-            .distinct()
-            .all()
-        )
-        marcas = ", ".join(sorted([e[0] for e in empresas])) if empresas else "-"
-        # Categorización simple por relación
-        label_map = {
-            RelationStatus.TRABAJA.value: "Trabaja",
-            RelationStatus.TRABAJABA.value: "Trabajaba",
-            RelationStatus.A_INCORPORAR.value: "A Incorporar",
-        }
-        cats: dict[str, int] = {}
+        # Determinar todas las empresas relacionadas ya sea por órdenes o por vínculos
+        company_ids = set()
+        # Por órdenes
+        for row in db.session.query(Order.company_id).filter(Order.client_id == c.id).distinct():
+            if row[0]:
+                company_ids.add(int(row[0]))
+        # Por links
         for l in c.links:
-            key = label_map.get(getattr(l.status, "value", str(l.status)), str(l.status))
-            cats[key] = cats.get(key, 0) + 1
-        categorias_presentes = [k for k, v in cats.items() if v]
-        categ = ", ".join(categorias_presentes) or "-"
-        rows.append(
-            {
+            if l.company_id:
+                company_ids.add(int(l.company_id))
+
+        if not company_ids:
+            # Sin empresas, mostrar fila resumida sin empresa
+            rows.append({
                 "cliente": f"{c.apellido} {c.nombre}",
-                "empresa": last_company,
+                "empresa": "-",
+                "ultima_compra": None,
+                "cobradas": 0,
+                "promedio": None,
+                "categ": "-",
+            })
+            continue
+
+        for cid in sorted(company_ids):
+            comp = Company.query.get(cid)
+            if not comp:
+                continue
+            # Última compra cliente-empresa
+            last_order = (
+                Order.query.filter_by(client_id=c.id, company_id=cid)
+                .order_by(Order.created_at.desc())
+                .first()
+            )
+            last_date = last_order.created_at if last_order else None
+            # Compras cobradas cliente-empresa
+            cobradas = (
+                db.session.query(func.count(Collection.id))
+                .join(Order, Collection.order_id == Order.id)
+                .filter(Order.client_id == c.id, Order.company_id == cid, Collection.fecha_cobro_efectiva.isnot(None))
+                .scalar()
+            ) or 0
+            # Compra promedio cliente-empresa
+            avg_compra = (
+                db.session.query(func.avg(Order.precio_final))
+                .filter(Order.client_id == c.id, Order.company_id == cid)
+                .scalar()
+            )
+            # Categorización por link específico si existe
+            link = next((l for l in c.links if l.company_id == cid), None)
+            st_val = getattr(getattr(link, "status", None), "value", None)
+            categ = label_map.get(st_val, "-")
+
+            rows.append({
+                "cliente": f"{c.apellido} {c.nombre}",
+                "empresa": comp.nombre,
                 "ultima_compra": last_date,
                 "cobradas": int(cobradas),
                 "promedio": float(avg_compra) if avg_compra is not None else None,
-                "marcas": marcas,
                 "categ": categ,
-            }
-        )
+            })
+
     return render_template("crm.html", active="crm", items=rows)
 
 

@@ -64,6 +64,11 @@
     .filter-group .btn-outline-success.active:hover { 
       background-color: #198754; color: #fff; border-color: #198754; 
     }
+    /* Compactar espacio entre columnas Cliente y Empresa */
+    .table-tight td.col-client { padding-right: 0; }
+    .table-tight td.col-company { padding-left: 0; }
+    .table-tight th.col-client { padding-right: .15rem; }
+    .table-tight th.col-company { padding-left: .15rem; }
     /* Inactivo: En camino con recuadro gris visible */
     .filter-group .btn-outline-secondary { 
       border-color: #6c757d; color: #6c757d; background-color: #fff; 
@@ -130,11 +135,11 @@
 <div class="card">
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
+      <table class="table table-hover align-middle mb-0 table-tight">
         <thead class="table-light">
           <tr>
-            <th>Cliente</th>
-            <th>Empresa</th>
+            <th class="col-client">Cliente</th>
+            <th class="col-company">Empresa</th>
             <th>Fecha compra</th>
             <th>Entrega estimada</th>
             <th>Entrega efectiva</th>
@@ -147,8 +152,8 @@
         <tbody>
         {% for s in items %}
           <tr>
-            <td>{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
-            <td>{{ s.order.company.nombre }}</td>
+            <td class="col-client">{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
+            <td class="col-company">{{ s.order.company.nombre }}</td>
             <td>{{ s.fecha_compra.strftime('%d/%m/%Y') if s.fecha_compra else '-' }}</td>
             <td>{{ s.fecha_entrega_estimada.strftime('%d/%m/%Y') if s.fecha_entrega_estimada else '-' }}</td>
             <td>{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>

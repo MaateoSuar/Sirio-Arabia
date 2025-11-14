@@ -2,31 +2,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Legajo de Empresas</h1>
-  <a href="#form-empresa" class="btn btn-primary">Nueva Empresa</a>
-</div>
-<div class="card mb-4">
-  <div class="card-body">
-    <form id="form-empresa" class="row g-3" method="post" action="{{ url_for('main.empresas') }}">
-      <div class="col-md-4">
-        <input name="nombre" type="text" class="form-control" placeholder="Nombre de empresa">
-      </div>
-      <div class="col-md-4">
-        <input name="demora" type="number" class="form-control" placeholder="Demora despacho promedio (días)">
-      </div>
-      <div class="col-md-4">
-        <input name="plazo" type="number" class="form-control" placeholder="Plazo de pago promedio (días)">
-      </div>
-      <div class="col-md-6">
-        <input name="mail_pedido" type="email" class="form-control" placeholder="Mail de pedido">
-      </div>
-      <div class="col-md-6">
-        <input name="mail_pago" type="email" class="form-control" placeholder="Mail de pago">
-      </div>
-      <div class="col-12">
-        <button class="btn btn-primary" type="submit">Guardar</button>
-      </div>
-    </form>
-  </div>
+  <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary">+ Crear Empresa</a>
 </div>
 <div class="card">
   <div class="card-body p-0">
@@ -52,6 +28,7 @@
             <td>{{ e.mail_pago or '-' }}</td>
             <td class="text-end">
               <div class="btn-group btn-group-sm">
+                <a class="btn btn-outline-secondary" href="{{ url_for('main.empresas_edit_view', company_id=e.id) }}">Editar</a>
                 <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#links{{ e.id }}">Clientes</button>
                 <form method="post" action="{{ url_for('main.empresas_delete', company_id=e.id) }}" onsubmit="return confirm('Eliminar empresa?')">
                   <button class="btn btn-outline-danger">Eliminar</button>

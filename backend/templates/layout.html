@@ -26,11 +26,77 @@
       }
       /* Asegurar que el cuerpo pueda envolver texto en múltiples líneas */
       .table tbody td { white-space: normal; }
+      /* Estilo de títulos de página */
+      h1.h4.mb-0 {
+        font-size: 1.6rem; /* ligeramente más grande */
+        color: #0f766e;    /* teal/petróleo acorde a la estética */
+        font-weight: 600;
+        letter-spacing: .2px;
+      }
+      /* Mejorar contraste en hover de botones outline secundarios */
+      .btn-outline-secondary:hover,
+      .btn-outline-secondary:focus,
+      .btn-outline-secondary:active,
+      .btn-outline-secondary.active {
+        color: #0f766e !important;
+        background-color: #f8fafc !important;
+        border-color: #cfd8dc !important;
+      }
+      /* Zebra striping global (except .table-dark) */
+      .table:not(.table-dark) > tbody > tr:nth-of-type(odd) > * {
+        background-color: #f9fafb;
+      }
+      /* Neutralizar hover de filas en toda la app */
+      .table-hover > tbody > tr:hover > * {
+        background-color: inherit !important;
+      }
+      /* Sidebar móvil: oculto por defecto, deslizable */
+      @media (max-width: 767.98px) {
+        #appSidebar { position: fixed; z-index: 1050; top: 56px; bottom: 0; left: -260px; width: 260px; transition: left .25s ease; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+        body.sidebar-open #appSidebar { left: 0; }
+        main.col { padding: .5rem !important; }
+        /* Mejorar targets táctiles */
+        .btn, .form-control, .form-select { min-height: 44px; font-size: 16px; }
+        .btn-group.btn-group-sm > .btn { padding: .45rem .6rem; }
+        /* Tablas en móvil: mantener grid compacto (no apilar) */
+        .table { font-size: 13px; table-layout: fixed; }
+        .table th, .table td { padding: .45rem .55rem; word-break: break-word; overflow-wrap: anywhere; }
+        .col-actions { width: 1%; white-space: nowrap; }
+        /* Acciones: misma disposición y sin salto de línea */
+        .col-actions .btn-group { display: inline-flex; flex-wrap: nowrap; gap: .35rem; }
+        .col-actions .btn-group .btn { font-size: 13px; padding: .35rem .5rem; }
+        /* Variante apilada opcional: aplicar solo cuando se envuelve la tabla en .table-mobile-cards */
+        .table-mobile-cards .table { display: block; width: 100%; font-size: 15px; }
+        .table-mobile-cards .table thead { display: none; }
+        .table-mobile-cards .table tbody { display: block; width: 100%; }
+        .table-mobile-cards .table tbody tr { display: block; background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem; margin-bottom: .75rem; overflow: hidden; }
+        .table-mobile-cards .table tbody tr > * { display: block; width: 100% !important; box-sizing: border-box; border: 0 !important; border-bottom: 1px solid #f0f2f5 !important; padding: .6rem .9rem; }
+        .table-mobile-cards .table tbody tr > *:last-child { border-bottom: 0 !important; }
+        .table-mobile-cards .table tbody tr > td::before, .table-mobile-cards .table tbody tr > th::before { content: attr(data-label); font-weight: 600; color: #6b7280; display: block; margin-bottom: .15rem; }
+        .table-mobile-cards .col-actions { width: 100% !important; text-align: left !important; }
+        .table-mobile-cards .col-actions .btn-group { display: flex; flex-wrap: wrap; gap: .5rem; }
+        /* Modales fullscreen en móvil */
+        .modal-dialog { width: 100% !important; max-width: none !important; margin: 0 !important; }
+        .modal-content { min-height: 100vh; border-radius: 0; }
+      }
+      /* Bloqueo de orientación: mostrar overlay en móvil en vertical (portrait) */
+      #orientationLock { display: none; position: fixed; inset: 0; z-index: 2000; background: #0b1721; color: #fff; align-items: center; justify-content: center; text-align: center; padding: 2rem; }
+      #orientationLock .inner { max-width: 520px; margin: 0 auto; }
+      #orientationLock .icon { font-size: 64px; line-height: 1; opacity: .9; margin-bottom: 1rem; }
+      #orientationLock h2 { font-size: 1.25rem; margin-bottom: .5rem; }
+      #orientationLock p { color: #cbd5e1; margin: 0; }
+      @media (max-width: 767.98px) and (orientation: portrait) {
+        #orientationLock { display: flex; }
+        body { overflow: hidden; }
+      }
     </style>
   </head>
   <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
       <div class="container-fluid">
+        <button class="btn btn-sm btn-outline-light d-inline-flex d-md-none me-2" type="button" id="btnSidebarToggle" aria-label="Menú">
+          <i class="bi bi-list" style="font-size:1.25rem"></i>
+        </button>
         <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('main.index') }}">
           <span class="badge rounded-pill bg-primary">SA</span>
           <span>Sirio Arabia Representaciones</span>
@@ -39,7 +105,7 @@
     </nav>
     <div class="container-fluid">
       <div class="row">
-        <aside class="col-12 col-md-3 col-lg-2 sidebar-blue min-vh-100 p-0">
+        <aside class="col-12 col-md-3 col-lg-2 sidebar-blue min-vh-100 p-0" id="appSidebar">
           <div class="sidebar-inner py-4 px-3">
             <div class="sidebar-title">Menú</div>
             <ul class="nav nav-pills flex-column gap-2 mt-2">
@@ -59,7 +125,44 @@
         </main>
       </div>
     </div>
+    <div id="orientationLock" aria-hidden="true" role="dialog">
+      <div class="inner">
+        <div class="icon">🔁</div>
+        <h2>Girá el celular</h2>
+        <p>Para ver las tablas completas, usá el teléfono en posición horizontal.</p>
+      </div>
+    </div>
+    <div class="d-md-none" id="sidebarBackdrop" style="position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; z-index:1040"></div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+      (function(){
+        var body = document.body;
+        var sidebar = document.getElementById('appSidebar');
+        var btn = document.getElementById('btnSidebarToggle');
+        var backdrop = document.getElementById('sidebarBackdrop');
+        function openSidebar(){ body.classList.add('sidebar-open'); if (backdrop) backdrop.style.display='block'; }
+        function closeSidebar(){ body.classList.remove('sidebar-open'); if (backdrop) backdrop.style.display='none'; }
+        if (btn) btn.addEventListener('click', function(){ if (body.classList.contains('sidebar-open')) closeSidebar(); else openSidebar(); });
+        if (backdrop) backdrop.addEventListener('click', closeSidebar);
+        document.addEventListener('keydown', function(e){ if (e.key==='Escape') closeSidebar(); });
+        function enhanceTables(){
+          var tables = document.querySelectorAll('main .table');
+          tables.forEach(function(tbl){
+            if (tbl._labeled) return;
+            var heads = Array.from(tbl.querySelectorAll('thead th')).map(function(th){ return (th.textContent||'').trim(); });
+            tbl.querySelectorAll('tbody tr').forEach(function(tr){
+              Array.from(tr.children).forEach(function(td, idx){
+                if (!td.hasAttribute('data-label') && heads[idx]) td.setAttribute('data-label', heads[idx]);
+              });
+            });
+            tbl._labeled = true;
+          });
+        }
+        enhanceTables();
+        var mo = new MutationObserver(enhanceTables);
+        mo.observe(document.body, { childList:true, subtree:true });
+      })();
+    </script>
   </body>
 </html>

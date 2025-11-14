@@ -1,0 +1,117 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container" style="max-width: 860px;">
+  <h1 class="h4 text-dark mb-4">{{ 'Editar empresa' if company else 'Nueva empresa' }}</h1>
+
+  <form method="post" class="card shadow-sm">
+    <div class="card-body">
+      <style>
+        /* Títulos y etiquetas más estéticos en esta vista */
+        .form-label { color: #0f766e; font-weight: 600; letter-spacing: .2px; }
+        /* Botón colapsable: mantener legible en hover/active */
+        .btn-outline-secondary[data-bs-target="#clients-collapse"] { border-width: 2px; }
+        .btn-outline-secondary[data-bs-target="#clients-collapse"]:hover,
+        .btn-outline-secondary[data-bs-target="#clients-collapse"].active,
+        .btn-outline-secondary[data-bs-target="#clients-collapse"]:focus {
+          color: #0f766e; background-color: #f8fafc; border-color: #cfd8dc;
+        }
+        /* Badges de seleccionados */
+        .badge-client { background-color: #0f766e; }
+      </style>
+      <div class="row g-3">
+        <div class="col-md-12">
+          <label class="form-label">Nombre de empresa</label>
+          <input name="nombre" type="text" class="form-control" value="{{ company.nombre if company }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Demora despacho promedio (días)</label>
+          <input name="demora" type="number" class="form-control" min="0" value="{{ company.demora_despacho_promedio_dias if company }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Plazo de pago promedio (días)</label>
+          <input name="plazo" type="number" class="form-control" min="0" value="{{ company.plazo_pago_promedio_dias if company }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Mail de pedido</label>
+          <input name="mail_pedido" type="email" class="form-control" value="{{ company.mail_pedido if company }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Mail de pago</label>
+          <input name="mail_pago" type="email" class="form-control" value="{{ company.mail_pago if company }}">
+        </div>
+        <div class="col-12">
+          <div class="d-flex align-items-center justify-content-between">
+            <label class="form-label m-0">Vincular a clientes (opcional)</label>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#clients-collapse" aria-expanded="false" aria-controls="clients-collapse">Seleccionar clientes</button>
+          </div>
+          <div id="clients-collapse" class="collapse mt-2">
+            <div id="clients-checklist" class="border rounded p-2" style="max-height: 260px; overflow: auto;">
+              {% for c in clients %}
+              <div class="form-check">
+                <input class="form-check-input js-client-chk" type="checkbox" value="{{ c.id }}" id="cl{{ c.id }}" name="client_ids">
+                <label class="form-check-label" for="cl{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="d-flex justify-content-end mt-2">
+              <button type="button" id="btnConfirmarClientes" class="btn btn-sm btn-primary">Confirmar selección</button>
+            </div>
+          </div>
+          <div id="clients-selected-wrapper" class="mt-3">
+            <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Clientes confirmados</div>
+            <div id="clients-selected" class="mt-1"></div>
+            <div id="clients-hidden"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2">
+      <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
+      <button class="btn btn-primary" type="submit">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
+    </div>
+  </form>
+</div>
+<script>
+(function(){
+  var box = document.getElementById('clients-checklist');
+  var list = document.getElementById('clients-selected');
+  var hidWrap = document.getElementById('clients-hidden');
+  if (!box || !list || !hidWrap) return;
+  var confirmed = new Map(); // id -> label
+  function render(){
+    if (confirmed.size === 0) {
+      list.innerHTML = '<span class="text-muted">Ninguno</span>';
+      hidWrap.innerHTML = '';
+      return;
+    }
+    var html = [];
+    var hidden = [];
+    confirmed.forEach(function(label, id){
+      html.push('<span class="badge badge-client me-1 mb-1">'+ label +'</span>');
+      hidden.push('<input type="hidden" name="client_ids" value="'+ id +'">');
+    });
+    list.innerHTML = html.join('');
+    hidWrap.innerHTML = hidden.join('');
+  }
+  function confirmSelection(){
+    var checks = box.querySelectorAll('.js-client-chk:checked');
+    checks.forEach(function(chk){
+      var id = String(chk.value);
+      var lbl = box.querySelector('label[for="'+ chk.id +'"]');
+      var label = lbl ? lbl.textContent.trim() : ('Cliente '+id);
+      confirmed.set(id, label);
+      chk.checked = false;
+    });
+    render();
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    if (t && t.id === 'btnConfirmarClientes') {
+      e.preventDefault();
+      confirmSelection();
+    }
+  });
+  render();
+})();
+</script>
+{% endblock %}

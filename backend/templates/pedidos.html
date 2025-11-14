@@ -6,7 +6,8 @@
 </div>
 <div class="card mb-4">
   <div class="card-body">
-    <form class="row g-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
+    <div id="pedido-alert" class="alert alert-warning py-2 px-3 mb-3 d-none" role="alert" style="font-size:.9rem"></div>
+    <form id="pedido-form" class="row g-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
       <div class="col-md-3">
         <input type="date" class="form-control" id="pedido_fecha" value="{{ today }}">
       </div>
@@ -73,6 +74,10 @@
     const formaPagoSel = document.getElementById('pedido_forma_pago');
     const fechaInput = document.getElementById('pedido_fecha');
     const branchSel = document.getElementById('pedido_branch');
+    const form = document.getElementById('pedido-form');
+    const alertBox = document.getElementById('pedido-alert');
+    // Guardar opciones completas de empresas por si se requiere restaurar (no usado actualmente)
+    const empresaAllOptions = Array.from(empresaSel?.options || []);
 
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
     empresaSel?.addEventListener('change', ()=>{
@@ -129,9 +134,50 @@
         }
       }catch(e){/* noop */}
     }
+
+    // Load companies linked to selected client
+    async function loadCompanies(clientId){
+      if(!empresaSel) return;
+      empresaSel.innerHTML = '<option value="">Empresa...</option>';
+      mailInput.value = '';
+      if(!clientId) return;
+      try{
+        const res = await fetch(`/api/clientes/${clientId}/empresas`);
+        const items = await res.json();
+        for(const e of items){
+          const opt = document.createElement('option');
+          opt.value = e.id;
+          opt.textContent = e.label;
+          opt.setAttribute('data-mail', e.mail_pedido || '');
+          empresaSel.appendChild(opt);
+        }
+      }catch(e){/* noop */}
+    }
     clienteSel?.addEventListener('change', ()=>{
       const id = clienteSel.value;
       loadBranches(id);
+      loadCompanies(id);
+    });
+
+    // Validación antes de enviar: evitar salir de la página con Bad Request
+    form?.addEventListener('submit', function(e){
+      const cid = (clienteSel && clienteSel.value) || '';
+      const eid = (empresaSel && empresaSel.value) || '';
+      let msg = '';
+      if (!cid) msg = 'Debe seleccionar un cliente registrado.';
+      else if (!eid) msg = 'Debe seleccionar una empresa vinculada al cliente.';
+      if (msg) {
+        e.preventDefault();
+        if (alertBox) {
+          alertBox.textContent = msg;
+          alertBox.classList.remove('d-none');
+        } else {
+          alert(msg);
+        }
+        return false;
+      }
+      // ocultar alerta si todo ok
+      if (alertBox) alertBox.classList.add('d-none');
     });
   })();
 </script>

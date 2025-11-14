@@ -1,40 +1,22 @@
 {% extends 'layout.html' %}
 {% block content %}
+<style>
+  /* Tabla de clientes: más espacio entre columnas */
+  .table-relaxed th, .table-relaxed td { padding: .75rem 1.35rem; }
+  /* Mantener columna Acciones compacta y sin ocupar ancho extra */
+  .col-actions { white-space: nowrap; width: 1%; }
+  /* Badges más aireados visualmente */
+  .table-relaxed .badge { font-weight: 500; }
+  .table-relaxed .d-flex.gap-1 { gap: .35rem !important; }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Legajo de Clientes</h1>
-  <a href="#form-cliente" class="btn btn-primary">Nuevo Cliente</a>
-</div>
-<div class="card mb-4">
-  <div class="card-body">
-    <form id="form-cliente" class="row g-3" method="post" action="{{ url_for('main.clientes') }}">
-      <div class="col-md-3">
-        <input name="apellido" type="text" class="form-control" placeholder="Apellido" required>
-      </div>
-      <div class="col-md-3">
-        <input name="nombre" type="text" class="form-control" placeholder="Nombre" required>
-      </div>
-      <div class="col-md-3">
-        <input name="sucursal" type="text" class="form-control" placeholder="Sucursal">
-      </div>
-      <div class="col-md-3">
-        <input name="fecha_incorporacion" type="date" class="form-control" placeholder="Fecha de incorporación">
-      </div>
-      <div class="col-md-3">
-        <input name="telefono" type="text" class="form-control" placeholder="Teléfono">
-      </div>
-      <div class="col-md-3">
-        <input name="mail" type="email" class="form-control" placeholder="Mail">
-      </div>
-      <div class="col-12">
-        <button class="btn btn-primary" type="submit">Guardar</button>
-      </div>
-    </form>
-  </div>
+  <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary">+ Crear Cliente</a>
 </div>
 <div class="card">
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
+      <table class="table table-hover align-middle mb-0 table-relaxed w-100">
         <thead class="table-light">
           <tr>
             <th>Apellido</th>
@@ -42,7 +24,8 @@
             <th>Sucursal</th>
             <th>Teléfono</th>
             <th>Mail</th>
-            <th class="text-end">Acciones</th>
+            <th>Estado</th>
+            <th class="text-end col-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -53,74 +36,98 @@
             <td>{{ c.sucursal or '-' }}</td>
             <td>{{ c.telefono or '-' }}</td>
             <td>{{ c.mail or '-' }}</td>
-            <td class="text-end">
+            <td>
+              {% if c.links %}
+                <div class="d-flex flex-wrap gap-1">
+                  {% for l in c.links %}
+                    {% set st = l.status.value if l.status %}
+                    {% if st == 'TRABAJA' %}
+                      <span class="badge bg-success">Trabaja en {{ l.company.nombre }}</span>
+                    {% elif st == 'TRABAJABA' %}
+                      <span class="badge bg-secondary">Trabajaba en {{ l.company.nombre }}</span>
+                    {% elif st == 'A_INCORPORAR' %}
+                      <span class="badge bg-warning text-dark">A incorporar en {{ l.company.nombre }}</span>
+                    {% else %}
+                      <span class="badge bg-light text-muted">-</span>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="text-end col-actions">
               <div class="btn-group btn-group-sm" role="group">
-                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editCliente{{ c.id }}">Editar</button>
+                <a class="btn btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=c.id) }}">Editar</a>
+                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#links{{ c.id }}">Empresa</button>
                 <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" onsubmit="return confirm('Eliminar cliente?')">
                   <button class="btn btn-outline-danger">Eliminar</button>
                 </form>
               </div>
-              <div class="modal fade" id="editCliente{{ c.id }}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog">
+              <div class="modal fade" id="links{{ c.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
                   <div class="modal-content">
                     <div class="modal-header">
-                      <h5 class="modal-title">Editar Cliente</h5>
+                      <h5 class="modal-title">Empresas de {{ c.apellido }} {{ c.nombre }}</h5>
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <form method="post" action="{{ url_for('main.clientes_edit', client_id=c.id) }}">
-                      <div class="modal-body row g-3">
+                    <div class="modal-body">
+                      <form class="row g-2 mb-3" method="post" action="{{ url_for('main.clientes_link_add', client_id=c.id) }}">
                         <div class="col-md-6">
-                          <label class="form-label">Apellido</label>
-                          <input name="apellido" class="form-control" value="{{ c.apellido }}" required>
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Nombre</label>
-                          <input name="nombre" class="form-control" value="{{ c.nombre }}" required>
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Sucursal</label>
-                          <input name="sucursal" class="form-control" value="{{ c.sucursal }}">
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Fecha incorporación</label>
-                          <input name="fecha_incorporacion" type="date" class="form-control" value="{{ c.fecha_incorporacion }}">
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Teléfono</label>
-                          <input name="telefono" class="form-control" value="{{ c.telefono }}">
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Mail</label>
-                          <input name="mail" type="email" class="form-control" value="{{ c.mail }}">
-                        </div>
-                        <div class="col-12">
-                          <hr>
-                          <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="fw-semibold">Sucursales</span>
-                            <form class="d-flex gap-2" method="post" action="{{ url_for('main.client_branch_add', client_id=c.id) }}">
-                              <input name="nombre" class="form-control form-control-sm" placeholder="Nueva sucursal" required>
-                              <button class="btn btn-sm btn-outline-secondary" type="submit">Agregar</button>
-                            </form>
-                          </div>
-                          <ul class="list-group">
-                            {% for b in c.branches %}
-                              <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <span>{{ b.nombre }}</span>
-                                <form method="post" action="{{ url_for('main.client_branch_delete', client_id=c.id, branch_id=b.id) }}" onsubmit="return confirm('Eliminar sucursal?')">
-                                  <button class="btn btn-sm btn-outline-danger">Eliminar</button>
-                                </form>
-                              </li>
-                            {% else %}
-                              <li class="list-group-item text-muted">Sin sucursales</li>
+                          <select class="form-select" name="company_id" required>
+                            <option value="">Seleccionar empresa...</option>
+                            {% for e in companies %}
+                              <option value="{{ e.id }}">{{ e.nombre }}</option>
                             {% endfor %}
-                          </ul>
+                          </select>
                         </div>
+                        <div class="col-md-4">
+                          <select class="form-select" name="status">
+                            <option value="TRABAJA">Trabaja</option>
+                            <option value="TRABAJABA">Trabajaba</option>
+                            <option value="A_INCORPORAR">A incorporar</option>
+                          </select>
+                        </div>
+                        <div class="col-md-2 d-grid">
+                          <button class="btn btn-primary">Agregar</button>
+                        </div>
+                      </form>
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                          <thead>
+                            <tr>
+                              <th>Empresa</th>
+                              <th>Estado</th>
+                              <th class="text-end">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for l in c.links %}
+                              <tr>
+                                <td>{{ l.company.nombre }}</td>
+                                <td>
+                                  <form class="d-flex gap-2" method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
+                                    <select name="status" class="form-select form-select-sm" style="max-width:220px">
+                                      <option value="TRABAJA" {{ 'selected' if l.status.value=='TRABAJA' else '' }}>Trabaja</option>
+                                      <option value="TRABAJABA" {{ 'selected' if l.status.value=='TRABAJABA' else '' }}>Trabajaba</option>
+                                      <option value="A_INCORPORAR" {{ 'selected' if l.status.value=='A_INCORPORAR' else '' }}>A incorporar</option>
+                                    </select>
+                                    <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
+                                  </form>
+                                </td>
+                                <td class="text-end">
+                                  <form method="post" action="{{ url_for('main.clientes_link_delete', client_id=c.id, link_id=l.id) }}" onsubmit="return confirm('Quitar vínculo?')">
+                                    <button class="btn btn-sm btn-outline-danger">Quitar</button>
+                                  </form>
+                                </td>
+                              </tr>
+                            {% else %}
+                              <tr><td colspan="3" class="text-muted text-center">Sin empresas vinculadas</td></tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
                       </div>
-                      <div class="modal-footer">
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-                        <button class="btn btn-primary" type="submit">Guardar</button>
-                      </div>
-                    </form>
+                    </div>
                   </div>
                 </div>
               </div>

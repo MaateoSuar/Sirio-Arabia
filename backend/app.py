@@ -16,13 +16,22 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
 
-    # Optional: Auto-run migrations on startup when AUTO_MIGRATE=1
-    if os.getenv("AUTO_MIGRATE") == "1":
-        with app.app_context():
+    # Ensure DB schema exists in production (Railway)
+    with app.app_context():
+        did_upgrade = False
+        if os.getenv("AUTO_MIGRATE") == "1":
             try:
                 upgrade()
+                did_upgrade = True
             except Exception:
-                # Do not crash the app if migrations fail; rely on logs for details
+                # Rely on logs in platform to inspect failure
+                did_upgrade = False
+        # If migrations are not enabled or failed, fall back to create_all
+        if not did_upgrade:
+            try:
+                db.create_all()
+            except Exception:
+                # As último recurso, dejar que la app arranque y ver logs
                 pass
 
     # Register blueprints

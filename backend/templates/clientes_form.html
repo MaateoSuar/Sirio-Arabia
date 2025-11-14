@@ -1,0 +1,101 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="container" style="max-width: 860px;">
+  <h1 class="h4 text-dark mb-4">{{ 'Editar cliente' if client else 'Nuevo cliente' }}</h1>
+
+  <form method="post" action="{{ url_for('main.clientes_update', client_id=client.id) if client else url_for('main.clientes_create') }}" class="card shadow-sm">
+    <div class="card-body">
+      <style>
+        .form-label { color:#0f766e; font-weight:600; letter-spacing:.2px; }
+      </style>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Apellido</label>
+          <input name="apellido" type="text" class="form-control" value="{{ client.apellido if client }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Nombre</label>
+          <input name="nombre" type="text" class="form-control" value="{{ client.nombre if client }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Sucursal</label>
+          <input name="sucursal" type="text" class="form-control" list="branches" value="{{ client.sucursal if client }}">
+          <datalist id="branches">
+            {% if branches %}
+              {% for b in branches %}
+                <option value="{{ b }}"></option>
+              {% endfor %}
+            {% endif %}
+          </datalist>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Fecha de incorporación</label>
+          <div class="input-group input-group-sm date-soft" style="overflow:hidden; max-width: 100%;">
+            <span class="input-group-text" id="fi-addon" style="background:#f8f9fa">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/>
+              </svg>
+            </span>
+            <input name="fecha_incorporacion" type="text" class="form-control" aria-describedby="fi-addon" placeholder="Seleccionar fecha" data-datepicker value="{{ client.fecha_incorporacion if client }}">
+            <button class="btn btn-clear btn-sm" type="button" data-clear="fecha_incorporacion">×</button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Teléfono</label>
+          <input name="telefono" type="text" class="form-control" value="{{ client.telefono if client }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Mail</label>
+          <input name="mail" type="email" class="form-control" value="{{ client.mail if client }}">
+        </div>
+        
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2">
+      <a href="{{ url_for('main.clientes') }}" class="btn btn-light">Cancelar</a>
+      <button class="btn btn-primary" type="submit">{{ 'Guardar cambios' if client else 'Guardar' }}</button>
+    </div>
+  </form>
+</div>
+<style>
+  .date-soft { border-radius:.75rem; box-shadow:0 4px 10px rgba(0,0,0,.06); background:#fff; }
+  .date-soft .input-group-text { background:#f3f4f6; border:1px solid #e5e7eb; }
+  .date-soft .form-control { background:#fafafa; border:1px solid #e5e7eb; min-height:36px; font-size:.9rem; }
+  .date-soft .form-control:focus { background:#fff; border-color:#86b7fe; box-shadow:0 0 0 .2rem rgba(13,110,253,.15); }
+  .date-soft .btn-clear { border:1px solid #e5e7eb; background:#fff; padding:.25rem .5rem; color:#6c757d; }
+  .date-soft .btn-clear:hover { background:#f8f9fa; }
+  .flatpickr-calendar { z-index: 2000; }
+  .flatpickr-calendar.open { z-index: 3050; }
+</style>
+<script>
+(function(){
+  function mount(){
+    var nodes = document.querySelectorAll('input[data-datepicker]');
+    if (!nodes.length) return;
+    nodes.forEach(function(el){
+      flatpickr(el, {
+        altInput: true,
+        altFormat: 'd/m/Y',
+        dateFormat: 'Y-m-d',
+        allowInput: true,
+        disableMobile: true
+      });
+    });
+    // Clear buttons
+    document.querySelectorAll('button.btn-clear[data-clear]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var name = btn.getAttribute('data-clear');
+        var input = document.querySelector('input[name="'+name+'"]');
+        if (input) { input.value = ''; if (input._flatpickr) input._flatpickr.clear(); }
+      });
+    });
+  }
+  if (typeof window.flatpickr === 'function') {
+    mount();
+  } else {
+    var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/flatpickr'; s.onload = mount; document.head.appendChild(s);
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css'; document.head.appendChild(l);
+  }
+})();
+</script>
+{% endblock %}
