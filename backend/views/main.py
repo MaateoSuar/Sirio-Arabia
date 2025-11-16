@@ -101,7 +101,10 @@ def clientes_create():
     nombre = request.form.get("nombre", "").strip()
     sucursal = request.form.get("sucursal", "").strip()
     telefono = request.form.get("telefono", "").strip()
-    mail = request.form.get("mail", "").strip()
+    mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
+    mail_single = (request.form.get("mail", "") or "").strip()
+    # store as comma-separated for backward compatibility
+    mail = ", ".join(mails) if mails else (mail_single or None)
     relacion = (request.form.get("relacion") or "").strip() or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
     company_id = request.form.get("company_id", type=int)
@@ -185,7 +188,9 @@ def clientes_update(client_id: int):
     obj.nombre = request.form.get("nombre", obj.nombre)
     obj.sucursal = request.form.get("sucursal") or None
     obj.telefono = request.form.get("telefono") or None
-    obj.mail = request.form.get("mail") or None
+    mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
+    mail_single = (request.form.get("mail") or "").strip()
+    obj.mail = (", ".join(mails) if mails else (mail_single or None))
     relacion = (request.form.get("relacion") or "").strip() or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
     obj.fecha_incorporacion = date.fromisoformat(fecha_inc) if fecha_inc else obj.fecha_incorporacion
@@ -259,6 +264,7 @@ def api_client_companies(client_id: int):
                 "id": l.company.id,
                 "label": l.company.nombre,
                 "mail_pedido": l.company.mail_pedido or "",
+                "mail_pago": l.company.mail_pago or "",
                 "status": getattr(l.status, "value", str(l.status))
             })
     # Sort by name
@@ -284,7 +290,9 @@ def empresas_create():
     nombre = request.form.get("nombre", "").strip()
     demora = request.form.get("demora", type=int)
     plazo = request.form.get("plazo", type=int)
-    mail_pedido = request.form.get("mail_pedido", "").strip() or None
+    mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
+    mail_pedido_single = (request.form.get("mail_pedido", "") or "").strip()
+    mail_pedido = ", ".join(mail_pedido_list) if mail_pedido_list else (mail_pedido_single or None)
     mail_pago = request.form.get("mail_pago", "").strip() or None
     company = Company(nombre=nombre or "-", demora_despacho_promedio_dias=demora or 0,
                       plazo_pago_promedio_dias=plazo or 30, mail_pedido=mail_pedido, mail_pago=mail_pago)
@@ -345,7 +353,9 @@ def empresas_update(company_id: int):
     obj.nombre = request.form.get("nombre", obj.nombre)
     obj.demora_despacho_promedio_dias = request.form.get("demora", type=int) or obj.demora_despacho_promedio_dias
     obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
-    obj.mail_pedido = (request.form.get("mail_pedido") or None)
+    mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
+    mail_pedido_single = (request.form.get("mail_pedido") or "").strip()
+    obj.mail_pedido = (", ".join(mail_pedido_list) if mail_pedido_list else (mail_pedido_single or None))
     obj.mail_pago = (request.form.get("mail_pago") or None)
     db.session.commit()
     return redirect(url_for("main.empresas"))
@@ -749,6 +759,31 @@ def api_client_branches(client_id: int):
     Client.query.get_or_404(client_id)
     rows = ClientBranch.query.filter_by(client_id=client_id).order_by(ClientBranch.nombre).all()
     return jsonify([{"id": r.id, "label": r.nombre} for r in rows])
+
+
+@bp.get("/api/pedidos/anteriores")
+def api_prev_orders():
+    client_id = request.args.get("client_id", type=int)
+    company_id = request.args.get("company_id", type=int)
+    limit = request.args.get("limit", default=10, type=int)
+    if not client_id or not company_id:
+        abort(400)
+    q = (
+        Order.query.filter_by(client_id=client_id, company_id=company_id)
+        .order_by(Order.created_at.desc())
+        .limit(max(1, min(limit, 50)))
+    )
+    items = []
+    for o in q.all():
+        items.append({
+            "id": o.id,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+            "nota": o.nota or "",
+            "descripcion": o.descripcion or "",
+            "precio_final": float(o.precio_final or 0),
+            "forma_pago": getattr(o.forma_pago, "value", None),
+        })
+    return jsonify(items)
 
 
 @bp.post("/clientes/<int:client_id>/sucursales")

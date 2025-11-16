@@ -32,8 +32,27 @@
           <input name="plazo" type="number" class="form-control" min="0" value="{{ company.plazo_pago_promedio_dias if company }}">
         </div>
         <div class="col-md-6">
-          <label class="form-label">Mail de pedido</label>
-          <input name="mail_pedido" type="email" class="form-control" value="{{ company.mail_pedido if company }}">
+          {% if company %}<input type="hidden" id="company_mail_pedido_raw" value="{{ company.mail_pedido }}">{% endif %}
+          <div class="mt-3">
+            <div class="d-flex align-items-center justify-content-between">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-collapse" aria-expanded="false" aria-controls="cmp-mails-collapse">Seleccionar mails</button>
+            </div>
+            <div id="cmp-mails-collapse" class="collapse mt-2">
+              <div class="d-flex gap-2 mb-2">
+                <input type="email" class="form-control form-control-sm" id="new_cmp_mail_input" placeholder="Agregar mail" style="max-width:260px">
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddCmpMail">Agregar</button>
+              </div>
+              <div id="cmp-mails-checklist" class="border rounded p-2" style="max-height:200px; overflow:auto"></div>
+              <div class="d-flex justify-content-end mt-2">
+                <button type="button" id="btnConfirmarCmpMails" class="btn btn-sm btn-primary">Confirmar selección</button>
+              </div>
+            </div>
+            <div class="mt-2">
+              <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
+              <div id="cmp-mails-selected" class="mt-1"></div>
+              <div id="cmp-mails-hidden"></div>
+            </div>
+          </div>
         </div>
         <div class="col-md-6">
           <label class="form-label">Mail de pago</label>
@@ -111,6 +130,80 @@
       confirmSelection();
     }
   });
+  render();
+})();
+</script>
+<script>
+(function(){
+  var box = document.getElementById('cmp-mails-checklist');
+  var list = document.getElementById('cmp-mails-selected');
+  var hidWrap = document.getElementById('cmp-mails-hidden');
+  var btnAdd = document.getElementById('btnAddCmpMail');
+  var input = document.getElementById('new_cmp_mail_input');
+  var pagoInput = document.querySelector('input[name="mail_pago"]');
+  if (!box || !list || !hidWrap) return;
+  var confirmed = new Map();
+  function render(){
+    if (confirmed.size === 0){
+      list.innerHTML = '<span class="text-muted">Ninguno</span>';
+      hidWrap.innerHTML = '';
+      return;
+    }
+    var chips = [];
+    var hidden = [];
+    confirmed.forEach(function(_, email){
+      var esc = email.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      chips.push('<span class="badge bg-success text-white me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-chip-del" data-email="'+ esc +'">×</button></span>');
+      hidden.push('<input type="hidden" name="mail_pedido_list" value="'+ email +'">');
+    });
+    list.innerHTML = chips.join('');
+    hidWrap.innerHTML = hidden.join('');
+  }
+  function isValidEmail(v){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  }
+  function addToChecklist(email){
+    if (!email) return;
+    if (!isValidEmail(email)) return;
+    var id = 'cmp_' + btoa(email).replace(/=+/g,'');
+    if (box.querySelector('#'+id)) return;
+    var item = document.createElement('div');
+    item.className = 'form-check';
+    var chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className='form-check-input js-cmp-mail-chk';
+    chk.id = id; chk.value = email;
+    var lbl = document.createElement('label'); lbl.className='form-check-label'; lbl.setAttribute('for', id); lbl.textContent = email;
+    item.appendChild(chk); item.appendChild(lbl);
+    box.appendChild(item);
+  }
+  function confirmSelection(){
+    var checks = box.querySelectorAll('.js-cmp-mail-chk:checked');
+    checks.forEach(function(chk){
+      var email = String(chk.value).trim(); if (email) confirmed.set(email, email);
+      chk.checked = false;
+    });
+    // Si es el primer confirmado y mail_pago está vacío, auto-completar
+    if (pagoInput && !pagoInput.value && confirmed.size > 0) {
+      var first = confirmed.keys().next().value;
+      if (first) pagoInput.value = first;
+    }
+    render();
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    if (t && t.id === 'btnConfirmarCmpMails'){ e.preventDefault(); confirmSelection(); }
+    if (t && t.id === 'btnAddCmpMail'){
+      e.preventDefault(); var val = (input && input.value || '').trim(); if (val){ addToChecklist(val); input.value=''; }
+    }
+    if (t && t.classList.contains('js-chip-del')){
+      e.preventDefault(); var em = t.getAttribute('data-email'); if (em && confirmed.has(em)){ confirmed.delete(em); render(); }
+    }
+  });
+  // Preload from existing value
+  var initialStr = (document.getElementById('company_mail_pedido_raw')?.value || '').trim();
+  if (initialStr){
+    initialStr.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(m){ addToChecklist(m); confirmed.set(m, m); });
+  }
   render();
 })();
 </script>

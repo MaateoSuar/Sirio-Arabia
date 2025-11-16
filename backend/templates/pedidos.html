@@ -38,6 +38,37 @@
       <div class="col-12">
         <textarea class="form-control" id="pedido_descripcion" name="descripcion" rows="6" placeholder="Descripción del pedido (puedes pegar texto desde WhatsApp)"></textarea>
       </div>
+      <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="mb-2">Pedidos anteriores del cliente en esta empresa</h6>
+          <button class="btn btn-sm btn-outline-secondary" type="button" id="refresh-prev">Actualizar</button>
+        </div>
+        <div id="prev-orders" class="list-group small"></div>
+      </div>
+      <div class="col-12">
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-outline-secondary" type="button" id="preview-btn">Vista previa</button>
+          <button class="btn btn-secondary" type="button" id="copy-preview-btn">Copiar borrador</button>
+        </div>
+        <textarea class="form-control mt-2" id="pedido_preview" rows="4" placeholder="Borrador del pedido"></textarea>
+      </div>
+      <div class="col-12">
+        <div class="d-flex align-items-center justify-content-between">
+          <label class="form-label m-0" style="color:#0f766e; font-weight:600">Destinatarios del pedido</label>
+          <div class="d-flex gap-2">
+            <input type="email" class="form-control form-control-sm" id="new_to_input" placeholder="Agregar mail" style="max-width:260px">
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddTo">Agregar</button>
+          </div>
+        </div>
+        <div id="to-checklist" class="border rounded p-2 mt-2" style="max-height:200px; overflow:auto"></div>
+        <div class="d-flex justify-content-end mt-2">
+          <button type="button" id="btnConfirmarTo" class="btn btn-sm btn-primary">Confirmar selección</button>
+        </div>
+        <div class="mt-2">
+          <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Enviar a</div>
+          <div id="to-selected" class="mt-1"></div>
+        </div>
+      </div>
       <div class="col-md-4">
         <input type="email" class="form-control" id="pedido_mail_pedido" placeholder="Mail de pedido de la empresa (se completa al elegir empresa)" disabled>
       </div>
@@ -76,6 +107,17 @@
     const branchSel = document.getElementById('pedido_branch');
     const form = document.getElementById('pedido-form');
     const alertBox = document.getElementById('pedido-alert');
+    const prevWrap = document.getElementById('prev-orders');
+    const refreshPrevBtn = document.getElementById('refresh-prev');
+    const previewBtn = document.getElementById('preview-btn');
+    const copyPrevBtn = document.getElementById('copy-preview-btn');
+    const previewTa = document.getElementById('pedido_preview');
+    // destinatarios
+    const toBox = document.getElementById('to-checklist');
+    const toList = document.getElementById('to-selected');
+    const toAddBtn = document.getElementById('btnAddTo');
+    const toInput = document.getElementById('new_to_input');
+    let toConfirmed = new Set();
     // Guardar opciones completas de empresas por si se requiere restaurar (no usado actualmente)
     const empresaAllOptions = Array.from(empresaSel?.options || []);
 
@@ -83,38 +125,30 @@
     empresaSel?.addEventListener('change', ()=>{
       const opt = empresaSel.options[empresaSel.selectedIndex];
       mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
+      loadPrevOrders();
+      loadRecipientsFromCompany();
     });
 
     const gmailBtn = document.getElementById('gmail-draft-btn');
     gmailBtn?.addEventListener('click', function(){
       const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
-      const to = (empresaOpt && empresaOpt.getAttribute('data-mail')) || '';
+      // Union: confirmados + tildados actualmente
+      let toSet = new Set(Array.from(toConfirmed));
+      if (toBox) {
+        toBox.querySelectorAll('.js-to-chk:checked').forEach(chk=>{
+          const v = String(chk.value).trim(); if (v) toSet.add(v);
+        });
+      }
+      let to = Array.from(toSet);
+      if (!to.length) {
+        const raw = (empresaOpt && empresaOpt.getAttribute('data-mail')) || '';
+        to = raw.split(',').map(s=>s.trim()).filter(Boolean);
+      }
       const clienteText = clienteSel.options[clienteSel.selectedIndex]?.text || '';
       const empresaText = empresaOpt?.text || '';
-      const fecha = fechaInput?.value || '';
-      const suc = branchSel?.options[branchSel.selectedIndex]?.text || '';
-      const nota = notaInput?.value || '';
-      const desc = descInput?.value || '';
-      const precio = precioInput?.value || '';
-      const forma = formaPagoSel?.value || '';
-
-      const subject = encodeURIComponent(`Pedido ${empresaText} - ${clienteText}`);
-      const bodyLines = [
-        `Fecha: ${fecha}`,
-        `Cliente: ${clienteText}`,
-        `Empresa: ${empresaText}`,
-        `Sucursal: ${suc}`,
-        `Forma de pago: ${forma}`,
-        `Precio final: ${precio || '-'}`,
-        '',
-        `Descripción:`,
-        desc,
-        '',
-        `Nota:`,
-        nota
-      ];
-      const body = encodeURIComponent(bodyLines.join('\n'));
-      const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}&body=${body}`;
+      const subject = encodeURIComponent(`Pedido ${clienteText} - ${empresaText}`);
+      const body = encodeURIComponent(buildPreviewText());
+      const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.join(','))}&su=${subject}&body=${body}`;
       window.open(url, '_blank');
     });
 
@@ -149,6 +183,7 @@
           opt.value = e.id;
           opt.textContent = e.label;
           opt.setAttribute('data-mail', e.mail_pedido || '');
+          opt.setAttribute('data-mail-pago', e.mail_pago || '');
           empresaSel.appendChild(opt);
         }
       }catch(e){/* noop */}
@@ -157,6 +192,9 @@
       const id = clienteSel.value;
       loadBranches(id);
       loadCompanies(id);
+      loadPrevOrders();
+      // limpiar destinatarios al cambiar cliente
+      resetRecipients();
     });
 
     // Validación antes de enviar: evitar salir de la página con Bad Request
@@ -178,6 +216,115 @@
       }
       // ocultar alerta si todo ok
       if (alertBox) alertBox.classList.add('d-none');
+    });
+
+    function buildPreviewText(){
+      const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
+      const clienteText = clienteSel.options[clienteSel.selectedIndex]?.text || '';
+      const empresaText = empresaOpt?.text || '';
+      const nota = notaInput?.value || '';
+      const desc = descInput?.value || '';
+      const title = `Pedido ${clienteText} - ${empresaText}`;
+      const lines = [
+        title,
+        '',
+        nota,
+        '',
+        desc
+      ];
+      return lines.join('\n');
+    }
+
+    async function loadPrevOrders(){
+      if(!prevWrap) return;
+      prevWrap.innerHTML = '';
+      const cid = clienteSel?.value; const eid = empresaSel?.value;
+      if(!cid || !eid) return;
+      try{
+        const res = await fetch(`/api/pedidos/anteriores?client_id=${encodeURIComponent(cid)}&company_id=${encodeURIComponent(eid)}&limit=10`);
+        const items = await res.json();
+        if(!Array.isArray(items) || items.length===0){ prevWrap.innerHTML = '<div class="text-muted">Sin pedidos anteriores</div>'; return; }
+        const fr = document.createDocumentFragment();
+        items.forEach((o, idx)=>{
+          const a = document.createElement('div');
+          a.className = 'list-group-item d-flex justify-content-between align-items-start gap-2';
+          const left = document.createElement('div');
+          left.className = 'me-auto';
+          const dt = o.created_at ? new Date(o.created_at) : null;
+          const dtTxt = dt ? dt.toLocaleDateString() : '';
+          const prev = (o.descripcion||'').split('\n').find(Boolean) || (o.nota||'');
+          left.innerHTML = `<div class="fw-semibold">${dtTxt}</div><div class="text-muted">${prev}</div>`;
+          const btns = document.createElement('div');
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.className = 'btn btn-sm btn-outline-primary';
+          copyBtn.textContent = 'Copiar pedido';
+          copyBtn.addEventListener('click', ()=>{
+            notaInput.value = o.nota || '';
+            descInput.value = o.descripcion || '';
+            previewTa.value = buildPreviewText();
+          });
+          btns.appendChild(copyBtn);
+          a.appendChild(left);
+          a.appendChild(btns);
+          fr.appendChild(a);
+        });
+        prevWrap.appendChild(fr);
+      }catch(e){ prevWrap.innerHTML = '<div class="text-danger">Error al cargar</div>'; }
+    }
+
+    refreshPrevBtn?.addEventListener('click', loadPrevOrders);
+    previewBtn?.addEventListener('click', ()=>{ previewTa.value = buildPreviewText(); });
+    copyPrevBtn?.addEventListener('click', async ()=>{
+      const txt = previewTa?.value || buildPreviewText();
+      try{ await navigator.clipboard.writeText(txt); }catch(e){}
+    });
+
+    function resetRecipients(){
+      toConfirmed = new Set();
+      if (toBox) toBox.innerHTML = '';
+      if (toList) toList.innerHTML = '<span class="text-muted">Ninguno</span>';
+    }
+    function renderRecipients(){
+      if (!toList) return;
+      if (toConfirmed.size === 0){
+        toList.innerHTML = '<span class="text-muted">Ninguno</span>';
+        return;
+      }
+      const chips = [];
+      for (const em of toConfirmed){ chips.push(`<span class="badge bg-success text-white me-1 mb-1">${em}</span>`); }
+      toList.innerHTML = chips.join('');
+    }
+    function addRecipientToChecklist(email){
+      if (!toBox || !email) return;
+      const id = 'to_' + btoa(email).replace(/=+/g,'');
+      if (toBox.querySelector('#'+id)) return;
+      const row = document.createElement('div'); row.className='form-check';
+      const chk = document.createElement('input'); chk.type='checkbox'; chk.className='form-check-input js-to-chk'; chk.id=id; chk.value=email;
+      const lbl = document.createElement('label'); lbl.className='form-check-label'; lbl.setAttribute('for', id); lbl.textContent=email;
+      row.appendChild(chk); row.appendChild(lbl); toBox.appendChild(row);
+    }
+    function confirmRecipients(){
+      if (!toBox) return;
+      toBox.querySelectorAll('.js-to-chk:checked').forEach(chk=>{ const val = String(chk.value).trim(); if (val) toConfirmed.add(val); chk.checked=false; });
+      renderRecipients();
+    }
+    function loadRecipientsFromCompany(){
+      resetRecipients();
+      const opt = empresaSel?.options[empresaSel.selectedIndex];
+      const raw = opt ? (opt.getAttribute('data-mail') || '') : '';
+      const pago = opt ? (opt.getAttribute('data-mail-pago') || '') : '';
+      const merged = [raw, pago].filter(Boolean).join(',');
+      if (!merged) { renderRecipients(); return; }
+      merged.split(',').map(s=>s.trim()).filter(Boolean).forEach(addRecipientToChecklist);
+      renderRecipients();
+    }
+    document.addEventListener('click', function(e){
+      const t = e.target;
+      if (t && t.id === 'btnConfirmarTo'){ e.preventDefault(); confirmRecipients(); }
+      if (t && t.id === 'btnAddTo'){
+        e.preventDefault(); const val = (toInput && toInput.value || '').trim(); if (val){ addRecipientToChecklist(val); toInput.value=''; }
+      }
     });
   })();
 </script>
