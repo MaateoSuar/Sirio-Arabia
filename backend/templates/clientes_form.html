@@ -10,11 +10,11 @@
       </style>
       <div class="row g-2 g-md-3">
         <div class="col-md-6">
-          <label class="form-label">Apellido</label>
+          <label class="form-label">Razón social</label>
           <input name="apellido" type="text" class="form-control" value="{{ client.apellido if client }}" required>
         </div>
         <div class="col-md-6">
-          <label class="form-label">Nombre</label>
+          <label class="form-label">Nombre ficticio (opcional)</label>
           <input name="nombre" type="text" class="form-control" value="{{ client.nombre if client }}" required>
         </div>
         <div class="col-md-6">
@@ -29,19 +29,7 @@
           </datalist>
         </div>
         <div class="col-md-6">
-          <label class="form-label">Fecha de incorporación</label>
-          <div class="input-group input-group-sm date-soft" style="overflow:hidden; max-width: 100%;">
-            <span class="input-group-text" id="fi-addon" style="background:#f8f9fa">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/>
-              </svg>
-            </span>
-            <input name="fecha_incorporacion" type="text" class="form-control" aria-describedby="fi-addon" placeholder="Seleccionar fecha" data-datepicker value="{{ client.fecha_incorporacion if client }}">
-            <button class="btn btn-clear btn-sm" type="button" data-clear="fecha_incorporacion">×</button>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Teléfono</label>
+          <label class="form-label">Contacto</label>
           <input name="telefono" type="text" class="form-control" value="{{ client.telefono if client }}">
         </div>
         <div class="col-md-6">
