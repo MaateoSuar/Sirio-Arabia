@@ -199,6 +199,10 @@
           var pendingHref = null;
           function handleClick(ev){
             var a = ev.currentTarget;
+            // No interceptar logout: lo maneja el modal específico
+            if (a.classList && a.classList.contains('logout-link')) {
+              return; // permitir que el otro handler abra el modal
+            }
             var href = a.getAttribute('href');
             var isPedidosLink = a.textContent && a.textContent.toLowerCase().includes('pedidos');
             if (!isPedidosLink && isMobilePortrait()){
@@ -239,22 +243,72 @@
         // Logout links: modal de confirmación estético (Bootstrap)
         (function setupLogoutModal(){
           var pendingLogoutHref = null;
-          var modalEl = document.getElementById('logoutConfirmModal');
-          var modal = modalEl ? new bootstrap.Modal(modalEl) : null;
-          var confirmBtn = document.getElementById('logoutConfirmBtn');
+
+          function manualShowModal(modalEl){
+            if (!modalEl) return;
+            modalEl.classList.add('show');
+            modalEl.style.display = 'block';
+            modalEl.removeAttribute('aria-hidden');
+            modalEl.setAttribute('aria-modal', 'true');
+            if (!document.getElementById('logoutBackdrop')){
+              var bd = document.createElement('div');
+              bd.id = 'logoutBackdrop';
+              bd.className = 'modal-backdrop fade show';
+              document.body.appendChild(bd);
+            }
+            // Bind close buttons (once)
+            var bindClose = function(btn){
+              if (btn && !btn._boundManualClose){
+                btn.addEventListener('click', function(){ manualHideModal(modalEl); });
+                btn._boundManualClose = true;
+              }
+            };
+            bindClose(modalEl.querySelector('[data-bs-dismiss="modal"]'));
+            bindClose(modalEl.querySelector('.btn-close'));
+          }
+          function manualHideModal(modalEl){
+            if (!modalEl) return;
+            modalEl.classList.remove('show');
+            modalEl.style.display = 'none';
+            modalEl.setAttribute('aria-hidden', 'true');
+            modalEl.removeAttribute('aria-modal');
+            var bd = document.getElementById('logoutBackdrop');
+            if (bd) bd.remove();
+          }
 
           function openConfirmFor(href){
             pendingLogoutHref = href;
-            if (modal) modal.show();
-          }
-
-          if (confirmBtn){
-            confirmBtn.addEventListener('click', function(){
-              if (pendingLogoutHref){
-                window.location.href = pendingLogoutHref;
-                pendingLogoutHref = null;
+            // Buscar/crear el modal en el momento del click (el script carga antes que el markup)
+            var modalEl = document.getElementById('logoutConfirmModal');
+            var ModalCtor = window.bootstrap && window.bootstrap.Modal;
+            var modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
+            if (modal) {
+              modal.show();
+              // Vincular (si no está) el botón de confirmar ahora que el DOM del modal existe
+              var confirmBtn = document.getElementById('logoutConfirmBtn');
+              if (confirmBtn && !confirmBtn._boundLogout){
+                confirmBtn.addEventListener('click', function(){
+                  if (pendingLogoutHref){
+                    window.location.href = pendingLogoutHref;
+                    pendingLogoutHref = null;
+                  }
+                });
+                confirmBtn._boundLogout = true;
               }
-            });
+            } else {
+              // Fallback manual sin window.confirm (evitar alerta nativa)
+              manualShowModal(modalEl);
+              var confirmBtn2 = document.getElementById('logoutConfirmBtn');
+              if (confirmBtn2 && !confirmBtn2._boundLogout){
+                confirmBtn2.addEventListener('click', function(){
+                  if (pendingLogoutHref){
+                    window.location.href = pendingLogoutHref;
+                    pendingLogoutHref = null;
+                  }
+                });
+                confirmBtn2._boundLogout = true;
+              }
+            }
           }
 
           document.querySelectorAll('.logout-link').forEach(function(a){
@@ -276,7 +330,12 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
           </div>
           <div class="modal-body pt-0">
-            ¿Deseás cerrar la sesión actual?
+            <div class="alert alert-warning d-flex align-items-center gap-2 mb-0" role="alert">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              <div>
+                Vas a cerrar la sesión actual. ¿Deseás continuar?
+              </div>
+            </div>
           </div>
           <div class="modal-footer border-0">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
