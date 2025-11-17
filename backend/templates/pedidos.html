@@ -1,8 +1,41 @@
-{% extends 'layout.html' %}
+    {% extends 'layout.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Registro de Venta / Pedido</h1>
-  <div></div>
+  <div>
+    <button class="btn btn-outline-primary" type="button" id="pending-open-btn">Pendientes</button>
+  </div>
+</div>
+<!-- Modal Pendientes -->
+<div class="modal fade" id="draftsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Pendientes</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Empresa</th>
+                <th class="text-end">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="drafts-tbody">
+              <tr><td colspan="3" class="text-center text-muted">Sin borradores</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 </div>
 <div class="card mb-4">
   <div class="card-body">
@@ -110,6 +143,8 @@
     const previewBtn = document.getElementById('preview-btn');
     const copyPrevBtn = document.getElementById('copy-preview-btn');
     const previewTa = document.getElementById('pedido_preview');
+    const draftsOpenBtn = document.getElementById('pending-open-btn');
+    const draftsTbody = document.getElementById('drafts-tbody');
     // destinatarios
     const toBox = document.getElementById('to-checklist');
     const toList = document.getElementById('to-selected');
@@ -121,10 +156,15 @@
 
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
     empresaSel?.addEventListener('change', ()=>{
+      // Al cambiar empresa, limpiar campos y luego intentar cargar borrador del nuevo par
+      clearFormForClientChange();
       const opt = empresaSel.options[empresaSel.selectedIndex];
       if (mailInput) mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
       loadPrevOrders();
       loadRecipientsFromCompany();
+      // auto-cargar borrador del par actual
+      const cid = clienteSel?.value; const eid = empresaSel?.value; if (cid && eid) { loadDraft(cid, eid); }
+      saveDraft();
     });
 
     const gmailBtn = document.getElementById('gmail-draft-btn');
@@ -191,11 +231,13 @@
     }
     clienteSel?.addEventListener('change', ()=>{
       const id = clienteSel.value;
+      clearFormForClientChange();
       loadBranches(id);
       loadCompanies(id);
       loadPrevOrders();
       // limpiar destinatarios al cambiar cliente
       resetRecipients();
+      saveDraft();
     });
 
     // Validación antes de enviar: evitar salir de la página con Bad Request
@@ -217,6 +259,12 @@
       }
       // ocultar alerta si todo ok
       if (alertBox) alertBox.classList.add('d-none');
+      // eliminar borrador del par al crear pedido
+      try{
+        const cid = clienteSel?.value || '';
+        const eid = empresaSel?.value || '';
+        if (cid && eid) localStorage.removeItem(draftKey(cid, eid));
+      }catch(err){}
     });
 
     function buildPreviewText(){
@@ -238,6 +286,20 @@
       ];
       return lines.join('\n');
     }
+
+    // Guardado automático al escribir
+    ;[notaInput, descInput, precioInput, formaPagoSel, branchSel, fechaInput].forEach(el=>{
+      if (!el) return;
+      el.addEventListener('input', saveDraft);
+      el.addEventListener('change', saveDraft);
+    });
+
+    // Abrir modal de borradores
+    draftsOpenBtn?.addEventListener('click', ()=>{
+      populateDraftsModal();
+      const modalEl = document.getElementById('draftsModal');
+      const M = window.bootstrap && window.bootstrap.Modal; if (M) M.getOrCreateInstance(modalEl).show();
+    });
 
     async function loadPrevOrders(){
       if(!prevWrap) return;

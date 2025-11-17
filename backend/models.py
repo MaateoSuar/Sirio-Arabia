@@ -148,3 +148,19 @@ class OrderAttachment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     order = db.relationship("Order", backref=db.backref("attachments", cascade="all, delete-orphan"))
+
+
+class OrderDraft(db.Model):
+    __tablename__ = "order_draft"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+    branch_id = db.Column(db.Integer)
+    sucursal = db.Column(db.String(120))
+    nota = db.Column(db.Text)
+    descripcion = db.Column(db.Text)
+    precio_final = db.Column(db.Numeric(12, 2))
+    forma_pago = db.Column(db.Enum(PaymentMethod))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_draft_client_company"),)
