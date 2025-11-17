@@ -1,9 +1,9 @@
-    {% extends 'layout.html' %}
+{% extends 'layout.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Registro de Venta / Pedido</h1>
   <div>
-    <button class="btn btn-outline-primary" type="button" id="pending-open-btn">Pendientes</button>
+    <button class="btn btn-outline-success" type="button" id="pending-open-btn">Pendientes</button>
   </div>
 </div>
 <!-- Modal Pendientes -->
@@ -36,6 +36,23 @@
     </div>
   </div>
 </div>
+<!-- Modal Confirmación Eliminar Borrador -->
+<div class="modal fade" id="confirmDeleteDraftModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Eliminar borrador</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmDeleteDraftText" class="mb-0">¿Querés eliminar este borrador?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteDraftBtn">Eliminar</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div class="card mb-4">
   <div class="card-body">
@@ -46,7 +63,7 @@
         <input type="date" class="form-control" id="pedido_fecha" name="fecha_compra" value="{{ today }}">
       </div>
       <div class="col-md-3">
-        <select class="form-select" id="pedido_cliente" name="client_id">
+        <select class="form-select" id="pedido_cliente" name="client_id" required onchange="window.__onSelChange && window.__onSelChange()">
           <option value="">Cliente...</option>
           {% for c in clientes %}
             <option value="{{ c.id }}" data-razon="{{ c.apellido }}" data-nombre="{{ c.nombre }}">{{ c.apellido }}</option>
@@ -59,7 +76,7 @@
         </select>
       </div>
       <div class="col-md-3">
-        <select class="form-select" id="pedido_empresa" name="company_id">
+        <select class="form-select" id="pedido_empresa" name="company_id" required onchange="window.__onSelChange && window.__onSelChange()">
           <option value="">Empresa...</option>
           {% for e in empresas %}
             <option value="{{ e.id }}" data-mail="{{ e.mail_pedido or '' }}">{{ e.nombre }}</option>
@@ -119,7 +136,8 @@
         <input type="file" name="attachments" id="pedido_attachments" class="form-control" multiple accept="image/*">
       </div>
       <div class="col-12 d-flex flex-wrap gap-2">
-        <button class="btn btn-primary w-100 w-md-auto" type="button" id="gmail-draft-btn">Enviar pedido por mail</button>
+        <button class="btn btn-outline-success w-100 w-md-auto" type="button" id="save-pending-btn">Dejar pendiente</button>
+        <button class="btn btn-success w-100 w-md-auto" type="button" id="gmail-draft-btn">Enviar pedido por mail</button>
         <button class="btn btn-outline-secondary w-100 w-md-auto" type="submit">Crear Pedido</button>
       </div>
     </form>
@@ -145,6 +163,9 @@
     const previewTa = document.getElementById('pedido_preview');
     const draftsOpenBtn = document.getElementById('pending-open-btn');
     const draftsTbody = document.getElementById('drafts-tbody');
+    const confirmDelModalEl = document.getElementById('confirmDeleteDraftModal');
+    const confirmDelText = document.getElementById('confirmDeleteDraftText');
+    const confirmDelBtn = document.getElementById('confirmDeleteDraftBtn');
     // destinatarios
     const toBox = document.getElementById('to-checklist');
     const toList = document.getElementById('to-selected');
@@ -153,18 +174,202 @@
     let toConfirmed = new Set();
     // Guardar opciones completas de empresas por si se requiere restaurar (no usado actualmente)
     const empresaAllOptions = Array.from(empresaSel?.options || []);
+    let pendingDeleteDraft = null;
+
+    // =========================
+    // Borradores (localStorage)
+    // =========================
+    function draftKey(clientId, companyId){
+      return `pedido_draft_${clientId}_${companyId}`;
+    }
+    function collectDraft(){
+      const cid = clienteSel?.value || '';
+      const eid = empresaSel?.value || '';
+      if (!cid || !eid) return null;
+      const clienteOpt = clienteSel.options[clienteSel.selectedIndex];
+      const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
+      return {
+        client_id: String(cid),
+        company_id: String(eid),
+        client_label: (clienteOpt?.getAttribute('data-razon') || clienteOpt?.text || ''),
+        company_label: (empresaOpt?.text || ''),
+        branch_id: branchSel?.value || '',
+        sucursal: (branchSel && branchSel.value) ? (branchSel.options[branchSel.selectedIndex]?.text || '') : '',
+        nota: notaInput?.value || '',
+        descripcion: descInput?.value || '',
+        precio_final: precioInput?.value || '',
+        forma_pago: formaPagoSel?.value || '',
+        fecha_compra: fechaInput?.value || ''
+      };
+    }
+    function saveDraft(){
+      try{
+        const d = collectDraft();
+        if (!d) return;
+        localStorage.setItem(draftKey(d.client_id, d.company_id), JSON.stringify(d));
+      }catch(e){/* noop */}
+    }
+    function listDrafts(){
+      const items = [];
+      try{
+        for (let i=0;i<localStorage.length;i++){
+          const k = localStorage.key(i);
+          if (!k || !k.startsWith('pedido_draft_')) continue;
+          try{
+            const v = JSON.parse(localStorage.getItem(k)||'null');
+            if (v && v.client_id && v.company_id) items.push(v);
+          }catch(err){/* ignore bad */}
+        }
+      }catch(e){}
+      // ordenar por client_label/company_label para vista estable
+      items.sort((a,b)=>{
+        const ca = (a.client_label||'').localeCompare(b.client_label||'');
+        if (ca!==0) return ca;
+        return (a.company_label||'').localeCompare(b.company_label||'');
+      });
+      return items;
+    }
+    function populateDraftsModal(){
+      if (!draftsTbody) return;
+      const drafts = listDrafts();
+      draftsTbody.innerHTML = '';
+      if (!drafts.length){
+        draftsTbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Sin borradores</td></tr>';
+        return;
+      }
+      const fr = document.createDocumentFragment();
+      for (const d of drafts){
+        const tr = document.createElement('tr');
+        const tdC = document.createElement('td'); tdC.textContent = d.client_label || d.client_id;
+        const tdE = document.createElement('td'); tdE.textContent = d.company_label || d.company_id;
+        const tdA = document.createElement('td'); tdA.className = 'text-end d-flex justify-content-end gap-2';
+        const btn = document.createElement('button'); btn.type='button'; btn.className='btn btn-sm btn-outline-primary'; btn.textContent='Cargar';
+        btn.addEventListener('click', async ()=>{
+          // Seleccionar cliente y cargar empresas correspondientes
+          if (clienteSel){
+            clienteSel.value = String(d.client_id);
+            clienteSel.dispatchEvent(new Event('change'));
+          }
+          // Esperar a que se carguen empresas para ese cliente
+          try{
+            // loadCompanies está en este scope; volver a cargar para el cliente actual
+            await loadCompanies(String(d.client_id));
+          }catch(e){}
+          if (empresaSel){
+            empresaSel.value = String(d.company_id);
+            empresaSel.dispatchEvent(new Event('change'));
+          }
+          applyDraft(d);
+          // cerrar modal si existe bootstrap
+          const modalEl = document.getElementById('draftsModal');
+          const M = window.bootstrap && window.bootstrap.Modal;
+          if (M && modalEl) {
+            try{ M.getOrCreateInstance(modalEl).hide(); }catch(e){}
+          }
+        });
+        const delBtn = document.createElement('button'); delBtn.type='button'; delBtn.className='btn btn-sm btn-outline-danger'; delBtn.textContent='Eliminar';
+        delBtn.addEventListener('click', ()=>{
+          pendingDeleteDraft = { client_id: String(d.client_id), company_id: String(d.company_id), client_label: d.client_label, company_label: d.company_label };
+          if (confirmDelText){
+            const cl = d.client_label || d.client_id; const co = d.company_label || d.company_id;
+            confirmDelText.textContent = `¿Querés eliminar el borrador de ${cl} - ${co}?`;
+          }
+          const M = window.bootstrap && window.bootstrap.Modal;
+          if (M && confirmDelModalEl){ M.getOrCreateInstance(confirmDelModalEl).show(); }
+          else if (confirmDelModalEl){ confirmDelModalEl.classList.add('show'); confirmDelModalEl.style.display='block'; }
+        });
+        tdA.appendChild(btn);
+        tdA.appendChild(delBtn);
+        tr.appendChild(tdC); tr.appendChild(tdE); tr.appendChild(tdA);
+        fr.appendChild(tr);
+      }
+      draftsTbody.appendChild(fr);
+    }
+    function applyDraft(d){
+      if (!d) return;
+      try{
+        if (fechaInput) fechaInput.value = d.fecha_compra || fechaInput.value || '';
+        if (notaInput) notaInput.value = d.nota || '';
+        if (descInput) descInput.value = d.descripcion || '';
+        if (precioInput) precioInput.value = d.precio_final || '';
+        if (formaPagoSel) formaPagoSel.value = d.forma_pago || '';
+        if (branchSel){
+          // asegurar opción de sucursal si viene un ID que aún no está cargado
+          const id = String(d.branch_id || '');
+          if (id){
+            let found = false;
+            Array.from(branchSel.options).forEach(o=>{ if (String(o.value)===id) found = true; });
+            if (!found){
+              const opt = document.createElement('option'); opt.value = id; opt.textContent = d.sucursal || ('Sucursal '+id);
+              branchSel.appendChild(opt);
+            }
+            branchSel.value = id;
+          } else {
+            branchSel.value = '';
+          }
+        }
+        if (previewTa) previewTa.value = buildPreviewText();
+      }catch(e){}
+    }
+    function tryLoadDraftForSelection(){
+      const cid = clienteSel?.value || '';
+      const eid = empresaSel?.value || '';
+      if (!cid || !eid) return;
+      try{
+        const raw = localStorage.getItem(draftKey(cid, eid));
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        if (d) applyDraft(d);
+      }catch(e){}
+    }
+    function clearFormForClientChange(){
+      try{
+        if (notaInput) notaInput.value = '';
+        if (descInput) descInput.value = '';
+        if (precioInput) precioInput.value = '';
+        if (formaPagoSel) formaPagoSel.value = '';
+        if (fechaInput) {
+          // mantener fecha actual visible; si se quiere, se puede resetear a today (ya viene en value por backend)
+          // fechaInput.value = fechaInput.getAttribute('value') || '';
+        }
+        if (branchSel){
+          branchSel.innerHTML = '<option value="">Sucursal del cliente...</option>';
+          branchSel.value = '';
+        }
+        const attach = document.getElementById('pedido_attachments');
+        if (attach) attach.value = '';
+      }catch(e){}
+    }
+
+    // Helpers de habilitación
+    function setFormEnabled(enabled){
+      const previewArea = document.getElementById('pedido_preview');
+      const attach = document.getElementById('pedido_attachments');
+      const targets = [notaInput, descInput, precioInput, formaPagoSel, fechaInput, branchSel, attach, previewArea];
+      targets.forEach(el=>{
+        if (!el) return;
+        if (enabled) { el.disabled = false; el.removeAttribute('disabled'); }
+        else { el.disabled = true; el.setAttribute('disabled','disabled'); }
+      });
+      // botones secundarios
+      [previewBtn, copyPrevBtn, document.getElementById('gmail-draft-btn')].forEach(b=>{ if (!b) return; if (enabled){ b.disabled=false; b.removeAttribute('disabled'); } else { b.disabled=true; b.setAttribute('disabled','disabled'); } });
+    }
+    function updateEnabledBySelection(){
+      const hasBoth = Boolean(clienteSel?.value) && Boolean(empresaSel?.value);
+      setFormEnabled(hasBoth);
+      if (hasBoth && branchSel){ branchSel.disabled = false; branchSel.removeAttribute('disabled'); }
+    }
 
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
     empresaSel?.addEventListener('change', ()=>{
-      // Al cambiar empresa, limpiar campos y luego intentar cargar borrador del nuevo par
+      // Al cambiar empresa, solo limpiar (no guardar automático)
       clearFormForClientChange();
       const opt = empresaSel.options[empresaSel.selectedIndex];
       if (mailInput) mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
       loadPrevOrders();
       loadRecipientsFromCompany();
-      // auto-cargar borrador del par actual
-      const cid = clienteSel?.value; const eid = empresaSel?.value; if (cid && eid) { loadDraft(cid, eid); }
-      saveDraft();
+      updateEnabledBySelection();
+      tryLoadDraftForSelection();
     });
 
     const gmailBtn = document.getElementById('gmail-draft-btn');
@@ -231,13 +436,16 @@
     }
     clienteSel?.addEventListener('change', ()=>{
       const id = clienteSel.value;
+      // Al cambiar cliente, solo limpiar (no guardar automático)
       clearFormForClientChange();
       loadBranches(id);
       loadCompanies(id);
       loadPrevOrders();
       // limpiar destinatarios al cambiar cliente
       resetRecipients();
-      saveDraft();
+      updateEnabledBySelection();
+      // Intentar cargar borrador si ya hay empresa seleccionada
+      tryLoadDraftForSelection();
     });
 
     // Validación antes de enviar: evitar salir de la página con Bad Request
@@ -298,8 +506,65 @@
     draftsOpenBtn?.addEventListener('click', ()=>{
       populateDraftsModal();
       const modalEl = document.getElementById('draftsModal');
-      const M = window.bootstrap && window.bootstrap.Modal; if (M) M.getOrCreateInstance(modalEl).show();
+      const M = window.bootstrap && window.bootstrap.Modal;
+      if (M) {
+        M.getOrCreateInstance(modalEl).show();
+      } else if (modalEl) {
+        modalEl.classList.add('show'); modalEl.style.display='block';
+        if (!document.getElementById('draftsModalBackdrop')){
+          const bd = document.createElement('div'); bd.id='draftsModalBackdrop'; bd.className='modal-backdrop fade show'; document.body.appendChild(bd);
+        }
+      }
+      // asegurar estado correcto de habilitación
+      updateEnabledBySelection();
     });
+
+    // Confirmación de eliminación de borrador
+    confirmDelBtn?.addEventListener('click', ()=>{
+      if (!pendingDeleteDraft) return;
+      try {
+        localStorage.removeItem(draftKey(pendingDeleteDraft.client_id, pendingDeleteDraft.company_id));
+      } catch(e) {}
+      // Actualizar tabla
+      try { populateDraftsModal(); } catch(e) {}
+      // Cerrar modal de confirmación
+      const M = window.bootstrap && window.bootstrap.Modal;
+      if (M && confirmDelModalEl){ try{ M.getOrCreateInstance(confirmDelModalEl).hide(); }catch(e){} }
+      else if (confirmDelModalEl){ confirmDelModalEl.classList.remove('show'); confirmDelModalEl.style.display='none'; }
+      pendingDeleteDraft = null;
+    });
+
+    // Botón Dejar pendiente: guarda y actualiza la lista
+    const savePendingBtn = document.getElementById('save-pending-btn');
+    savePendingBtn?.addEventListener('click', ()=>{
+      const cid = clienteSel?.value || '';
+      const eid = empresaSel?.value || '';
+      if (!cid || !eid){
+        alert('Seleccioná Cliente y Empresa antes de dejar pendiente.');
+        return;
+      }
+      const d = collectDraft();
+      if (!d){ alert('Seleccioná Cliente y Empresa antes.'); return; }
+      try { localStorage.setItem(draftKey(d.client_id, d.company_id), JSON.stringify(d)); } catch(e){}
+      // feedback simple
+      try { populateDraftsModal(); } catch(e){}
+      // Limpiar el formulario como preticket
+      clearFormForClientChange();
+      // opcional: limpiar preview
+      if (previewTa) previewTa.value = '';
+      // limpiar destinatarios
+      resetRecipients();
+    });
+
+    // Exponer handler para onchange inline de selects
+    window.__onSelChange = function(){
+      try { updateEnabledBySelection(); } catch(e){}
+    };
+
+    // Estado inicial
+    updateEnabledBySelection();
+    // Si al cargar la página ya hay selección, intentar cargar borrador
+    tryLoadDraftForSelection();
 
     async function loadPrevOrders(){
       if(!prevWrap) return;
@@ -358,7 +623,10 @@
         return;
       }
       const chips = [];
-      for (const em of toConfirmed){ chips.push(`<span class="badge bg-success text-white me-1 mb-1">${em}</span>`); }
+      for (const em of toConfirmed){
+        const safe = String(em).replace(/"/g, '&quot;');
+        chips.push(`<span class="badge bg-success text-white me-1 mb-1 d-inline-flex align-items-center">${safe}<button type="button" class="btn-close btn-close-white btn-sm ms-1 js-remove-to" data-email="${safe}" aria-label="Quitar"></button></span>`);
+      }
       toList.innerHTML = chips.join('');
     }
     function addRecipientToChecklist(email){
@@ -390,6 +658,12 @@
       if (t && t.id === 'btnConfirmarTo'){ e.preventDefault(); confirmRecipients(); }
       if (t && t.id === 'btnAddTo'){
         e.preventDefault(); const val = (toInput && toInput.value || '').trim(); if (val){ addRecipientToChecklist(val); toInput.value=''; }
+      }
+      const btn = t && (t.classList && (t.classList.contains('js-remove-to') ? t : t.closest && t.closest('.js-remove-to')));
+      if (btn){
+        e.preventDefault();
+        const em = btn.getAttribute('data-email') || '';
+        if (em){ toConfirmed.delete(em); renderRecipients(); }
       }
     });
   })();
