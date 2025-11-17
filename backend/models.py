@@ -40,6 +40,9 @@ class Client(db.Model):
     apellido = db.Column(db.String(120), nullable=False)
     nombre = db.Column(db.String(120), nullable=False)
     sucursal = db.Column(db.String(120))
+    direccion_principal = db.Column(db.String(255))
+    transporte_recomendado = db.Column(db.String(120))
+    provincia = db.Column(db.String(80))
     fecha_incorporacion = db.Column(db.Date, default=date.today)
     telefono = db.Column(db.String(50))
     mail = db.Column(db.String(255))
@@ -47,6 +50,7 @@ class Client(db.Model):
     links = db.relationship("ClientCompanyLink", backref="client", cascade="all, delete-orphan")
     orders = db.relationship("Order", backref="client", cascade="all, delete-orphan")
     branches = db.relationship("ClientBranch", backref="client", cascade="all, delete-orphan")
+    documents = db.relationship("ClientDocument", backref="client", cascade="all, delete-orphan")
 
     @property
     def empresas_trabaja(self):
@@ -164,3 +168,16 @@ class OrderDraft(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_draft_client_company"),)
+
+
+class ClientDocument(db.Model):
+    __tablename__ = "client_document"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    filepath = db.Column(db.String(500), nullable=False)
+    # Nuevo: soporte de almacenamiento en DB (Postgres) para archivos
+    data = db.Column(db.LargeBinary)
+    mimetype = db.Column(db.String(120))
+    size = db.Column(db.Integer)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)

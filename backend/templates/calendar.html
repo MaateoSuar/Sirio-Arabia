@@ -1,0 +1,103 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Calendario</h1>
+  <div class="d-flex align-items-center gap-2">
+    <div class="btn-group" role="group" aria-label="Vistas de calendario">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-view="dayGridMonth">Mes</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-view="listWeek">Lista</button>
+    </div>
+  </div>
+</div>
+<style>
+  .fc .fc-toolbar-title { font-size: 1.2rem; color:#0f766e; font-weight:600; text-transform: capitalize; }
+  .fc .fc-button-primary { background:#0f766e; border-color:#0f766e; }
+  .fc .fc-button-primary:disabled { background:#0f766e; border-color:#0f766e; opacity:.65 }
+  .fc .fc-daygrid-dot-event .fc-event-title { font-weight: 500; }
+  .fc-theme-standard td, .fc-theme-standard th { border-color: #e5e7eb; }
+  .fc .fc-day-today { background: #ecfeff; }
+  /* Colores de letras y números en encabezados y días */
+  .fc .fc-col-header-cell-cushion { color:#0f766e; font-weight:600; }
+  .fc .fc-daygrid-day-number { color:#0f766e; font-weight:600; }
+  /* Ocultar número de día solo en vista Mes para evitar superposición */
+  .fc-view-dayGridMonth .fc-daygrid-day-number { display: none; }
+  .fc .fc-daygrid-day { cursor: pointer; }
+  /* Lista: ocultar columna de hora para no mostrar 'all-day' */
+  .fc .fc-list-event-time { display: none; }
+  .fc .fc-list-event-title { padding-left: 0; }
+  .calendar-card { border-radius:.75rem; box-shadow:0 8px 24px rgba(0,0,0,.08); border:1px solid #e5e7eb; overflow:hidden; }
+</style>
+<div class="card calendar-card">
+  <div class="card-body p-0">
+    <div id="sirioCalendar"></div>
+  </div>
+</div>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script>
+(function(){
+  var calendarEl = document.getElementById('sirioCalendar');
+  if (!calendarEl || !window.FullCalendar) return;
+  var initialDate = '{{ today }}';
+  var cal = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    initialDate: initialDate,
+    locale: 'es',
+    firstDay: 1,
+    buttonText: { today: '↻ Hoy', month: 'Mes', list: 'Lista' },
+    noEventsText: 'Sin eventos para mostrar',
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: ''
+    },
+    height: 'auto',
+    contentHeight: 720,
+    expandRows: true,
+    themeSystem: 'standard',
+    eventDisplay: 'block',
+    displayEventTime: false,
+    editable: false,
+    selectable: false,
+    nowIndicator: true,
+    allDaySlot: false,
+    dayMaxEventRows: true,
+    moreLinkClick: 'popover',
+    moreLinkText: function(args){ return '+ ver más'; },
+    dayHeaderContent: function(arg){
+      var map = ['Dom','Lun','Mar','Mier','Jue','Vie','Sab'];
+      return map[arg.date.getDay()];
+    },
+    navLinks: true,
+    dateClick: function(info){
+      if (cal) { cal.changeView('listDay', info.dateStr); }
+    },
+    dayCellDidMount: function(arg){
+      var el = arg.el;
+      if (!el) return;
+      el.setAttribute('role','button');
+      el.setAttribute('tabindex','0');
+      el.addEventListener('click', function(){ if (cal) cal.changeView('listDay', arg.date.toISOString().slice(0,10)); });
+      el.addEventListener('keydown', function(ev){ if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); if (cal) cal.changeView('listDay', arg.date.toISOString().slice(0,10)); }});
+    },
+    events: function(info, success, failure){
+      var url = "{{ url_for('main.api_calendario_events') }}" + '?start=' + encodeURIComponent(info.startStr) + '&end=' + encodeURIComponent(info.endStr);
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(data){ success(data || []); })
+        .catch(function(err){ failure(err); });
+    },
+    eventDidMount: function(info){
+      // Tooltip simple
+      var t = info.event.title || '';
+      info.el.setAttribute('title', t);
+    }
+  });
+  cal.render();
+  // Vista switcher
+  document.querySelectorAll('[data-view]').forEach(function(btn){
+    btn.addEventListener('click', function(){ var v = btn.getAttribute('data-view'); if(v){ cal.changeView(v); } });
+  });
+})();
+</script>
+{% endblock %}

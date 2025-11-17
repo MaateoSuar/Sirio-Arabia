@@ -19,13 +19,13 @@
         .badge-client { background-color: #0f766e; }
       </style>
       <div class="row g-3">
-        <div class="col-md-12">
-          <label class="form-label">Razón social</label>
-          <input name="nombre" type="text" class="form-control" value="{{ company.nombre if company }}" required>
-        </div>
         <div class="col-md-6">
           <label class="form-label">Marca</label>
           <input name="marca" type="text" class="form-control" value="{{ company.marca if company }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Razón social</label>
+          <input name="nombre" type="text" class="form-control" value="{{ company.nombre if company }}" required>
         </div>
         <div class="col-md-6">
           <label class="form-label">Demora despacho promedio (días)</label>

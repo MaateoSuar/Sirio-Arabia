@@ -10,14 +10,14 @@
       </style>
       <div class="row g-2 g-md-3">
         <div class="col-md-6">
-          <label class="form-label">Razón social</label>
-          <input name="apellido" type="text" class="form-control" value="{{ client.apellido if client }}" required>
+          <label class="form-label">Nombre</label>
+          <input name="nombre" type="text" class="form-control" value="{{ client.nombre if client }}" required>
         </div>
         <!-- Datos JSON para precargar sucursales del cliente (evita Jinja dentro de JS) -->
         <script type="application/json" id="branches-data">{{ (client.branches|map(attribute='nombre')|list)|tojson if client else '[]' }}</script>
         <div class="col-md-6">
-          <label class="form-label">Nombre ficticio (opcional)</label>
-          <input name="nombre" type="text" class="form-control" value="{{ client.nombre if client }}" required>
+          <label class="form-label">Razón social</label>
+          <input name="apellido" type="text" class="form-control" value="{{ client.apellido if client }}" required>
         </div>
         <div class="col-12">
           <div class="d-flex align-items-center justify-content-between">
@@ -43,6 +43,27 @@
             <div id="branches-selected" class="mt-1"></div>
             <div id="branches-hidden"></div>
           </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Dirección principal</label>
+          <input name="direccion_principal" type="text" class="form-control" value="{{ client.direccion_principal if client }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Transporte recomendado</label>
+          <input name="transporte_recomendado" type="text" class="form-control" value="{{ client.transporte_recomendado if client }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Provincia</label>
+          <select name="provincia" class="form-select">
+            <option value="">Seleccionar...</option>
+            {% set pv = (client.provincia if client else '') or '' %}
+            <option value="Tucuman" {{ 'selected' if pv=='Tucuman' else '' }}>Tucumán</option>
+            <option value="Sgo del Estero" {{ 'selected' if pv=='Sgo del Estero' else '' }}>Sgo del Estero</option>
+            <option value="Salta" {{ 'selected' if pv=='Salta' else '' }}>Salta</option>
+            <option value="Jujuy" {{ 'selected' if pv=='Jujuy' else '' }}>Jujuy</option>
+            <option value="Catamarca" {{ 'selected' if pv=='Catamarca' else '' }}>Catamarca</option>
+            <option value="La Rioja" {{ 'selected' if pv=='La Rioja' else '' }}>La Rioja</option>
+          </select>
         </div>
         <div class="col-md-6">
           <label class="form-label">Contacto</label>

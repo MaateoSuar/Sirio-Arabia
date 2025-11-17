@@ -10,20 +10,35 @@
   .table-relaxed .d-flex.gap-1 { gap: .35rem !important; }
   /* Ajuste local: reducir espacio superior del contenido en esta vista */
   main.col { padding-top: 1rem !important; }
+  /* Filtro provincia input */
+  .prov-input { max-width: 240px; }
+  /* (revertido) */
+  .btn-create-client { white-space: nowrap; min-width: 160px; }
 </style>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4 mb-0">Legajo de Clientes</h1>
-  <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary">+ Crear Cliente</a>
+  <div class="d-flex align-items-center gap-2">
+    <select id="provSelect" class="form-select form-select-sm prov-input" aria-label="Filtrar por provincia">
+      <option value="">Todas las provincias</option>
+      <option value="tucuman">Tucumán</option>
+      <option value="sgo del estero">Sgo del Estero</option>
+      <option value="salta">Salta</option>
+      <option value="jujuy">Jujuy</option>
+      <option value="catamarca">Catamarca</option>
+      <option value="la rioja">La Rioja</option>
+    </select>
+    <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary btn-create-client">+ Crear Cliente</a>
+  </div>
 </div>
 <div class="card">
   <div class="card-body p-0">
     <div class="desktop-table">
       <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0 table-relaxed w-100">
+        <table class="table table-hover align-middle mb-0 table-relaxed w-100" id="clientes-table">
         <thead class="table-light">
           <tr>
+            <th>Nombre</th>
             <th>Razón social</th>
-            <th>Nombre ficticio</th>
             <th>Sucursal</th>
             <th>Contacto</th>
             <th>Mail</th>
@@ -33,38 +48,37 @@
         </thead>
         <tbody>
         {% for c in items %}
-          <tr>
-            <td>{{ c.apellido }}</td>
+          <tr data-prov="{{ (c.provincia or '')|lower }}">
             <td>{{ c.nombre }}</td>
+            <td>{{ c.apellido }}</td>
             <td>{{ c.sucursal or '-' }}</td>
             <td>{{ c.telefono or '-' }}</td>
             <td>{{ c.mail or '-' }}</td>
             <td>
               {% if c.links %}
                 <div class="d-flex flex-wrap gap-1">
-                  {% for l in c.links %}
-                    {% set st = l.status.value if l.status %}
-                    {% if st == 'TRABAJA' %}
-                      <span class="badge bg-success">Trabaja en {{ l.company.nombre }}</span>
-                    {% elif st == 'TRABAJABA' %}
-                      <span class="badge bg-secondary">Trabajaba en {{ l.company.nombre }}</span>
-                    {% elif st == 'A_INCORPORAR' %}
-                      <span class="badge bg-warning text-dark">A incorporar en {{ l.company.nombre }}</span>
-                    {% else %}
-                      <span class="badge bg-light text-muted">-</span>
-                    {% endif %}
+                  {# Orden: TRABAJA #}
+                  {% for l in c.links if l.status and l.status.value == 'TRABAJA' %}
+                    <span class="badge bg-success">Trabaja en {{ l.company.nombre }}</span>
+                  {% endfor %}
+                  {# Luego: TRABAJABA #}
+                  {% for l in c.links if l.status and l.status.value == 'TRABAJABA' %}
+                    <span class="badge bg-secondary">Trabajaba en {{ l.company.nombre }}</span>
+                  {% endfor %}
+                  {# Luego: A_INCORPORAR #}
+                  {% for l in c.links if l.status and l.status.value == 'A_INCORPORAR' %}
+                    <span class="badge bg-warning text-dark">A incorporar en {{ l.company.nombre }}</span>
                   {% endfor %}
                 </div>
-              {% else %}
-                -
-              {% endif %}
+              {% else %}-{% endif %}
             </td>
             <td class="text-end col-actions">
               <div class="btn-group btn-group-sm d-inline-flex align-items-center" role="group">
                 <a class="btn btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=c.id) }}">Editar</a>
                 <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#links{{ c.id }}">Empresa</button>
+                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#docs{{ c.id }}">Documentos</button>
                 <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" class="js-confirm-remove mb-0 d-inline" data-confirm="¿Eliminar cliente? Esta acción no se puede deshacer.">
-                  <button class="btn btn-outline-danger">Eliminar</button>
+                  <button class="btn btn-sm btn-outline-danger">Eliminar</button>
                 </form>
               </div>
               <div class="modal fade" id="links{{ c.id }}" tabindex="-1" aria-hidden="true">
@@ -134,6 +148,51 @@
                   </div>
                 </div>
               </div>
+              <div class="modal fade" id="docs{{ c.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Documentos de {{ c.apellido }} {{ c.nombre }}</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                      <form class="mb-3 js-doc-form" method="post" enctype="multipart/form-data" action="{{ url_for('main.clientes_docs_upload', client_id=c.id) }}">
+                        <div class="input-group">
+                          <input class="form-control js-doc-input" type="file" name="documents" multiple required>
+                          <button class="btn btn-primary js-doc-submit" type="submit" disabled>Subir</button>
+                        </div>
+                      </form>
+                      <div class="table-responsive">
+                        <table class="table table-sm">
+                          <thead>
+                            <tr>
+                              <th>Archivo</th>
+                              <th class="text-end">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for d in c.documents %}
+                              <tr>
+                                <td>
+                                  <a href="{{ url_for('main.clientes_docs_download', client_id=c.id, doc_id=d.id) }}" target="_blank" rel="noopener">{{ d.filename }}</a>
+                                </td>
+                                <td class="text-end">
+                                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.clientes_docs_download', client_id=c.id, doc_id=d.id) }}" target="_blank" rel="noopener"><i class="bi bi-download"></i></a>
+                                  <form method="post" action="{{ url_for('main.clientes_docs_delete', client_id=c.id, doc_id=d.id) }}" class="d-inline js-confirm-remove js-doc-delete" data-confirm="¿Eliminar documento?">
+                                    <button class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                  </form>
+                                </td>
+                              </tr>
+                            {% else %}
+                              <tr><td colspan="2" class="text-center text-muted">Sin documentos</td></tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </td>
           </tr>
         {% else %}
@@ -146,7 +205,68 @@
     <div class="mobile-cards"></div>
   </div>
 </div>
+<script>
+(function(){
+  var pendingForm = null;
+  var modalEl = document.getElementById('confirmRemoveModal');
+  var msgEl = document.getElementById('confirmRemoveMsg');
+  var confirmBtn = document.getElementById('confirmRemoveBtn');
+  var ModalCtor = window.bootstrap && window.bootstrap.Modal;
+  var modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
 
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (form && form.classList && form.classList.contains('js-confirm-remove')){
+      e.preventDefault();
+      pendingForm = form;
+      var text = form.getAttribute('data-confirm') || '¿Confirmar acción?';
+      if (msgEl) msgEl.textContent = text;
+      if (modal) {
+        modal.show();
+      } else if (modalEl) {
+        // Fallback manual si bootstrap no está: mostrar modal simple
+        modalEl.classList.add('show');
+        modalEl.style.display = 'block';
+        if (!document.getElementById('confirmRemoveBackdrop')){
+          var bd = document.createElement('div'); bd.id='confirmRemoveBackdrop'; bd.className='modal-backdrop fade show'; document.body.appendChild(bd);
+        }
+      }
+    }
+  });
+
+  if (confirmBtn){
+    confirmBtn.addEventListener('click', function(){
+      if (pendingForm){
+        // Cerrar modal antes de enviar
+        if (modal) modal.hide();
+        else {
+          modalEl.classList.remove('show'); modalEl.style.display='none';
+          var bd = document.getElementById('confirmRemoveBackdrop'); if (bd) bd.remove();
+        }
+        var f = pendingForm; pendingForm = null; f.submit();
+      }
+    });
+  }
+})();
+</script>
+<script>
+(function(){
+  var select = document.getElementById('provSelect');
+  var rows = document.querySelectorAll('#clientes-table tbody tr');
+  function applyFilter(){
+    var fixed = (select && select.value || '').toLowerCase();
+    rows.forEach(function(tr){
+      var hay = (tr.getAttribute('data-prov')||'').toLowerCase();
+      tr.style.display = (!fixed || hay.indexOf(fixed) !== -1) ? '' : 'none';
+    });
+  }
+  if (select){
+    select.addEventListener('change', applyFilter);
+    // aplicar al cargar, para mantener filtro después de editar/crear
+    applyFilter();
+  }
+})();
+</script>
 <!-- Modal de confirmación para eliminar/quitar vínculos -->
 <div class="modal fade" id="confirmRemoveModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -211,5 +331,100 @@
       });
     }
   })();
+</script>
+<script>
+// Subir/Eliminar documentos por AJAX manteniendo el modal abierto
+(function(){
+  function renderDocs(tbody, docs, clientId){
+    tbody.innerHTML = (docs.map(function(d){
+      return (
+        '<tr>'+
+          '<td><a href="'+ d.download_url +'" target="_blank" rel="noopener">'+ (d.filename||'Documento') +'</a></td>'+
+          '<td class="text-end">'+
+            '<a class="btn btn-sm btn-outline-secondary" href="'+ d.download_url +'" target="_blank" rel="noopener"><i class="bi bi-download"></i></a> '+
+            '<form method="post" action="/clientes/'+ clientId +'/docs/'+ d.id +'/delete" class="d-inline js-confirm-remove js-doc-delete" data-confirm="¿Eliminar documento?">'+
+              '<button class="btn btn-sm btn-outline-danger">Eliminar</button>'+
+            '</form>'+
+          '</td>'+
+        '</tr>'
+      );
+    }).join('')) || '<tr><td colspan="2" class="text-center text-muted">Sin documentos</td></tr>';
+  }
+
+  function bindDocsModal(modal){
+    var form = modal.querySelector('.js-doc-form');
+    var input = modal.querySelector('.js-doc-input');
+    var submit = modal.querySelector('.js-doc-submit');
+    var tbody = modal.querySelector('tbody');
+    if (!tbody) return;
+    var clientId = (modal.id||'').replace('docs','');
+
+    function toggle(){ if(submit) submit.disabled = !(input && input.files && input.files.length>0); }
+    if (input){ input.addEventListener('change', toggle); toggle(); }
+
+    if (form){
+      form.addEventListener('submit', function(ev){
+        ev.preventDefault();
+        if (!input || !input.files || input.files.length===0){ alert('Debes seleccionar al menos un archivo para subir.'); return; }
+        var fd = new FormData(form);
+        fetch(form.action, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+          .then(function(r){ return r.json(); })
+          .then(function(docs){ renderDocs(tbody, docs, clientId); form.reset(); toggle(); })
+          .catch(function(){ alert('Error al subir documento.'); });
+      });
+    }
+
+    modal.addEventListener('submit', function(ev){
+      var f = ev.target;
+      if (f && f.classList && f.classList.contains('js-doc-delete')){
+        ev.preventDefault();
+        fetch(f.action, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'} })
+          .then(function(r){ return r.json(); })
+          .then(function(docs){ renderDocs(tbody, docs, clientId); })
+          .catch(function(){ alert('Error al eliminar documento.'); });
+      }
+    });
+  }
+
+  document.querySelectorAll('.modal[id^="docs"]').forEach(bindDocsModal);
+  var mo = new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      (m.addedNodes||[]).forEach(function(n){
+        if (n.nodeType===1 && n.matches && n.matches('.modal[id^="docs"]')) bindDocsModal(n);
+      });
+    });
+  });
+  mo.observe(document.body, { childList:true, subtree:true });
+})();
+</script>
+<script>
+// Habilitar botón de "Subir" sólo si hay archivos seleccionados y evitar submit vacío
+(function(){
+  function bindDocForm(form){
+    var input = form.querySelector('.js-doc-input');
+    var submit = form.querySelector('.js-doc-submit');
+    if (!input || !submit) return;
+    function toggle(){ submit.disabled = !(input.files && input.files.length > 0); }
+    input.addEventListener('change', toggle);
+    toggle();
+    form.addEventListener('submit', function(ev){
+      if (!input.files || input.files.length === 0){
+        ev.preventDefault();
+        alert('Debes seleccionar al menos un archivo para subir.');
+      }
+    });
+  }
+  document.querySelectorAll('.js-doc-form').forEach(bindDocForm);
+  // Por si los modales se inyectan después: observar el DOM
+  var mo = new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      (m.addedNodes || []).forEach(function(n){
+        if (n.querySelectorAll){ n.querySelectorAll('.js-doc-form').forEach(bindDocForm); }
+        if (n.classList && n.classList.contains('js-doc-form')) bindDocForm(n);
+      });
+    });
+  });
+  mo.observe(document.body, { childList:true, subtree:true });
+})();
 </script>
 {% endblock %}

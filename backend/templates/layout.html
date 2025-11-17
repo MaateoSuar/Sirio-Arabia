@@ -99,7 +99,10 @@
       /* Logout links en navbar y sidebar */
       .logout-link:hover, .logout-link:focus { background: rgba(220,53,69,.18) !important; color: #fff !important; border-radius: .5rem; outline: 2px solid rgba(220,53,69,.35); outline-offset: 2px; }
       /* Ajuste global: reducir top padding en vista de Clientes */
-      body[data-active="clientes"] main.col { padding-top: 1rem !important; }
+      body[data-active="clientes"] main.col { padding-top: 0 !important; }
+      body[data-active="clientes"] main.col > .d-flex.mb-3 { margin-top: 0 !important; }
+      body[data-active="clientes"] h1.h4.mb-0 { margin-top: 0 !important; }
+      body[data-active="clientes"] .card { margin-top: .25rem !important; }
     </style>
   </head>
   <body class="bg-light" data-active="{{ active }}">
@@ -122,6 +125,7 @@
             <li class="nav-item"><a class="nav-link {% if active=='cobranzas' %}active{% endif %}" href="{{ url_for('main.cobranzas') }}"><i class="bi bi-cash-coin me-2"></i>Cobranzas</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
+            <li class="nav-item"><a class="nav-link {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
             <li class="nav-item"><a class="nav-link logout-link" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a></li>
           </ul>
         </div>
@@ -141,6 +145,7 @@
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='cobranzas' %}active{% endif %}" href="{{ url_for('main.cobranzas') }}"><i class="bi bi-cash-coin me-2"></i>Cobranzas</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
+              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
               <li class="nav-item mt-2"><a class="nav-link nav-link-ghost logout-link" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a></li>
             </ul>
           </div>
@@ -182,6 +187,9 @@
         var topMenu = document.getElementById('topMenu');
         // Abrir menú hamburguesa automáticamente en mobile
         (function autoOpenMenu(){
+          // No auto-abrir menú en Clientes para evitar empuje del layout
+          var isClientes = '{{ active }}' === 'clientes';
+          if (isClientes) return;
           if (window.innerWidth < 768) {
             var el = document.getElementById('topMenu');
             if (el && window.bootstrap) {
@@ -195,8 +203,10 @@
           function isMobilePortrait(){ return window.innerWidth < 768 && window.matchMedia('(orientation: portrait)').matches; }
           // bandera inicial según ruta activa
           var isPedidos = '{{ active }}' === 'pedidos';
-          document.body.classList.toggle('require-rotate', !isPedidos);
-          // Interceptar clicks del menú (mobile) excepto Pedidos
+          var isClientes = '{{ active }}' === 'clientes';
+          // No exigir giro en Clientes ni en Pedidos
+          document.body.classList.toggle('require-rotate', !(isPedidos || isClientes));
+          // Interceptar clicks del menú (mobile) excepto Pedidos y Clientes
           var menu = document.getElementById('topMenu');
           var pendingHref = null;
           function handleClick(ev){
@@ -206,8 +216,10 @@
               return; // permitir que el otro handler abra el modal
             }
             var href = a.getAttribute('href');
-            var isPedidosLink = a.textContent && a.textContent.toLowerCase().includes('pedidos');
-            if (!isPedidosLink && isMobilePortrait()){
+            var txt = (a.textContent||'').toLowerCase();
+            var isPedidosLink = txt.includes('pedidos');
+            var isClientesLink = txt.includes('clientes');
+            if (!(isPedidosLink || isClientesLink) && isMobilePortrait()){
               ev.preventDefault();
               pendingHref = href;
               document.body.classList.add('require-rotate');

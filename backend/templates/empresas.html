@@ -26,8 +26,8 @@
         <table class="table table-hover align-middle mb-0 table-tight">
         <thead class="table-light">
           <tr>
-            <th>Razón social</th>
             <th>Marca</th>
+            <th>Razón social</th>
             <th>Demora (días)</th>
             <th>Pago (días)</th>
             <th class="col-mail-left">Mail pedido</th>
@@ -38,8 +38,8 @@
         <tbody>
         {% for e in items %}
           <tr>
-            <td>{{ e.nombre }}</td>
             <td>{{ e.marca or '-' }}</td>
+            <td>{{ e.nombre }}</td>
             <td>{{ e.demora_despacho_promedio_dias }}</td>
             <td>{{ e.plazo_pago_promedio_dias }}</td>
             <td class="col-mail-left">

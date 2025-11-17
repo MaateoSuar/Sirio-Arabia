@@ -1,5 +1,6 @@
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, abort
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, abort, send_file
 from datetime import date, datetime, timedelta
+from io import BytesIO
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
 except Exception:
@@ -7,7 +8,7 @@ except Exception:
 import os
 import requests
 from ..extensions import db
-from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, PaymentMethod, ClientBranch, OrderAttachment
+from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, PaymentMethod, ClientBranch, OrderAttachment, ClientDocument
 from sqlalchemy import func
 
 bp = Blueprint("main", __name__)
@@ -207,6 +208,78 @@ def clientes():
     return render_template("clientes.html", active="clientes", items=items, companies=companies)
 
 
+# Calendario general (entregas y cobranzas)
+@bp.get("/calendario")
+def calendario():
+    today = date.today().isoformat()
+    return render_template("calendar.html", active="calendario", today=today)
+
+
+@bp.get("/api/calendario/events")
+def api_calendario_events():
+    # Rango opcional
+    start_raw = request.args.get("start")
+    end_raw = request.args.get("end")
+    try:
+        start = datetime.fromisoformat(start_raw) if start_raw else None
+    except Exception:
+        start = None
+    try:
+        end = datetime.fromisoformat(end_raw) if end_raw else None
+    except Exception:
+        end = None
+
+    events = []
+    # Entregas estimadas (pendientes)
+    q_ent = LogisticsStatus.query.filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+    if start:
+        q_ent = q_ent.filter(LogisticsStatus.fecha_entrega_estimada >= start)
+    if end:
+        q_ent = q_ent.filter(LogisticsStatus.fecha_entrega_estimada <= end)
+    for lg in q_ent.filter(LogisticsStatus.fecha_entrega_estimada.isnot(None)).all():
+        o = lg.order
+        # Convertir a fecha local si es posible
+        dt = lg.fecha_entrega_estimada
+        if ZoneInfo:
+            try:
+                dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+            except Exception:
+                pass
+        title = f"Entrega: {o.client.apellido} {o.client.nombre} - {o.company.nombre}" if o and o.client and o.company else "Entrega"
+        events.append({
+            "id": f"E-{o.id}",
+            "title": title,
+            "start": dt.date().isoformat(),
+            "allDay": True,
+            "color": "#0ea5a3"
+        })
+
+    # Cobranzas estimadas (pendientes)
+    q_cob = Collection.query.filter(Collection.fecha_cobro_efectiva.is_(None))
+    if start:
+        q_cob = q_cob.filter(Collection.fecha_pago_estimada >= start)
+    if end:
+        q_cob = q_cob.filter(Collection.fecha_pago_estimada <= end)
+    for c in q_cob.filter(Collection.fecha_pago_estimada.isnot(None)).all():
+        o = c.order
+        dt = c.fecha_pago_estimada
+        if ZoneInfo:
+            try:
+                dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+            except Exception:
+                pass
+        title = f"Cobranza: {o.client.apellido} {o.client.nombre} - {o.company.nombre}" if o and o.client and o.company else "Cobranza"
+        events.append({
+            "id": f"C-{o.id}",
+            "title": title,
+            "start": dt.date().isoformat(),
+            "allDay": True,
+            "color": "#f59e0b"
+        })
+
+    return jsonify(events)
+
+
 @bp.get("/clientes/nuevo")
 def clientes_new():
     companies = Company.query.order_by(Company.nombre).all()
@@ -221,6 +294,9 @@ def clientes_create():
     # sucursales múltiples
     branch_list = [b.strip() for b in request.form.getlist("branch_list") if (b or "").strip()]
     telefono = request.form.get("telefono", "").strip()
+    provincia = (request.form.get("provincia") or "").strip() or None
+    direccion_principal = (request.form.get("direccion_principal") or "").strip() or None
+    transporte_recomendado = (request.form.get("transporte_recomendado") or "").strip() or None
     mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
     mail_single = (request.form.get("mail", "") or "").strip()
     # store as comma-separated for backward compatibility
@@ -231,6 +307,8 @@ def clientes_create():
     # Guardar compat 'sucursal' como la primera si viene lista
     compat_sucursal = (branch_list[0] if branch_list else None)
     client = Client(apellido=apellido or "-", nombre=nombre or "-", sucursal=compat_sucursal,
+                    direccion_principal=direccion_principal, transporte_recomendado=transporte_recomendado,
+                    provincia=provincia,
                     telefono=telefono or None, mail=mail or None,
                     fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
     db.session.add(client)
@@ -267,6 +345,108 @@ def clientes_create():
         except Exception:
             pass
     return redirect(url_for("main.clientes"))
+
+
+# Documentos de clientes
+@bp.post("/clientes/<int:client_id>/docs/upload")
+def clientes_docs_upload(client_id: int):
+    client = Client.query.get_or_404(client_id)
+    files = request.files.getlist("documents")
+    if not files:
+        return redirect(url_for("main.clientes"))
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    upload_preset = os.getenv("CLOUDINARY_UPLOAD_PRESET")
+    for f in files:
+        try:
+            # Ignorar inputs vacíos
+            if not f or not getattr(f, 'filename', None):
+                continue
+            # Leer contenido una vez para DB y/o Cloudinary
+            content = f.read() or b""
+            fname = f.filename or "documento"
+            mtype = f.mimetype or "application/octet-stream"
+            size = len(content)
+            if size <= 0:
+                continue
+            url = ""
+            if content and cloud_name and upload_preset:
+                try:
+                    r = requests.post(
+                        f"https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload",
+                        data={"upload_preset": upload_preset},
+                        files={"file": (fname, content, mtype)},
+                        timeout=30,
+                    )
+                    if r.ok:
+                        j = r.json()
+                        url = j.get("secure_url") or j.get("url") or ""
+                except Exception:
+                    url = ""
+            doc = ClientDocument(client_id=client.id, filename=fname, filepath=url or "", data=content, mimetype=mtype, size=size)
+            db.session.add(doc)
+        except Exception:
+            continue
+    db.session.commit()
+    # Respuesta AJAX: devolver documentos actualizados
+    wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.best == "application/json"
+    if wants_json:
+        docs = (
+            ClientDocument.query.filter_by(client_id=client.id)
+            .order_by(ClientDocument.uploaded_at.desc())
+            .all()
+        )
+        return jsonify([
+            {
+                "id": d.id,
+                "filename": d.filename,
+                "download_url": url_for("main.clientes_docs_download", client_id=client.id, doc_id=d.id),
+                "uploaded_at": (d.uploaded_at.isoformat() if d.uploaded_at else None),
+            }
+            for d in docs
+        ])
+    return redirect(url_for("main.clientes", open_docs=client.id))
+
+
+@bp.post("/clientes/<int:client_id>/docs/<int:doc_id>/delete")
+def clientes_docs_delete(client_id: int, doc_id: int):
+    doc = ClientDocument.query.filter_by(id=doc_id, client_id=client_id).first_or_404()
+    db.session.delete(doc)
+    db.session.commit()
+    wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.best == "application/json"
+    if wants_json:
+        docs = (
+            ClientDocument.query.filter_by(client_id=client_id)
+            .order_by(ClientDocument.uploaded_at.desc())
+            .all()
+        )
+        return jsonify([
+            {
+                "id": d.id,
+                "filename": d.filename,
+                "download_url": url_for("main.clientes_docs_download", client_id=client_id, doc_id=d.id),
+                "uploaded_at": (d.uploaded_at.isoformat() if d.uploaded_at else None),
+            }
+            for d in docs
+        ])
+    return redirect(url_for("main.clientes"))
+
+@bp.get("/clientes/<int:client_id>/docs/<int:doc_id>/download")
+def clientes_docs_download(client_id: int, doc_id: int):
+    doc = ClientDocument.query.filter_by(id=doc_id, client_id=client_id).first_or_404()
+    # Prioridad: si hay datos en DB, servirlos
+    try:
+        if getattr(doc, "data", None):
+            return send_file(
+                BytesIO(doc.data),
+                mimetype=doc.mimetype or "application/octet-stream",
+                as_attachment=False,
+                download_name=doc.filename or "documento"
+            )
+    except Exception:
+        pass
+    if doc.filepath:
+        return redirect(doc.filepath)
+    abort(404)
 
 
 # Gestión de vínculos desde Clientes (bilateral con Empresas)
@@ -321,6 +501,9 @@ def clientes_update(client_id: int):
     # compat: actualizar sucursal como primera de la lista
     obj.sucursal = (branch_list[0] if branch_list else None)
     obj.telefono = request.form.get("telefono") or None
+    obj.direccion_principal = (request.form.get("direccion_principal") or None)
+    obj.transporte_recomendado = (request.form.get("transporte_recomendado") or None)
+    obj.provincia = (request.form.get("provincia") or None)
     mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
     mail_single = (request.form.get("mail") or "").strip()
     obj.mail = (", ".join(mails) if mails else (mail_single or None))
