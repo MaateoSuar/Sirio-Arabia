@@ -15,6 +15,12 @@
         .table-tight th.col-mail-right { padding-left: .25rem; }
         /* Permitir quiebres de línea largos */
         .table-tight td { word-break: break-word; }
+        /* Forzar ancho mínimo de tabla para permitir scroll horizontal en móviles */
+        .table-tight { min-width: 820px; }
+        /* Evitar wraps en columna Acciones */
+        .table-tight th.col-actions, .table-tight td.col-actions { white-space: nowrap; min-width: 220px; }
+        /* Evitar wraps dentro del grupo de botones */
+        .btn-group.flex-nowrap .btn { white-space: nowrap; }
       </style>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 table-tight">
@@ -26,7 +32,7 @@
             <th>Pago (días)</th>
             <th class="col-mail-left">Mail pedido</th>
             <th class="col-mail-right">Mail pago</th>
-            <th class="text-end">Acciones</th>
+            <th class="text-end col-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -44,12 +50,12 @@
               {% else %}-{% endif %}
             </td>
             <td class="col-mail-right">{{ e.mail_pago or '-' }}</td>
-            <td class="text-end">
-              <div class="btn-group btn-group-sm d-inline-flex align-items-center">
-                <a class="btn btn-outline-secondary" href="{{ url_for('main.empresas_edit_view', company_id=e.id) }}">Editar</a>
-                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#links{{ e.id }}">Clientes</button>
+            <td class="text-end col-actions">
+              <div class="btn-group btn-group-sm d-inline-flex align-items-center flex-nowrap">
+                <a class="btn btn-outline-secondary text-nowrap" href="{{ url_for('main.empresas_edit_view', company_id=e.id) }}">Editar</a>
+                <button class="btn btn-outline-secondary text-nowrap" data-bs-toggle="modal" data-bs-target="#links{{ e.id }}">Clientes</button>
                 <form method="post" action="{{ url_for('main.empresas_delete', company_id=e.id) }}" class="mb-0 d-inline" onsubmit="return confirm('Eliminar empresa?')">
-                  <button class="btn btn-outline-danger">Eliminar</button>
+                  <button class="btn btn-outline-danger text-nowrap">Eliminar</button>
                 </form>
               </div>
               <div class="modal fade" id="links{{ e.id }}" tabindex="-1" aria-hidden="true">
