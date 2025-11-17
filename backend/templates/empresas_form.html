@@ -20,8 +20,12 @@
       </style>
       <div class="row g-3">
         <div class="col-md-12">
-          <label class="form-label">Nombre de empresa</label>
+          <label class="form-label">Razón social</label>
           <input name="nombre" type="text" class="form-control" value="{{ company.nombre if company }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Marca</label>
+          <input name="marca" type="text" class="form-control" value="{{ company.marca if company }}">
         </div>
         <div class="col-md-6">
           <label class="form-label">Demora despacho promedio (días)</label>
@@ -111,6 +115,15 @@
       html.push('<span class="badge badge-client me-1 mb-1">'+ label +'</span>');
       hidden.push('<input type="hidden" name="client_ids" value="'+ id +'">');
     });
+  // Asegurar que antes de enviar el formulario se confirme lo pendiente
+  try {
+    var form = document.querySelector('form.card');
+    if (form) {
+      form.addEventListener('submit', function(){
+        confirmSelection();
+      });
+    }
+  } catch(e){}
     list.innerHTML = html.join('');
     hidWrap.innerHTML = hidden.join('');
   }
@@ -190,6 +203,9 @@
     var lbl = document.createElement('label'); lbl.className='form-check-label'; lbl.setAttribute('for', id); lbl.textContent = email;
     item.appendChild(chk); item.appendChild(lbl);
     box.appendChild(item);
+    // Auto-confirmar inmediatamente lo agregado para que se persista sin pasos extra
+    chk.checked = true;
+    confirmSelection();
   }
   function confirmSelection(){
     var checks = box.querySelectorAll('.js-cmp-mail-chk:checked');

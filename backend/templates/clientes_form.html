@@ -13,13 +13,20 @@
           <label class="form-label">Razón social</label>
           <input name="apellido" type="text" class="form-control" value="{{ client.apellido if client }}" required>
         </div>
+        <!-- Datos JSON para precargar sucursales del cliente (evita Jinja dentro de JS) -->
+        <script type="application/json" id="branches-data">{{ (client.branches|map(attribute='nombre')|list)|tojson if client else '[]' }}</script>
         <div class="col-md-6">
           <label class="form-label">Nombre ficticio (opcional)</label>
           <input name="nombre" type="text" class="form-control" value="{{ client.nombre if client }}" required>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Sucursal</label>
-          <input name="sucursal" type="text" class="form-control" list="branches" value="{{ client.sucursal if client }}">
+        <div class="col-12">
+          <div class="d-flex align-items-center justify-content-between">
+            <label class="form-label m-0">Sucursales (opcional)</label>
+            <div class="d-flex gap-2">
+              <input type="text" class="form-control form-control-sm" id="new_branch_input" placeholder="Agregar sucursal" list="branches" style="max-width:260px">
+              <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddBranch">Agregar</button>
+            </div>
+          </div>
           <datalist id="branches">
             {% if branches %}
               {% for b in branches %}
@@ -27,6 +34,15 @@
               {% endfor %}
             {% endif %}
           </datalist>
+          <div id="branches-checklist" class="border rounded p-2 mt-2" style="max-height:200px; overflow:auto"></div>
+          <div class="d-flex justify-content-end mt-2">
+            <button type="button" id="btnConfirmarBranches" class="btn btn-sm btn-primary">Confirmar selección</button>
+          </div>
+          <div class="mt-2">
+            <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Sucursales confirmadas</div>
+            <div id="branches-selected" class="mt-1"></div>
+            <div id="branches-hidden"></div>
+          </div>
         </div>
         <div class="col-md-6">
           <label class="form-label">Contacto</label>
@@ -56,6 +72,69 @@
   .flatpickr-calendar.open { z-index: 3050; }
 </style>
 <script>
+(function(){
+  // Gestión de sucursales múltiples
+  var box = document.getElementById('branches-checklist');
+  var list = document.getElementById('branches-selected');
+  var hidWrap = document.getElementById('branches-hidden');
+  var addBtn = document.getElementById('btnAddBranch');
+  var input = document.getElementById('new_branch_input');
+  if (!box || !list || !hidWrap) return;
+  var confirmed = new Set();
+  function render(){
+    if (confirmed.size === 0){
+      list.innerHTML = '<span class="text-muted">Ninguna</span>';
+      hidWrap.innerHTML = '';
+      return;
+    }
+    var chips = [];
+    var hidden = [];
+    confirmed.forEach(function(name){
+      var esc = name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      chips.push('<span class="badge bg-success text-white me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-branch-del" data-branch="'+ esc +'">×</button></span>');
+      hidden.push('<input type="hidden" name="branch_list" value="'+ esc +'">');
+    });
+    list.innerHTML = chips.join('');
+    hidWrap.innerHTML = hidden.join('');
+  }
+  function addToChecklist(name){
+    if (!name) return;
+    var val = name.trim(); if (!val) return;
+    // evitar duplicados visuales
+    if (Array.from(box.querySelectorAll('.js-branch-chk')).some(function(c){return c.value===val;})) return;
+    var row = document.createElement('div'); row.className='form-check';
+    var chk = document.createElement('input'); chk.type='checkbox'; chk.className='form-check-input js-branch-chk'; chk.value=val; chk.id='br_'+btoa(val).replace(/=+/g,'');
+    var lbl = document.createElement('label'); lbl.className='form-check-label'; lbl.setAttribute('for', chk.id); lbl.textContent=val;
+    row.appendChild(chk); row.appendChild(lbl); box.appendChild(row);
+    // auto-confirmar
+    chk.checked = true; confirmSelection();
+  }
+  function confirmSelection(){
+    box.querySelectorAll('.js-branch-chk:checked').forEach(function(chk){ var v=String(chk.value).trim(); if(v) confirmed.add(v); chk.checked=false; });
+    render();
+  }
+  // preload de sucursales existentes del cliente (si hay) desde bloque JSON
+  try {
+    var jsonEl = document.getElementById('branches-data');
+    var existing = [];
+    if (jsonEl && jsonEl.textContent) {
+      try { existing = JSON.parse(jsonEl.textContent); } catch(e) { existing = []; }
+    }
+    (existing||[]).forEach(function(n){ addToChecklist(n); });
+  } catch(e){}
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    if (t && t.id==='btnConfirmarBranches'){ e.preventDefault(); confirmSelection(); }
+    if (t && t.id==='btnAddBranch'){ e.preventDefault(); var v=(input&&input.value)||''; if(v){ addToChecklist(v); input.value=''; } }
+    var delBtn = (t && t.classList && t.classList.contains('js-branch-del')) ? t : (t && t.closest ? t.closest('.js-branch-del') : null);
+    if (delBtn){ e.preventDefault(); var nm = delBtn.getAttribute('data-branch'); if(nm && confirmed.has(nm)){ confirmed.delete(nm); render(); } }
+  });
+  // Confirmar antes de submit
+  try {
+    var form = document.querySelector('form.card');
+    if (form) form.addEventListener('submit', function(){ confirmSelection(); });
+  } catch(e){}
+})();
 (function(){
   function mount(){
     var nodes = document.querySelectorAll('input[data-datepicker]');

@@ -1,5 +1,9 @@
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, abort
 from datetime import date, datetime, timedelta
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+except Exception:
+    ZoneInfo = None
 import os
 import requests
 from ..extensions import db
@@ -64,6 +68,116 @@ def index():
     top_emp_labels = [n for n, _ in top_emp]
     top_emp_values = [round(v, 2) for _, v in top_emp]
 
+    # Urgentes/atrasadas/próximos 7 días (entregas y cobranzas)
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+
+    # Cobranzas
+    cobr_vencidas_q = (
+        Collection.query
+        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        .filter(Collection.fecha_pago_estimada.isnot(None))
+        .filter(Collection.fecha_pago_estimada < now_dt)
+    )
+    cobr_hoy_q = (
+        Collection.query
+        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        .filter(Collection.fecha_pago_estimada >= today_start, Collection.fecha_pago_estimada <= today_end)
+    )
+    cobr_next7_q = (
+        Collection.query
+        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        .filter(Collection.fecha_pago_estimada > now_dt, Collection.fecha_pago_estimada <= now_dt + timedelta(days=7))
+    )
+
+    # Entregas
+    ent_vencidas_q = (
+        LogisticsStatus.query
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
+        .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+    )
+    ent_hoy_q = (
+        LogisticsStatus.query
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        .filter(LogisticsStatus.fecha_entrega_estimada >= today_start, LogisticsStatus.fecha_entrega_estimada <= today_end)
+    )
+    ent_next7_q = (
+        LogisticsStatus.query
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        .filter(LogisticsStatus.fecha_entrega_estimada > now_dt, LogisticsStatus.fecha_entrega_estimada <= now_dt + timedelta(days=7))
+    )
+
+    urgentes_hoy = ent_hoy_q.count() + cobr_hoy_q.count()
+    atrasadas_cnt = ent_vencidas_q.count() + cobr_vencidas_q.count()
+    proximas7_cnt = ent_next7_q.count() + cobr_next7_q.count()
+
+    # Construir lista resumida de urgentes (top 10), sin duplicados y con fecha en AR
+    def _row_from_ent(e: LogisticsStatus, categoria: str):
+        o = e.order
+        # fecha en AR (solo día)
+        if ZoneInfo and e.fecha_entrega_estimada:
+            dt = e.fecha_entrega_estimada.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+            ftxt = dt.strftime("%d/%m/%Y")
+        else:
+            ftxt = e.fecha_entrega_estimada.strftime("%d/%m/%Y") if e.fecha_entrega_estimada else ""
+        return {
+            "tipo": "Entrega",
+            "cliente": f"{o.client.apellido} {o.client.nombre}" if o and o.client else "-",
+            "empresa": o.company.nombre if o and o.company else "-",
+            "fecha": ftxt,
+            "monto": float(e.precio or (o.precio_final or 0) if o else 0),
+            "_key": ("E", e.order_id),
+            "categoria": categoria,
+        }
+
+    def _row_from_cobr(c: Collection, categoria: str):
+        o = c.order
+        if ZoneInfo and c.fecha_pago_estimada:
+            dt = c.fecha_pago_estimada.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+            ftxt = dt.strftime("%d/%m/%Y")
+        else:
+            ftxt = c.fecha_pago_estimada.strftime("%d/%m/%Y") if c.fecha_pago_estimada else ""
+        return {
+            "tipo": "Cobranza",
+            "cliente": f"{o.client.apellido} {o.client.nombre}" if o and o.client else "-",
+            "empresa": o.company.nombre if o and o.company else "-",
+            "fecha": ftxt,
+            "monto": float(c.monto or 0),
+            "_key": ("C", c.order_id),
+            "categoria": categoria,
+        }
+
+    # Agrupar por pedido (tipo+order_id) y acumular categorías
+    agg = {}
+    def add_row(row):
+        key = row["_key"]
+        if key not in agg:
+            # copiar base y arrancar categorias
+            base = {k: v for k, v in row.items() if k not in ("_key", "categoria")}
+            base["categorias"] = [row.get("categoria")] if row.get("categoria") else []
+            agg[key] = base
+        else:
+            cat = row.get("categoria")
+            if cat and cat not in agg[key]["categorias"]:
+                agg[key]["categorias"].append(cat)
+
+    for e in ent_vencidas_q.limit(5).all():
+        add_row(_row_from_ent(e, "Atrasado total"))
+    for c in cobr_vencidas_q.limit(5).all():
+        add_row(_row_from_cobr(c, "Atrasado total"))
+    for e in ent_hoy_q.limit(5).all():
+        add_row(_row_from_ent(e, "Urg de hoy"))
+    for c in cobr_hoy_q.limit(5).all():
+        add_row(_row_from_cobr(c, "Urg de hoy"))
+    for e in ent_next7_q.limit(5).all():
+        add_row(_row_from_ent(e, "Prox 7 días"))
+    for c in cobr_next7_q.limit(5).all():
+        add_row(_row_from_cobr(c, "Prox 7 días"))
+
+    urg_rows = list(agg.values())
+    urgentes = urg_rows[:10]
+
     kpis = {
         "pedidos_mes": int(pedidos_mes),
         "ventas_mes_val": float(ventas_mes_val or 0),
@@ -71,6 +185,10 @@ def index():
         "cobranzas_pend_monto": float(cobranzas_pend_monto or 0),
         "en_camino": int(en_camino),
         "atrasados": int(atrasados),
+        # nuevos
+        "urgentes_hoy": int(urgentes_hoy),
+        "atrasadas_total": int(atrasadas_cnt),
+        "proximas7": int(proximas7_cnt),
     }
     charts = {
         "labels": labels,
@@ -78,7 +196,8 @@ def index():
         "top_emp_labels": top_emp_labels,
         "top_emp_values": top_emp_values,
     }
-    return render_template("index.html", active="dashboard", kpis=kpis, charts=charts)
+    extras = {"urgentes": urgentes}
+    return render_template("index.html", active="dashboard", kpis=kpis, charts=charts, extras=extras)
 
 
 @bp.get("/clientes")
@@ -99,7 +218,8 @@ def clientes_new():
 def clientes_create():
     apellido = request.form.get("apellido", "").strip()
     nombre = request.form.get("nombre", "").strip()
-    sucursal = request.form.get("sucursal", "").strip()
+    # sucursales múltiples
+    branch_list = [b.strip() for b in request.form.getlist("branch_list") if (b or "").strip()]
     telefono = request.form.get("telefono", "").strip()
     mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
     mail_single = (request.form.get("mail", "") or "").strip()
@@ -108,11 +228,21 @@ def clientes_create():
     relacion = (request.form.get("relacion") or "").strip() or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
     company_id = request.form.get("company_id", type=int)
-    client = Client(apellido=apellido or "-", nombre=nombre or "-", sucursal=sucursal or None,
+    # Guardar compat 'sucursal' como la primera si viene lista
+    compat_sucursal = (branch_list[0] if branch_list else None)
+    client = Client(apellido=apellido or "-", nombre=nombre or "-", sucursal=compat_sucursal,
                     telefono=telefono or None, mail=mail or None,
                     fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
     db.session.add(client)
     db.session.commit()
+    # Crear sucursales
+    if branch_list:
+        for nm in branch_list:
+            try:
+                db.session.add(ClientBranch(client_id=client.id, nombre=nm))
+            except Exception:
+                pass
+        db.session.commit()
     # Si se indicó relación y empresa, crear/actualizar vínculo; si no hay empresa, aplicar a vínculos existentes
     if relacion and company_id:
         try:
@@ -186,7 +316,10 @@ def clientes_update(client_id: int):
     obj = Client.query.get_or_404(client_id)
     obj.apellido = request.form.get("apellido", obj.apellido)
     obj.nombre = request.form.get("nombre", obj.nombre)
-    obj.sucursal = request.form.get("sucursal") or None
+    # sucursales múltiples
+    branch_list = [b.strip() for b in request.form.getlist("branch_list") if (b or "").strip()]
+    # compat: actualizar sucursal como primera de la lista
+    obj.sucursal = (branch_list[0] if branch_list else None)
     obj.telefono = request.form.get("telefono") or None
     mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
     mail_single = (request.form.get("mail") or "").strip()
@@ -288,13 +421,14 @@ def empresas_new():
 @bp.post("/empresas/nueva")
 def empresas_create():
     nombre = request.form.get("nombre", "").strip()
+    marca = (request.form.get("marca", "") or "").strip() or None
     demora = request.form.get("demora", type=int)
     plazo = request.form.get("plazo", type=int)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
     mail_pedido_single = (request.form.get("mail_pedido", "") or "").strip()
     mail_pedido = ", ".join(mail_pedido_list) if mail_pedido_list else (mail_pedido_single or None)
     mail_pago = request.form.get("mail_pago", "").strip() or None
-    company = Company(nombre=nombre or "-", demora_despacho_promedio_dias=demora or 0,
+    company = Company(nombre=nombre or "-", marca=marca, demora_despacho_promedio_dias=demora or 0,
                       plazo_pago_promedio_dias=plazo or 30, mail_pedido=mail_pedido, mail_pago=mail_pago)
     db.session.add(company)
     db.session.flush()
@@ -351,6 +485,7 @@ def empresas_edit_view(company_id: int):
 def empresas_update(company_id: int):
     obj = Company.query.get_or_404(company_id)
     obj.nombre = request.form.get("nombre", obj.nombre)
+    obj.marca = (request.form.get("marca") or obj.marca)
     obj.demora_despacho_promedio_dias = request.form.get("demora", type=int) or obj.demora_despacho_promedio_dias
     obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
@@ -439,6 +574,9 @@ def pedidos_create():
     branch_id = request.form.get("branch_id", type=int)
     nota = request.form.get("nota") or None
     descripcion = request.form.get("descripcion") or None
+    # fechas proporcionadas por el formulario
+    fecha_compra_raw = (request.form.get("fecha_compra") or "").strip()
+    fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
     precio_final = request.form.get("precio_final", type=float)
     forma_pago = request.form.get("forma_pago") or None
 
@@ -452,6 +590,15 @@ def pedidos_create():
     client = Client.query.get_or_404(client_id)
     company = Company.query.get_or_404(company_id)
 
+    # Si no se envió branch_id, tomar la primera sucursal del cliente como default
+    if not branch_id:
+        first_branch = ClientBranch.query.filter_by(client_id=client.id).order_by(ClientBranch.id.asc()).first()
+        if first_branch:
+            branch_id = first_branch.id
+            # también setear texto sucursal si no vino
+            if not sucursal:
+                sucursal = first_branch.nombre
+
     order = Order(client=client, company=company, sucursal=sucursal, branch_id=branch_id, nota=nota, descripcion=descripcion,
                   precio_final=precio_final, forma_pago=PaymentMethod(forma_pago),
                   demora_despacho_promedio_dias=company.demora_despacho_promedio_dias,
@@ -460,8 +607,16 @@ def pedidos_create():
     db.session.flush()
 
     # Create logistics record
-    fecha_compra = datetime.utcnow()
-    fecha_estimada = fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0)
+    # fecha_compra: usar la provista (YYYY-MM-DD) o fallback a ahora
+    try:
+        fecha_compra = datetime.fromisoformat(fecha_compra_raw) if fecha_compra_raw else datetime.utcnow()
+    except Exception:
+        fecha_compra = datetime.utcnow()
+    # fecha_entrega_estimada: usar la provista o calcular por demora promedio
+    try:
+        fecha_estimada = datetime.fromisoformat(fecha_entrega_estimada_raw) if fecha_entrega_estimada_raw else (fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0))
+    except Exception:
+        fecha_estimada = fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0)
     logistics = LogisticsStatus(order_id=order.id, fecha_compra=fecha_compra,
                                 fecha_entrega_estimada=fecha_estimada, nota=nota, descripcion=descripcion,
                                 precio=precio_final, forma_pago=order.forma_pago)
@@ -547,10 +702,16 @@ def status_update(order_id: int):
     precio = request.form.get("precio", type=float)
     forma_pago_raw = request.form.get("forma_pago")
     forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
+    fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
     if precio is not None:
         logistics.precio = precio
     if forma_pago_raw is not None:
         logistics.forma_pago = forma_pago
+    if fecha_entrega_estimada_raw:
+        try:
+            logistics.fecha_entrega_estimada = datetime.fromisoformat(fecha_entrega_estimada_raw)
+        except Exception:
+            pass
     # Mantener consistencia con cobranzas si existe registro
     coll = Collection.query.filter_by(order_id=order_id).first()
     if coll:

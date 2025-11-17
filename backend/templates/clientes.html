@@ -60,10 +60,10 @@
               {% endif %}
             </td>
             <td class="text-end col-actions">
-              <div class="btn-group btn-group-sm" role="group">
+              <div class="btn-group btn-group-sm d-inline-flex align-items-center" role="group">
                 <a class="btn btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=c.id) }}">Editar</a>
                 <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#links{{ c.id }}">Empresa</button>
-                <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" class="js-confirm-remove" data-confirm="¿Eliminar cliente? Esta acción no se puede deshacer.">
+                <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" class="js-confirm-remove mb-0 d-inline" data-confirm="¿Eliminar cliente? Esta acción no se puede deshacer.">
                   <button class="btn btn-outline-danger">Eliminar</button>
                 </form>
               </div>
@@ -137,7 +137,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="6" class="text-center text-muted py-4">Sin clientes</td></tr>
+          <tr><td colspan="7" class="text-center text-muted py-4">Sin clientes</td></tr>
         {% endfor %}
         </tbody>
         </table>

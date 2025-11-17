@@ -9,13 +9,14 @@
     <div id="pedido-alert" class="alert alert-warning py-2 px-3 mb-3 d-none" role="alert" style="font-size:.9rem"></div>
     <form id="pedido-form" class="row g-2 g-md-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
       <div class="col-md-3">
-        <input type="date" class="form-control" id="pedido_fecha" value="{{ today }}">
+        <label class="form-label">Fecha de compra</label>
+        <input type="date" class="form-control" id="pedido_fecha" name="fecha_compra" value="{{ today }}">
       </div>
       <div class="col-md-3">
         <select class="form-select" id="pedido_cliente" name="client_id">
           <option value="">Cliente...</option>
           {% for c in clientes %}
-            <option value="{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</option>
+            <option value="{{ c.id }}" data-razon="{{ c.apellido }}" data-nombre="{{ c.nombre }}">{{ c.apellido }}</option>
           {% endfor %}
         </select>
       </div>
@@ -70,9 +71,6 @@
         </div>
       </div>
       <div class="col-md-4">
-        <input type="email" class="form-control" id="pedido_mail_pedido" placeholder="Mail de pedido de la empresa (se completa al elegir empresa)" disabled>
-      </div>
-      <div class="col-md-4">
         <input type="number" step="0.01" class="form-control" id="pedido_precio" name="precio_final" placeholder="Precio final (opcional)">
       </div>
       <div class="col-md-4">
@@ -124,7 +122,7 @@
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
     empresaSel?.addEventListener('change', ()=>{
       const opt = empresaSel.options[empresaSel.selectedIndex];
-      mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
+      if (mailInput) mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
       loadPrevOrders();
       loadRecipientsFromCompany();
     });
@@ -144,9 +142,12 @@
         const raw = (empresaOpt && empresaOpt.getAttribute('data-mail')) || '';
         to = raw.split(',').map(s=>s.trim()).filter(Boolean);
       }
-      const clienteText = clienteSel.options[clienteSel.selectedIndex]?.text || '';
+      const clienteText = clienteSel.options[clienteSel.selectedIndex]?.getAttribute('data-razon') || clienteSel.options[clienteSel.selectedIndex]?.text || '';
       const empresaText = empresaOpt?.text || '';
-      const subject = encodeURIComponent(`Pedido ${clienteText} - ${empresaText}`);
+      let titleTxt = `Pedido ${clienteText} - ${empresaText}`;
+      const branchOpt = branchSel?.options[branchSel.selectedIndex];
+      if (branchSel && branchSel.value && branchOpt) { titleTxt += ` / Sucursal: ${branchOpt.text}`; }
+      const subject = encodeURIComponent(titleTxt);
       const body = encodeURIComponent(buildPreviewText());
       const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.join(','))}&su=${subject}&body=${body}`;
       window.open(url, '_blank');
@@ -173,7 +174,7 @@
     async function loadCompanies(clientId){
       if(!empresaSel) return;
       empresaSel.innerHTML = '<option value="">Empresa...</option>';
-      mailInput.value = '';
+      if (mailInput) mailInput.value = '';
       if(!clientId) return;
       try{
         const res = await fetch(`/api/clientes/${clientId}/empresas`);
@@ -220,11 +221,14 @@
 
     function buildPreviewText(){
       const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
-      const clienteText = clienteSel.options[clienteSel.selectedIndex]?.text || '';
+      const clienteOpt = clienteSel.options[clienteSel.selectedIndex];
+      const clienteText = clienteOpt?.getAttribute('data-razon') || clienteOpt?.text || '';
       const empresaText = empresaOpt?.text || '';
+      const branchOpt2 = branchSel?.options[branchSel.selectedIndex];
       const nota = notaInput?.value || '';
       const desc = descInput?.value || '';
-      const title = `Pedido ${clienteText} - ${empresaText}`;
+      let title = `Pedido ${clienteText} - ${empresaText}`;
+      if (branchSel && branchSel.value && branchOpt2) { title += ` / Sucursal: ${branchOpt2.text}`; }
       const lines = [
         title,
         '',

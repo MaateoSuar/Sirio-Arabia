@@ -156,7 +156,10 @@
             <td class="col-client">{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
             <td class="col-company">{{ s.order.company.nombre }}</td>
             <td class="d-none d-md-table-cell">{{ s.fecha_compra.strftime('%d/%m/%Y') if s.fecha_compra else '-' }}</td>
-            <td class="d-none d-md-table-cell">{{ s.fecha_entrega_estimada.strftime('%d/%m/%Y') if s.fecha_entrega_estimada else '-' }}</td>
+            <td class="d-none d-md-table-cell">
+              <input name="fecha_entrega_estimada" form="upd{{ s.order.id }}" type="date" class="form-control form-control-sm js-estimada"
+                     value="{{ s.fecha_entrega_estimada.strftime('%Y-%m-%d') if s.fecha_entrega_estimada else '' }}">
+            </td>
             <td class="d-none d-md-table-cell">{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>
             <td class="col-money">
               <div class="input-group input-group-sm js-price-group">
@@ -371,6 +374,14 @@
           if (hid) hid.value = raw;
         }
         (form.requestSubmit ? form.requestSubmit() : form.submit());
+      });
+    });
+    // autosubmit al cambiar entrega estimada
+    document.querySelectorAll('.js-estimada').forEach(function(el){
+      el.addEventListener('change', function(){
+        var formId = el.getAttribute('form');
+        var f = formId ? document.getElementById(formId) : el.closest('form');
+        if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
       });
     });
     var nodes = document.querySelectorAll('input[data-datepicker]');

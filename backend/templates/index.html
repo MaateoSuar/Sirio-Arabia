@@ -14,6 +14,35 @@
   <h1 class="h4 mb-0">Dashboard</h1>
 </div>
 
+<!-- KPIs operativos: Urgentes / Atrasadas / Próximos 7 días -->
+<div class="row g-3 mb-3">
+  <div class="col-sm-6 col-lg-4">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #dc3545">
+      <div class="card-body">
+        <div class="text-secondary small">Urgentes de hoy</div>
+        <div class="display-6 text-danger">{{ kpis.urgentes_hoy }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #dc3545">
+      <div class="card-body">
+        <div class="text-secondary small">Atrasadas totales</div>
+        <div class="display-6">{{ kpis.atrasadas_total }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-4">
+    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #ffc107">
+      <div class="card-body">
+        <div class="text-secondary small">Próximos 7 días</div>
+        <div class="display-6">{{ kpis.proximas7 }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- KPIs de negocio -->
 <div class="row g-3 mb-3">
   <div class="col-sm-6 col-lg-3">
     <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #0f766e">
@@ -68,6 +97,59 @@
           <h2 class="h6 mb-0">Top empresas por ventas</h2>
         </div>
         <div class="chart-sm" style="height: 280px"><canvas id="topEmpChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabla resumida: Urgentes (top 10) -->
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h6 mb-0">Centro de Alertas (resumen)</h2>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Categoría</th>
+                <th>Tipo</th>
+                <th>Cliente</th>
+                <th>Empresa</th>
+                <th>Fecha</th>
+                <th>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in extras.urgentes %}
+                <tr>
+                  <td>
+                    {% if r.categorias %}
+                      {% for cat in r.categorias %}
+                        {% set cls = 'bg-secondary' %}
+                        {% if cat == 'Urg de hoy' %}{% set cls = 'bg-danger' %}{% elif cat == 'Prox 7 días' %}{% set cls = 'bg-warning text-dark' %}{% endif %}
+                        <span class="badge {{ cls }} me-1 mb-1">{{ cat }}</span>
+                      {% endfor %}
+                    {% elif r.categoria %}
+                      <span class="badge bg-secondary">{{ r.categoria }}</span>
+                    {% else %}
+                      <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td><span class="badge {{ 'bg-danger' if r.tipo=='Cobranza' else 'bg-warning text-dark' }}">{{ r.tipo }}</span></td>
+                  <td>{{ r.cliente }}</td>
+                  <td>{{ r.empresa }}</td>
+                  <td>{{ r.fecha }}</td>
+                  <td>{% if r.monto is not none %}${{ '%.0f'|format(r.monto) }}{% else %}-{% endif %}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="6" class="text-center text-muted">Sin alertas</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

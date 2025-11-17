@@ -64,6 +64,7 @@ class Client(db.Model):
 class Company(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(200), nullable=False, unique=True)
+    marca = db.Column(db.String(120))
     demora_despacho_promedio_dias = db.Column(db.Integer, default=0)
     plazo_pago_promedio_dias = db.Column(db.Integer, default=30)
     mail_pedido = db.Column(db.String(255))

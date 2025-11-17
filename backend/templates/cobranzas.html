@@ -180,6 +180,18 @@
 </div>
 <script>
 (function(){
+  // Utilidad compartida: sincroniza inputs monetarios ocultos y envía el form
+  function syncAndSubmit(formEl){
+    if (!formEl) return;
+    formEl.querySelectorAll('.js-currency').forEach(function(inp){
+      var hidId = inp.getAttribute('data-hidden');
+      var hid = hidId ? document.getElementById(hidId) : null;
+      var raw = (String(inp.value||inp.getAttribute('data-raw')||'').replace(/\D+/g,'')).replace(/^0+(?!$)/,'');
+      if (hid) hid.value = raw;
+    });
+    (formEl.requestSubmit ? formEl.requestSubmit() : formEl.submit());
+  }
+
   document.querySelectorAll('.js-cob-monto').forEach(function(el){
     el.addEventListener('change', function(){
       // asegurar sincronización antes de enviar
@@ -192,7 +204,7 @@
         }
       }catch(e){}
       var f = el.closest('form');
-      if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+      syncAndSubmit(f);
     });
   });
   document.querySelectorAll('.js-cob-forma').forEach(function(el){
@@ -210,16 +222,6 @@
     el.value = fmtThousands(integerPart(initial));
     syncRaw();
   });
-  function syncAndSubmit(formEl){
-    if (!formEl) return;
-    formEl.querySelectorAll('.js-currency').forEach(function(inp){
-      var hidId = inp.getAttribute('data-hidden');
-      var hid = hidId ? document.getElementById(hidId) : null;
-      var raw = (String(inp.value||inp.getAttribute('data-raw')||'').replace(/\D+/g,'')).replace(/^0+(?!$)/,'');
-      if (hid) hid.value = raw;
-    });
-    (formEl.requestSubmit ? formEl.requestSubmit() : formEl.submit());
-  }
   el.addEventListener('change', function(){
     var f = el.form || el.closest('form');
     syncAndSubmit(f);
@@ -281,6 +283,7 @@
     var nodes = document.querySelectorAll('input[data-datepicker]');
     if (!nodes.length) return;
     nodes.forEach(function(el){
+      var isRowPago = el.classList && el.classList.contains('js-cob-estimado');
       flatpickr(el, {
         altInput: true,
         altFormat: 'd/m/Y',
@@ -288,10 +291,17 @@
         allowInput: true,
         disableMobile: true,
         onChange: function(){
-          var form = document.getElementById('cobFilter'); if(!form) return;
-          var from = form.querySelector('input[name="from"]');
-          var to = form.querySelector('input[name="to"]');
-          if(from&&to&&from.value&&to.value){ form.submit(); }
+          if (isRowPago){
+            var f = el.form || el.closest('form');
+            // Reutilizar syncAndSubmit si existe
+            try{ if (typeof window.syncAndSubmit === 'function') { window.syncAndSubmit(f); return; } }catch(e){}
+            if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+          } else {
+            var form = document.getElementById('cobFilter'); if(!form) return;
+            var from = form.querySelector('input[name="from"]');
+            var to = form.querySelector('input[name="to"]');
+            if(from&&to&&from.value&&to.value){ form.submit(); }
+          }
         }
       });
     });
