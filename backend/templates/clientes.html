@@ -8,16 +8,23 @@
   /* Badges más aireados visualmente */
   .table-relaxed .badge { font-weight: 500; }
   .table-relaxed .d-flex.gap-1 { gap: .35rem !important; }
-  /* Ajuste local: reducir espacio superior del contenido en esta vista */
-  main.col { padding-top: 1rem !important; }
+  /* Ajuste local: más espacio superior del contenido en esta vista */
+  main.col { padding-top: 2rem !important; }
   /* Filtro provincia input */
   .prov-input { max-width: 240px; }
   /* (revertido) */
   .btn-create-client { white-space: nowrap; min-width: 160px; }
+  /* Buscador de clientes: más ancho para ver el placeholder completo */
+  .cliente-search-input { min-width: 320px; max-width: 420px; }
+  /* Título de sección en verde corporativo */
+  .clientes-title { color: #0f766e; }
 </style>
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Legajo de Clientes</h1>
-  <div class="d-flex align-items-center gap-2">
+<div class="d-flex justify-content-between align-items-center mb-3 mt-3">
+  <div>
+    <h1 class="h4 mb-1 clientes-title">Legajo de Clientes</h1>
+    <input type="text" id="clienteSearch" class="form-control form-control-sm cliente-search-input" placeholder="Buscar por razón social o nombre">
+  </div>
+  <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
     <select id="provSelect" class="form-select form-select-sm prov-input" aria-label="Filtrar por provincia">
       <option value="">Todas las provincias</option>
       <option value="tucuman">Tucumán</option>
@@ -26,6 +33,12 @@
       <option value="jujuy">Jujuy</option>
       <option value="catamarca">Catamarca</option>
       <option value="la rioja">La Rioja</option>
+    </select>
+    <select id="estadoSelect" class="form-select form-select-sm" style="max-width: 200px;" aria-label="Filtrar por estado de relación">
+      <option value="">Todos los estados</option>
+      <option value="TRABAJA">Trabaja</option>
+      <option value="TRABAJABA">Trabajaba</option>
+      <option value="A_INCORPORAR">A incorporar</option>
     </select>
     <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary btn-create-client">+ Crear Cliente</a>
   </div>
@@ -37,49 +50,67 @@
         <table class="table table-hover align-middle mb-0 table-relaxed w-100" id="clientes-table">
         <thead class="table-light">
           <tr>
-            <th>Nombre</th>
             <th>Razón social</th>
-            <th>Sucursal</th>
-            <th>Contacto</th>
-            <th>Mail</th>
+            <th>Nombre</th>
+            <th>Dirección principal</th>
             <th>Estado</th>
             <th class="text-end col-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
         {% for c in items %}
-          <tr data-prov="{{ (c.provincia or '')|lower }}">
-            <td>{{ c.nombre }}</td>
+          {% set trabaja_links = c.links | selectattr('status', 'defined') | selectattr('status.value', 'equalto', 'TRABAJA') | list %}
+          {% set trabajaba_links = c.links | selectattr('status', 'defined') | selectattr('status.value', 'equalto', 'TRABAJABA') | list %}
+          {% set ainc_links = c.links | selectattr('status', 'defined') | selectattr('status.value', 'equalto', 'A_INCORPORAR') | list %}
+          {% set total_links = (trabaja_links|length) + (trabajaba_links|length) + (ainc_links|length) %}
+          <tr data-prov="{{ (c.provincia or '')|lower }}" data-nombre="{{ (c.nombre or '')|lower }}" data-razon="{{ (c.apellido or '')|lower }}"
+              data-has-trabaja="{{ '1' if trabaja_links|length > 0 else '0' }}"
+              data-has-trabajaba="{{ '1' if trabajaba_links|length > 0 else '0' }}"
+              data-has-a_incorporar="{{ '1' if ainc_links|length > 0 else '0' }}">
             <td>{{ c.apellido }}</td>
-            <td>{{ c.sucursal or '-' }}</td>
-            <td>{{ c.telefono or '-' }}</td>
-            <td>{{ c.mail or '-' }}</td>
+            <td>{{ c.nombre }}</td>
+            <td>{{ c.direccion_principal or '-' }}</td>
             <td>
-              {% if c.links %}
-                <div class="d-flex flex-wrap gap-1">
-                  {# Orden: TRABAJA #}
-                  {% for l in c.links if l.status and l.status.value == 'TRABAJA' %}
-                    <span class="badge bg-success">Trabaja en {{ l.company.nombre }}</span>
-                  {% endfor %}
-                  {# Luego: TRABAJABA #}
-                  {% for l in c.links if l.status and l.status.value == 'TRABAJABA' %}
-                    <span class="badge bg-secondary">Trabajaba en {{ l.company.nombre }}</span>
-                  {% endfor %}
-                  {# Luego: A_INCORPORAR #}
-                  {% for l in c.links if l.status and l.status.value == 'A_INCORPORAR' %}
-                    <span class="badge bg-warning text-dark">A incorporar en {{ l.company.nombre }}</span>
-                  {% endfor %}
-                </div>
-              {% else %}-{% endif %}
+              <button type="button" class="btn btn-sm btn-outline-success js-toggle-estados" data-client-id="{{ c.id }}" style="border-radius: 999px; padding-inline: 0.85rem; font-weight: 500;">
+                Ver estados
+              </button>
+              <div class="mt-1 d-none js-estados-list" data-client-id="{{ c.id }}">
+                {% if total_links > 0 %}
+                  <div class="d-flex flex-wrap gap-1">
+                    {% for l in trabaja_links %}
+                      <span class="badge bg-success js-badge-trabaja">Trabaja en {{ l.company.nombre }}</span>
+                    {% endfor %}
+                    {% for l in trabajaba_links %}
+                      <span class="badge bg-secondary js-badge-trabajaba">Trabajaba en {{ l.company.nombre }}</span>
+                    {% endfor %}
+                    {% for l in ainc_links %}
+                      <span class="badge bg-warning text-dark js-badge-a_incorporar">A incorporar en {{ l.company.nombre }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </div>
             </td>
             <td class="text-end col-actions">
-              <div class="btn-group btn-group-sm d-inline-flex align-items-center" role="group">
-                <a class="btn btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=c.id) }}">Editar</a>
-                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#links{{ c.id }}">Empresa</button>
-                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#docs{{ c.id }}">Documentos</button>
-                <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" class="js-confirm-remove mb-0 d-inline" data-confirm="¿Eliminar cliente? Esta acción no se puede deshacer.">
-                  <button class="btn btn-sm btn-outline-danger">Eliminar</button>
-                </form>
+              <div class="dropdown d-inline-block">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="accionesCliente{{ c.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="bi bi-three-dots"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="accionesCliente{{ c.id }}">
+                  <li>
+                    <a class="dropdown-item" href="{{ url_for('main.clientes_edit_view', client_id=c.id) }}">Ver legajo</a>
+                  </li>
+                  <li>
+                    <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#links{{ c.id }}">Empresa</button>
+                  </li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" class="js-confirm-remove mb-0" data-confirm="¿Eliminar cliente? Esta acción no se puede deshacer.">
+                      <button class="dropdown-item text-danger" type="submit">Eliminar</button>
+                    </form>
+                  </li>
+                </ul>
               </div>
               <div class="modal fade" id="links{{ c.id }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-lg">
@@ -196,7 +227,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="text-center text-muted py-4">Sin clientes</td></tr>
+          <tr><td colspan="5" class="text-center text-muted py-4">Sin clientes</td></tr>
         {% endfor %}
         </tbody>
         </table>
@@ -250,21 +281,96 @@
 })();
 </script>
 <script>
+// Filtros combinados: provincia, texto y estado de relación
 (function(){
-  var select = document.getElementById('provSelect');
+  var provSelect = document.getElementById('provSelect');
+  var estadoSelect = document.getElementById('estadoSelect');
+  var searchInput = document.getElementById('clienteSearch');
   var rows = document.querySelectorAll('#clientes-table tbody tr');
-  function applyFilter(){
-    var fixed = (select && select.value || '').toLowerCase();
+
+  function rowMatchesEstado(tr, estado){
+    if (!estado) return true;
+    if (estado === 'TRABAJA') return tr.getAttribute('data-has-trabaja') === '1';
+    if (estado === 'TRABAJABA') return tr.getAttribute('data-has-trabajaba') === '1';
+    if (estado === 'A_INCORPORAR') return tr.getAttribute('data-has-a_incorporar') === '1';
+    return true;
+  }
+
+  function applyFilters(){
+    var prov = (provSelect && provSelect.value || '').toLowerCase();
+    var estado = (estadoSelect && estadoSelect.value) || '';
+    var q = (searchInput && searchInput.value || '').toLowerCase();
+
     rows.forEach(function(tr){
-      var hay = (tr.getAttribute('data-prov')||'').toLowerCase();
-      tr.style.display = (!fixed || hay.indexOf(fixed) !== -1) ? '' : 'none';
+      var hayProv = (tr.getAttribute('data-prov')||'').toLowerCase();
+      var rz = (tr.getAttribute('data-razon') || '').toLowerCase();
+      var nm = (tr.getAttribute('data-nombre') || '').toLowerCase();
+      var matchProv = !prov || hayProv.indexOf(prov) !== -1;
+      var matchSearch = !q || rz.indexOf(q) !== -1 || nm.indexOf(q) !== -1;
+      var matchEstado = rowMatchesEstado(tr, estado);
+      var visible = (matchProv && matchSearch && matchEstado);
+      tr.style.display = visible ? '' : 'none';
+      // Si hay filtro de estado activo, abrir automáticamente los estados de las filas visibles
+      var estadosPanel = tr.querySelector('.js-estados-list');
+      if (visible && estadosPanel){
+        var allBadges = estadosPanel.querySelectorAll('.js-badge-trabaja, .js-badge-trabajaba, .js-badge-a_incorporar');
+        if (estado){
+          estadosPanel.classList.remove('d-none');
+          // Mostrar sólo los badges del estado elegido
+          allBadges.forEach(function(b){
+            b.classList.remove('border', 'border-dark', 'border-2');
+            b.classList.add('d-none');
+          });
+          var selClass = null;
+          if (estado === 'TRABAJA') selClass = '.js-badge-trabaja';
+          else if (estado === 'TRABAJABA') selClass = '.js-badge-trabajaba';
+          else if (estado === 'A_INCORPORAR') selClass = '.js-badge-a_incorporar';
+          if (selClass){
+            estadosPanel.querySelectorAll(selClass).forEach(function(b){
+              b.classList.remove('d-none');
+              b.classList.add('border', 'border-dark', 'border-2');
+            });
+          }
+        } else {
+          // Sin filtro de estado: mantener colapsado por defecto y mostrar todos los badges
+          estadosPanel.classList.add('d-none');
+          allBadges.forEach(function(b){
+            b.classList.remove('border', 'border-dark', 'border-2', 'd-none');
+          });
+        }
+      }
     });
   }
-  if (select){
-    select.addEventListener('change', applyFilter);
-    // aplicar al cargar, para mantener filtro después de editar/crear
-    applyFilter();
-  }
+
+  if (provSelect) provSelect.addEventListener('change', applyFilters);
+  if (estadoSelect) estadoSelect.addEventListener('change', applyFilters);
+  if (searchInput) searchInput.addEventListener('input', applyFilters);
+
+  // aplicar al cargar, para mantener filtros después de navegar
+  applyFilters();
+})();
+</script>
+<script>
+// Toggle de visualización de estados por cliente
+(function(){
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && !btn.classList.contains('js-toggle-estados')){
+      if (btn.closest) btn = btn.closest('.js-toggle-estados');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-toggle-estados')) return;
+    e.preventDefault();
+    var cid = btn.getAttribute('data-client-id');
+    if (!cid) return;
+    var panel = document.querySelector('.js-estados-list[data-client-id="'+ cid +'"]');
+    if (!panel) return;
+    var isHidden = panel.classList.contains('d-none');
+    // Ocultar otros paneles si se desea comportamiento “acordeón”
+    document.querySelectorAll('.js-estados-list').forEach(function(p){
+      if (p !== panel) p.classList.add('d-none');
+    });
+    panel.classList.toggle('d-none', !isHidden);
+  });
 })();
 </script>
 <!-- Modal de confirmación para eliminar/quitar vínculos -->
@@ -396,6 +502,42 @@
     });
   });
   mo.observe(document.body, { childList:true, subtree:true });
+})();
+</script>
+<script>
+// Reabrir modal de empresas desde Clientes si viene ?open_links=
+(function(){
+  function reopenModal(){
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      var openId = params.get('open_links');
+      if (!openId) return;
+      var modalEl = document.getElementById('links' + openId);
+      if (!modalEl) return;
+      if (window.bootstrap && window.bootstrap.Modal){
+        var modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+      } else {
+        // Fallback simple si Bootstrap aún no está disponible
+        modalEl.classList.add('show');
+        modalEl.style.display = 'block';
+      }
+      // Una vez abierto, quitar open_links de la URL para que no se reabra al entrar de nuevo
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.delete('open_links');
+        window.history.replaceState({}, document.title, url.toString());
+      } catch(e) {}
+    } catch(e) {
+      // silencioso
+    }
+  }
+
+  if (document.readyState === 'complete'){
+    reopenModal();
+  } else {
+    window.addEventListener('load', reopenModal);
+  }
 })();
 </script>
 <script>

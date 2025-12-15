@@ -1,13 +1,33 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div class="container" style="max-width: 860px;">
-  <h1 class="h4 text-dark mb-4">{{ 'Editar empresa' if company else 'Nueva empresa' }}</h1>
+  <h1 class="h4 text-dark mb-4">{{ 'Legajo de empresa' if company else 'Nueva empresa' }}</h1>
 
   <form method="post" class="card shadow-sm">
     <div class="card-body">
       <style>
         /* Títulos y etiquetas más estéticos en esta vista */
         .form-label { color: #0f766e; font-weight: 600; letter-spacing: .2px; }
+        /* Títulos de secciones del legajo de empresa, alineados con clientes */
+        .empresa-section-title {
+          font-size: 1.3rem;
+          font-weight: 700;
+          color: #0b1120;
+          letter-spacing: .3px;
+          padding-top: .75rem;
+          margin-top: .25rem;
+          margin-bottom: .75rem;
+          text-align: center;
+        }
+        .empresa-subsection-title {
+          font-size: 1.15rem;
+          font-weight: 700;
+          color: #111827;
+          padding-top: .5rem;
+          margin-top: .25rem;
+          margin-bottom: .5rem;
+          text-align: center;
+        }
         /* Botón colapsable: mantener legible en hover/active */
         .btn-outline-secondary[data-bs-target="#clients-collapse"] { border-width: 2px; }
         .btn-outline-secondary[data-bs-target="#clients-collapse"]:hover,
@@ -21,25 +41,26 @@
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label">Marca</label>
-          <input name="marca" type="text" class="form-control" value="{{ company.marca if company }}">
+          {% set marca_val = (company.marca if company and company.marca and company.marca|lower != 'none' else '') %}
+          <input name="marca" type="text" class="form-control" value="{{ marca_val }}">
         </div>
         <div class="col-md-6">
           <label class="form-label">Razón social</label>
-          <input name="nombre" type="text" class="form-control" value="{{ company.nombre if company }}" required>
+          <input name="nombre" type="text" class="form-control" value="{{ company.nombre or '' if company else '' }}">
         </div>
         <div class="col-md-6">
           <label class="form-label">Demora despacho promedio (días)</label>
-          <input name="demora" type="number" class="form-control" min="0" value="{{ company.demora_despacho_promedio_dias if company }}">
+          <input name="demora" type="number" class="form-control" min="0" value="{{ company.demora_despacho_promedio_dias or '' if company else '' }}">
         </div>
         <div class="col-md-6">
           <label class="form-label">Plazo de pago promedio (días)</label>
-          <input name="plazo" type="number" class="form-control" min="0" value="{{ company.plazo_pago_promedio_dias if company }}">
+          <input name="plazo" type="number" class="form-control" min="0" value="{{ company.plazo_pago_promedio_dias or '' if company else '' }}">
         </div>
         <div class="col-md-6">
-          {% if company %}<input type="hidden" id="company_mail_pedido_raw" value="{{ company.mail_pedido }}">{% endif %}
+          {% if company %}<input type="hidden" id="company_mail_pedido_raw" value="{{ company.mail_pedido or '' }}">{% endif %}
           <div class="mt-3">
             <div class="d-flex align-items-center justify-content-between">
-              <label class="form-label m-0">Mail de pedido</label>
+              <label class="form-label m-0">Mails de pedido</label>
               <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-collapse" aria-expanded="false" aria-controls="cmp-mails-collapse">Seleccionar mails</button>
             </div>
             <div id="cmp-mails-collapse" class="collapse mt-2">
@@ -61,20 +82,41 @@
           </div>
         </div>
         <div class="col-md-6">
-          <label class="form-label">Mail de pago</label>
-          <input name="mail_pago" type="email" class="form-control" value="{{ company.mail_pago if company }}">
+          {% if company %}<input type="hidden" id="company_mail_pago_raw" value="{{ company.mail_pago or '' }}">{% endif %}
+          <div class="mt-3">
+            <div class="d-flex align-items-center justify-content-between">
+              <label class="form-label m-0">Mails de pagos</label>
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-pago-collapse" aria-expanded="false" aria-controls="cmp-mails-pago-collapse">Seleccionar mails</button>
+            </div>
+            <div id="cmp-mails-pago-collapse" class="collapse mt-2">
+              <div class="d-flex gap-2 mb-2">
+                <input type="email" class="form-control form-control-sm" id="new_cmp_mail_pago_input" placeholder="Agregar mail" style="max-width:260px">
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddCmpMailPago">Agregar</button>
+              </div>
+              <div id="cmp-mails-pago-alert" class="mt-1"></div>
+              <div id="cmp-mails-pago-checklist" class="border rounded p-2" style="max-height:200px; overflow:auto"></div>
+              <div class="d-flex justify-content-end mt-2">
+                <button type="button" id="btnConfirmarCmpMailsPago" class="btn btn-sm btn-primary">Confirmar selección</button>
+              </div>
+            </div>
+            <div class="mt-2">
+              <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
+              <div id="cmp-mails-pago-selected" class="mt-1"></div>
+              <div id="cmp-mails-pago-hidden"></div>
+            </div>
+          </div>
         </div>
         <div class="col-12">
           <div class="d-flex align-items-center justify-content-between">
-            <label class="form-label m-0">Vincular a clientes (opcional)</label>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#clients-collapse" aria-expanded="false" aria-controls="clients-collapse">Seleccionar clientes</button>
+            <label class="form-label m-0">Clientes</label>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#clients-collapse" aria-expanded="false" aria-controls="clients-collapse">Clientes</button>
           </div>
           <div id="clients-collapse" class="collapse mt-2">
             <div id="clients-checklist" class="border rounded p-2" style="max-height: 260px; overflow: auto;">
               {% for c in clients %}
               <div class="form-check">
                 <input class="form-check-input js-client-chk" type="checkbox" value="{{ c.id }}" id="cl{{ c.id }}" name="client_ids">
-                <label class="form-check-label" for="cl{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</label>
+                <label class="form-check-label" for="cl{{ c.id }}">{{ c.apellido }}</label>
               </div>
               {% endfor %}
             </div>
@@ -84,9 +126,41 @@
           </div>
           <div id="clients-selected-wrapper" class="mt-3">
             <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Clientes confirmados</div>
-            <div id="clients-selected" class="mt-1"></div>
-            <div id="clients-hidden"></div>
+            <div id="clients-selected" class="mt-1">
+              {% if company and company.links %}
+                {% for l in company.links %}
+                  <span class="badge badge-client me-1 mb-1" data-client-id="{{ l.client_id }}">
+                    {{ l.client.apellido }}
+                    <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-client-del" data-client-id="{{ l.client_id }}">×</button>
+                  </span>
+                {% endfor %}
+              {% else %}
+                <span class="text-muted">Ninguno</span>
+              {% endif %}
+            </div>
+            <div id="clients-hidden">
+              {% if company and company.links %}
+                {% for l in company.links %}
+                  <input type="hidden" name="client_ids" value="{{ l.client_id }}">
+                {% endfor %}
+              {% endif %}
+            </div>
           </div>
+        </div>
+        <div class="col-12 mt-4">
+          <h2 class="empresa-section-title mb-2">Información complementaria</h2>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">CUIL/CUIT</label>
+          <input name="cuit" type="text" class="form-control" value="{{ company.cuit or '' if company else '' }}">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Notas</label>
+          <textarea name="notas" class="form-control" rows="2" placeholder="Notas generales de la empresa">{{ company.notas or '' if company else '' }}</textarea>
+        </div>
+        <div class="col-md-12">
+          <label class="form-label">Cuenta Bancaria - Notas</label>
+          <textarea name="cuenta_bancaria_notas" class="form-control" rows="2" placeholder="Datos de cuenta bancaria, CBU, alias, condiciones, etc.">{{ company.cuenta_bancaria_notas or '' if company else '' }}</textarea>
         </div>
       </div>
     </div>
@@ -95,6 +169,139 @@
       <button class="btn btn-primary" type="submit">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
     </div>
   </form>
+  <div class="mt-4">
+    <h2 class="empresa-section-title mb-3">Documentación</h2>
+    {% if company %}
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card shadow-sm">
+          <div class="card-header bg-light">
+            <strong>Constancias</strong>
+          </div>
+          <div class="card-body">
+            <form class="mb-3" method="post" enctype="multipart/form-data" action="{{ url_for('main.empresas_docs_upload', company_id=company.id) }}">
+              <input type="hidden" name="category" value="CONSTANCIA">
+              <div class="input-group input-group-sm">
+                <input class="form-control" type="file" name="documents" multiple required>
+                <button class="btn btn-primary" type="submit">Subir</button>
+              </div>
+            </form>
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 70%;">Archivo</th>
+                    <th class="text-end" style="width: 30%; white-space: nowrap;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% set const_docs = (company.documents | selectattr('category', 'equalto', 'CONSTANCIA') | list) %}
+                  {% for d in const_docs %}
+                  <tr>
+                    <td>
+                      <a href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener" class="text-decoration-none" style="color:#0f766e;">{{ d.filename }}</a>
+                    </td>
+                    <td class="text-end" style="white-space: nowrap;">
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener"><i class="bi bi-download"></i></a>
+                      <form method="post" action="{{ url_for('main.empresas_docs_delete', company_id=company.id, doc_id=d.id) }}" class="d-inline js-doc-delete-form" data-doc-type="constancia">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="2" class="text-center text-muted">Sin constancias</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card shadow-sm">
+          <div class="card-header bg-light">
+            <strong>Catálogos</strong>
+          </div>
+          <div class="card-body">
+            <form class="mb-3" method="post" enctype="multipart/form-data" action="{{ url_for('main.empresas_docs_upload', company_id=company.id) }}">
+              <input type="hidden" name="category" value="CATALOGO">
+              <div class="input-group input-group-sm">
+                <input class="form-control" type="file" name="documents" multiple required>
+                <button class="btn btn-primary" type="submit">Subir</button>
+              </div>
+            </form>
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 70%;">Archivo</th>
+                    <th class="text-end" style="width: 30%; white-space: nowrap;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% set cat_docs = (company.documents | selectattr('category', 'equalto', 'CATALOGO') | list) %}
+                  {% for d in cat_docs %}
+                  <tr>
+                    <td>
+                      <a href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener" class="text-decoration-none" style="color:#0f766e;">{{ d.filename }}</a>
+                    </td>
+                    <td class="text-end" style="white-space: nowrap;">
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener"><i class="bi bi-download"></i></a>
+                      <form method="post" action="{{ url_for('main.empresas_docs_delete', company_id=company.id, doc_id=d.id) }}" class="d-inline js-doc-delete-form" data-doc-type="catálogo">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="2" class="text-center text-muted">Sin catálogos</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-light border mt-2" role="alert">
+      Guardá primero la empresa para poder subir constancias y catálogos.
+    </div>
+    {% endif %}
+    <div class="mt-4">
+      <h2 class="empresa-subsection-title mb-3">Compartir información a Cliente</h2>
+      {% if company %}
+      <div class="row g-2 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label">Seleccionar cliente</label>
+          <select name="share_client_id" class="form-select">
+            <option value="">Seleccionar cliente...</option>
+            {% for c in clients %}
+              <option value="{{ c.id }}" data-mail-cliente="{{ c.mail or '' }}">{{ c.apellido }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text" id="share_client_mails_help"></div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Comentario para el cliente</label>
+          <textarea name="share_client_comment" class="form-control" rows="1" placeholder="Texto adicional para el cliente"></textarea>
+        </div>
+        <div class="col-12 mt-3">
+          <label class="form-label">Previsualización del mail a enviar</label>
+          <textarea id="share_client_body_preview" class="form-control" rows="6" placeholder="Aquí verás el texto completo del mail que se enviará al cliente. Podés editarlo antes de enviar."></textarea>
+          <div class="form-text">Este texto se enviará junto con las constancias y catálogos adjuntos de la empresa.</div>
+        </div>
+        <div class="col-12 mt-2 d-flex align-items-center gap-2 flex-wrap">
+          <button type="button" id="btnSendCompanyShareMail" class="btn btn-outline-primary btn-sm">Compartir</button>
+          <small class="text-muted">Se enviará el mail al cliente con este texto y los archivos adjuntos de la empresa.</small>
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-light border mt-2" role="alert">
+        Guardá primero la empresa para poder compartir su información con un cliente.
+      </div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 <script>
 (function(){
@@ -103,6 +310,15 @@
   var hidWrap = document.getElementById('clients-hidden');
   if (!box || !list || !hidWrap) return;
   var confirmed = new Map(); // id -> label
+  // Pre-cargar seleccionados desde los inputs hidden existentes (caso edición)
+  var initialHidden = hidWrap.querySelectorAll('input[type="hidden"][name="client_ids"]');
+  initialHidden.forEach(function(inp){
+    var id = String(inp.value);
+    var lblEl = box.querySelector('#cl'+id);
+    var labelEl = lblEl ? box.querySelector('label[for="cl'+id+'"]') : null;
+    var label = labelEl ? labelEl.textContent.trim() : ('Cliente '+id);
+    confirmed.set(id, label);
+  });
   function render(){
     if (confirmed.size === 0) {
       list.innerHTML = '<span class="text-muted">Ninguno</span>';
@@ -112,7 +328,8 @@
     var html = [];
     var hidden = [];
     confirmed.forEach(function(label, id){
-      html.push('<span class="badge badge-client me-1 mb-1">'+ label +'</span>');
+      var esc = String(label).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      html.push('<span class="badge badge-client me-1 mb-1" data-client-id="'+ id +'">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-client-del" data-client-id="'+ id +'">×</button></span>');
       hidden.push('<input type="hidden" name="client_ids" value="'+ id +'">');
     });
   // Asegurar que antes de enviar el formulario se confirme lo pendiente
@@ -143,6 +360,16 @@
     if (t && t.id === 'btnConfirmarClientes') {
       e.preventDefault();
       confirmSelection();
+      return;
+    }
+    var delBtn = (t && t.classList && t.classList.contains('js-client-del')) ? t : (t && t.closest ? t.closest('.js-client-del') : null);
+    if (delBtn){
+      e.preventDefault();
+      var cid = delBtn.getAttribute('data-client-id');
+      if (cid && confirmed.has(cid)){
+        confirmed.delete(cid);
+        render();
+      }
     }
   });
   render();
@@ -264,4 +491,402 @@
   render();
 })();
 </script>
+<script>
+(function(){
+  var box = document.getElementById('cmp-mails-pago-checklist');
+  var list = document.getElementById('cmp-mails-pago-selected');
+  var hidWrap = document.getElementById('cmp-mails-pago-hidden');
+  var btnAdd = document.getElementById('btnAddCmpMailPago');
+  var input = document.getElementById('new_cmp_mail_pago_input');
+  var alertBox = document.getElementById('cmp-mails-pago-alert');
+  if (!box || !list || !hidWrap) return;
+  var confirmed = new Map();
+  function render(){
+    if (confirmed.size === 0){
+      list.innerHTML = '<span class="text-muted">Ninguno</span>';
+      hidWrap.innerHTML = '';
+      return;
+    }
+    var chips = [];
+    var hidden = [];
+    confirmed.forEach(function(_, email){
+      var esc = email.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      chips.push('<span class="badge bg-success text-white me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-chip-del-pago" data-email="'+ esc +'">×</button></span>');
+      hidden.push('<input type="hidden" name="mail_pago_list" value="'+ email +'">');
+    });
+    list.innerHTML = chips.join('');
+    hidWrap.innerHTML = hidden.join('');
+  }
+  function isValidEmail(v){
+    return /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}(\.[A-Za-z]{2,})*$/.test(v);
+  }
+  function showEmailAlert(msg){
+    if (!alertBox) return;
+    alertBox.innerHTML = '<div class="alert alert-warning py-1 px-2 mb-0" role="alert">'+ msg +'</div>';
+  }
+  function clearEmailAlert(){ if (alertBox) alertBox.innerHTML = ''; }
+  function addToChecklist(email){
+    if (!email) return;
+    if (!isValidEmail(email)){
+      if (input){ input.classList.add('is-invalid'); }
+      showEmailAlert('Formato de mail inválido. Debe incluir "@" y un dominio válido (.com, .ar, etc.).');
+      return;
+    }
+    if (input){ input.classList.remove('is-invalid'); }
+    clearEmailAlert();
+    var id = 'cmp_pago_' + btoa(email).replace(/=+/g,'');
+    if (box.querySelector('#'+id)) return;
+    var item = document.createElement('div');
+    item.className = 'form-check';
+    var chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className='form-check-input js-cmp-mail-pago-chk';
+    chk.id = id; chk.value = email;
+    var lbl = document.createElement('label'); lbl.className='form-check-label'; lbl.setAttribute('for', id); lbl.textContent = email;
+    item.appendChild(chk); item.appendChild(lbl);
+    box.appendChild(item);
+    chk.checked = true;
+    confirmSelection();
+  }
+  function confirmSelection(){
+    var checks = box.querySelectorAll('.js-cmp-mail-pago-chk:checked');
+    checks.forEach(function(chk){
+      var email = String(chk.value).trim(); if (email) confirmed.set(email, email);
+      chk.checked = false;
+    });
+    render();
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    var confirmBtn = (t && (t.id === 'btnConfirmarCmpMailsPago')) ? t : (t && t.closest ? t.closest('#btnConfirmarCmpMailsPago') : null);
+    if (confirmBtn){ e.preventDefault(); confirmSelection(); return; }
+    var addBtn = (t && (t.id === 'btnAddCmpMailPago')) ? t : (t && t.closest ? t.closest('#btnAddCmpMailPago') : null);
+    if (addBtn){
+      e.preventDefault();
+      var val = (input && input.value || '').trim();
+      if (val){ addToChecklist(val); input.value=''; }
+      return;
+    }
+    var delBtn = (t && t.classList && t.classList.contains('js-chip-del-pago')) ? t : (t && t.closest ? t.closest('.js-chip-del-pago') : null);
+    if (delBtn){
+      e.preventDefault();
+      var em = delBtn.getAttribute('data-email');
+      if (em && confirmed.has(em)){ confirmed.delete(em); render(); }
+      return;
+    }
+  });
+  var initialStr = (document.getElementById('company_mail_pago_raw')?.value || '').trim();
+  if (initialStr){
+    initialStr.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(m){ addToChecklist(m); confirmed.set(m, m); });
+  }
+  if (btnAdd){
+    btnAdd.addEventListener('click', function(e){
+      e.preventDefault();
+      var val = (input && input.value || '').trim();
+      if (val){ addToChecklist(val); input.value=''; }
+    });
+  }
+  if (input){
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter'){
+        e.preventDefault();
+        var val = (input && input.value || '').trim();
+        if (val){ addToChecklist(val); input.value=''; }
+      }
+    });
+  }
+  render();
+})();
+</script>
+<script>
+// Formateo automático de CUIL/CUIT de empresa: XX-XXXXXXXX-X
+(function(){
+  var cuitInput = document.querySelector('input[name="cuit"]');
+  if (!cuitInput) return;
+  cuitInput.addEventListener('input', function(){
+    var v = (cuitInput.value || '').replace(/[^0-9]/g, ''); // solo dígitos
+    if (!v) { cuitInput.value = ''; return; }
+    if (v.length > 11) v = v.slice(0,11);
+    var p1 = v.slice(0,2);
+    var p2 = v.slice(2,10);
+    var p3 = v.slice(10,11);
+    var out = p1;
+    if (p2) out += '-' + p2;
+    if (p3) out += '-' + p3;
+    cuitInput.value = out;
+  });
+})();
+</script>
+<script>
+// Aviso si se alcanzó el límite de tamaño de documentos al subir archivos
+(function(){
+  document.addEventListener('DOMContentLoaded', function(){
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      if (params.get('upload_limit') === '1'){
+        var mb = params.get('upload_limit_mb');
+        var suffix = mb ? ' (límite: ' + mb + ' MB)' : '';
+        var msg = 'No se subieron algunos archivos: se alcanzó el límite de tamaño permitido para esta empresa' + suffix + '.';
+        if (window.showToast){
+          window.showToast(msg, 'warning');
+        } else {
+          alert(msg);
+        }
+      }
+    } catch (e) {
+      // silencioso
+    }
+  });
+})();
+</script>
+<script>
+// Mostrar mails del cliente seleccionado (para compartir info de empresa)
+(function(){
+  var sel = document.querySelector('select[name="share_client_id"]');
+  var help = document.getElementById('share_client_mails_help');
+  if (!sel || !help) return;
+  function update(){
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value){
+      help.textContent = '';
+      return;
+    }
+    var mails = opt.getAttribute('data-mail-cliente') || '';
+    if (!mails){
+      help.textContent = 'El cliente seleccionado no tiene mails cargados.';
+    } else {
+      help.textContent = 'Mails del cliente: ' + mails;
+    }
+  }
+  sel.addEventListener('change', update);
+  update();
+})();
+</script>
+<script>
+// Botón "Compartir": arma un mail de empresa hacia el cliente (abre Gmail)
+(function(){
+  var btn = document.getElementById('btnSendCompanyShareMail');
+  if (!btn) return;
+  var previewEl = document.getElementById('share_client_body_preview');
+  var commentEl = document.querySelector('[name="share_client_comment"]');
+
+  // Generar texto estándar de cuerpo a partir de los datos actuales de la empresa y comentario
+  function buildDefaultBody(){
+    try {
+      var razon = (document.querySelector('input[name="nombre"]') || {}).value || '';
+      var marca = (document.querySelector('input[name="marca"]') || {}).value || '';
+      var cuit = (document.querySelector('input[name="cuit"]') || {}).value || '';
+      var cuenta = (document.querySelector('textarea[name="cuenta_bancaria_notas"]') || {}).value || '';
+      var comentario = (commentEl && commentEl.value) ? commentEl.value.trim() : '';
+      var lines = [];
+      lines.push('INFORMACIÓN DE EMPRESA');
+      lines.push('');
+      lines.push('Razón social: ' + (razon.trim() || '-'));
+      lines.push('Marca: ' + (marca.trim() || '-'));
+      lines.push('CUIL/CUIT: ' + (cuit.trim() || '-'));
+      lines.push('');
+      lines.push('Constancias AFIP y Rentas: adjuntas en este correo (si corresponden).');
+      lines.push('Catálogos: adjuntos en este correo (si corresponden).');
+      lines.push('');
+      lines.push('Cuenta bancaria:');
+      lines.push((cuenta || '').trim() || '-');
+      if (comentario){
+        lines.push('');
+        lines.push('Comentario adicional:');
+        lines.push(comentario);
+      }
+      return lines.join('\n');
+    } catch(e){
+      return '';
+    }
+  }
+
+  // Rellenar preview al cargar, solo si está vacío
+  if (previewEl && !previewEl.value){
+    var defBody = buildDefaultBody();
+    if (defBody) previewEl.value = defBody;
+  }
+
+  // Marcar cuando el usuario edita manualmente la previsualización
+  if (previewEl){
+    previewEl.addEventListener('input', function(){ previewEl.dataset.userEdited = '1'; });
+  }
+
+  // Si cambia el comentario y el usuario no editó manualmente, regenerar texto
+  if (commentEl){
+    commentEl.addEventListener('input', function(){
+      if (!previewEl || previewEl.dataset.userEdited === '1') return;
+      var defBody2 = buildDefaultBody();
+      if (defBody2) previewEl.value = defBody2;
+    });
+  }
+  btn.addEventListener('click', function(e){
+    e.preventDefault();
+    var sel = document.querySelector('select[name="share_client_id"]');
+    if (!sel || !sel.value){
+      alert('Seleccioná primero un cliente al que enviar la información.');
+      return;
+    }
+    var opt = sel.options[sel.selectedIndex];
+    var mails = (opt.getAttribute('data-mail-cliente') || '').trim();
+    if (!mails){
+      alert('El cliente seleccionado no tiene mails cargados.');
+      return;
+    }
+    // comentario opcional y cuerpo editable que se enviarán al backend
+    function val(name){
+      var el = document.querySelector('[name="'+name+'"]');
+      return el && el.value ? el.value.trim() : '';
+    }
+    var comentario = val('share_client_comment');
+    var bodyText = previewEl && previewEl.value ? previewEl.value.trim() : '';
+
+    // Si no hay cuerpo escrito, generar uno por defecto similar al del backend
+    if (!bodyText){
+      try {
+        var razon = (document.querySelector('input[name="nombre"]')?.value || '').trim();
+        var marca = (document.querySelector('input[name="marca"]')?.value || '').trim();
+        var cuit = (document.querySelector('input[name="cuit"]')?.value || '').trim();
+        var cuenta = (document.querySelector('textarea[name="cuenta_bancaria_notas"]')?.value || '').trim();
+        var lines = [];
+        lines.push('INFORMACIÓN DE EMPRESA');
+        lines.push('');
+        lines.push('Razón social: ' + (razon || '-'));
+        lines.push('Marca: ' + (marca || '-'));
+        lines.push('CUIL/CUIT: ' + (cuit || '-'));
+        lines.push('');
+        lines.push('Constancias AFIP y Rentas: adjuntas en este correo (si corresponden).');
+        lines.push('Catálogos: adjuntos en este correo (si corresponden).');
+        lines.push('');
+        lines.push('Cuenta bancaria:');
+        lines.push(cuenta || '-');
+        if (comentario){
+          lines.push('');
+          lines.push('Comentario adicional:');
+          lines.push(comentario);
+        }
+        bodyText = lines.join('\n');
+        if (previewEl){ previewEl.value = bodyText; }
+      } catch(err) {
+        // silencioso, deja bodyText vacío y el backend generará algo
+      }
+    }
+
+    var companyId = {{ company.id if company else 'null' }};
+    if (!companyId){
+      alert('Guardá primero la empresa antes de compartir la información.');
+      return;
+    }
+
+    fetch('/empresas/' + companyId + '/share_to_client', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: opt.value,
+        comment: comentario,
+        body: bodyText
+      })
+    }).then(function(resp){
+      return resp.json().then(function(data){ return { status: resp.status, data: data }; });
+    }).then(function(res){
+      if (res.status >= 200 && res.status < 300 && res.data && res.data.ok){
+        if (window.showToast){
+          window.showToast('Mail enviado al cliente', 'success');
+        } else {
+          alert('Mail enviado al cliente');
+        }
+      } else {
+        var msg = (res.data && res.data.error) || 'No se pudo enviar el mail.';
+        if (window.showToast){
+          window.showToast(msg, 'danger');
+        } else {
+          alert(msg);
+        }
+      }
+    }).catch(function(err){
+      if (window.showToast){
+        window.showToast('Error de red al enviar el mail', 'danger');
+      } else {
+        alert('Error de red al enviar el mail');
+      }
+    });
+  });
+})();
+</script>
+<script>
+// Confirmación estética para eliminar constancias / catálogos
+(function(){
+  var pendingForm = null;
+  var modalEl = null;
+  var typeSpan = null;
+  var modal = null;
+  var confirmBtn = null;
+
+  function ensureModalRefs(){
+    if (!modalEl) {
+      modalEl = document.getElementById('docDeleteConfirmModal');
+      typeSpan = document.getElementById('docDeleteType');
+      var ModalCtor = window.bootstrap && window.bootstrap.Modal;
+      modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
+    }
+    if (!confirmBtn) {
+      confirmBtn = document.getElementById('docDeleteConfirmBtn');
+      if (confirmBtn && !confirmBtn._bound){
+        confirmBtn.addEventListener('click', function(){
+          if (pendingForm) {
+            var f = pendingForm;
+            pendingForm = null;
+            if (modal) modal.hide();
+            f.submit();
+          }
+        });
+        confirmBtn._bound = true;
+      }
+    }
+  }
+
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!(form && form.classList && form.classList.contains('js-doc-delete-form'))) return;
+    e.preventDefault();
+
+    ensureModalRefs();
+
+    pendingForm = form;
+    var t = (form.getAttribute('data-doc-type') || 'documento');
+    if (typeSpan) typeSpan.textContent = t;
+    if (modal) {
+      modal.show();
+    } else {
+      // fallback elegante: si no hay modal, usar confirm nativo
+      var ok = window.confirm('¿Eliminar ' + t + '?');
+      if (ok) form.submit();
+    }
+  }, true);
+})();
+</script>
+<!-- Modal confirmación eliminación de documentos -->
+<div class="modal fade" id="docDeleteConfirmModal" tabindex="-1" aria-labelledby="docDeleteConfirmLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0">
+        <h5 class="modal-title" id="docDeleteConfirmLabel"><i class="bi bi-file-earmark-x text-danger me-2"></i>Eliminar <span id="docDeleteType">documento</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <div class="alert alert-warning d-flex align-items-center gap-2 mb-0" role="alert">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          <div>
+            Esta acción eliminará definitivamente el archivo seleccionado. ¿Deseás continuar?
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" id="docDeleteConfirmBtn" class="btn btn-danger">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

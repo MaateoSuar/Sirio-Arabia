@@ -1,25 +1,95 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div class="container" style="max-width: 860px;">
-  <h1 class="h4 text-dark mb-4">{{ 'Editar cliente' if client else 'Nuevo cliente' }}</h1>
+  <h1 class="h4 text-dark mb-4">{{ 'Legajo de cliente' if client else 'Nuevo cliente' }}</h1>
 
   <form method="post" action="{{ url_for('main.clientes_update', client_id=client.id) if client else url_for('main.clientes_create') }}" class="card shadow-sm">
     <div class="card-body">
       <style>
         .form-label { color:#0f766e; font-weight:600; letter-spacing:.2px; }
+        /* Títulos de secciones del legajo de cliente: más grandes y marcados */
+        .cliente-section-title {
+          font-size: 1.3rem;
+          font-weight: 700;
+          color: #0b1120;
+          letter-spacing: .3px;
+          padding-top: .75rem;
+          margin-top: .25rem;
+          margin-bottom: .75rem;
+          text-align: center;
+        }
+        .cliente-subsection-title {
+          font-size: 1.15rem;
+          font-weight: 700;
+          color: #111827;
+          padding-top: .5rem;
+          margin-top: .25rem;
+          margin-bottom: .5rem;
+          text-align: center;
+        }
       </style>
       <div class="row g-2 g-md-3">
-        <div class="col-md-6">
-          <label class="form-label">Nombre</label>
-          <input name="nombre" type="text" class="form-control" value="{{ client.nombre if client }}" required>
+        <div class="col-12 mt-1">
+          <h2 class="cliente-section-title mb-2">Información básica del cliente</h2>
         </div>
+        <div class="col-md-3">
+          <label class="form-label">Razón social</label>
+          <input name="apellido" type="text" class="form-control" value="{{ (client.apellido or '') if client else '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Nombre</label>
+          <input name="nombre" type="text" class="form-control" value="{{ (client.nombre or '') if client else '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Provincia</label>
+          <select name="provincia" class="form-select">
+            <option value="">Seleccionar...</option>
+            {% set pv = (client.provincia if client else '') or '' %}
+            <option value="Tucuman" {{ 'selected' if pv=='Tucuman' else '' }}>Tucumán</option>
+            <option value="Sgo del Estero" {{ 'selected' if pv=='Sgo del Estero' else '' }}>Sgo del Estero</option>
+            <option value="Salta" {{ 'selected' if pv=='Salta' else '' }}>Salta</option>
+            <option value="Jujuy" {{ 'selected' if pv=='Jujuy' else '' }}>Jujuy</option>
+            <option value="Catamarca" {{ 'selected' if pv=='Catamarca' else '' }}>Catamarca</option>
+            <option value="La Rioja" {{ 'selected' if pv=='La Rioja' else '' }}>La Rioja</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">CUIL/CUIT</label>
+          <input name="cuit" type="text" class="form-control" value="{{ (client.cuit or '') if client else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Dirección principal</label>
+          <input name="direccion_principal" type="text" class="form-control" value="{{ (client.direccion_principal or '') if client else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Transporte recomendado</label>
+          <input name="transporte_recomendado" type="text" class="form-control" value="{{ (client.transporte_recomendado or '') if client else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Contacto (Nombre y apellido)</label>
+          <input name="telefono" type="text" class="form-control" value="{{ (client.telefono or '') if client else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Mail</label>
+          <input name="mail" type="email" class="form-control" value="{{ (client.mail or '') if client else '' }}">
+        </div>
+
         <!-- Datos JSON para precargar sucursales del cliente (evita Jinja dentro de JS) -->
         <script type="application/json" id="branches-data">{{ (client.branches|map(attribute='nombre')|list)|tojson if client else '[]' }}</script>
-        <div class="col-md-6">
-          <label class="form-label">Razón social</label>
-          <input name="apellido" type="text" class="form-control" value="{{ client.apellido if client }}" required>
-        </div>
-        <div class="col-12">
+        <!-- Datos JSON para precargar lugares de entrega del cliente -->
+        <script type="application/json" id="deliveries-data">{{ (client.delivery_places|map(attribute='nombre')|list)|tojson if client else '[]' }}</script>
+        <!-- Datos JSON para precargar cumpleaños del cliente -->
+        <script type="application/json" id="birthdays-data">[
+        {% if client and client.birthdays %}
+          {% for b in client.birthdays %}
+            {"nombre": "{{ b.nombre|e }}",
+             "puesto": "{{ (b.puesto or '')|e }}",
+             "fecha": "{{ b.fecha.isoformat() if b.fecha else '' }}"}{% if not loop.last %},{% endif %}
+          {% endfor %}
+        {% endif %}
+        ]</script>
+
+        <div class="col-12 mt-3">
           <div class="d-flex align-items-center justify-content-between">
             <label class="form-label m-0">Sucursales (opcional)</label>
             <div class="d-flex gap-2">
@@ -44,36 +114,135 @@
             <div id="branches-hidden"></div>
           </div>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Dirección principal</label>
-          <input name="direccion_principal" type="text" class="form-control" value="{{ client.direccion_principal if client }}">
+
+        <!-- Segunda parte: información complementaria del cliente (colapsable) -->
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" id="infoCompToggle" style="cursor: pointer;">
+            <h2 class="cliente-section-title mb-0" style="flex:1;">Información complementaria</h2>
+            <i class="bi bi-chevron-right" id="infoCompChevron"></i>
+          </div>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Transporte recomendado</label>
-          <input name="transporte_recomendado" type="text" class="form-control" value="{{ client.transporte_recomendado if client }}">
+        <div class="col-12 d-none" id="infoCompBody">
+          <div class="row g-2 g-md-3">
+            <div class="col-12">
+              <label class="form-label m-0">Lugares de entrega</label>
+              <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-3">
+                  <input type="text" class="form-control form-control-sm" id="new_delivery_name" placeholder="Lugar de entrega">
+                </div>
+                <div class="col-md-3">
+                  <input type="time" class="form-control form-control-sm" id="new_delivery_schedule" placeholder="Horario">
+                </div>
+                <div class="col-md-3">
+                  <input type="text" class="form-control form-control-sm" id="new_delivery_contact" placeholder="Contacto">
+                </div>
+                <div class="col-md-3">
+                  <div class="d-flex gap-2">
+                    <input type="tel" class="form-control form-control-sm" id="new_delivery_phone" placeholder="Teléfono" inputmode="numeric" pattern="[0-9]*">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddDelivery">Agregar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 mt-2">
+              <div class="table-responsive border rounded">
+                <table class="table table-sm mb-0" id="delivery-table">
+                  <thead>
+                    <tr>
+                      <th>Lugar</th>
+                      <th>Horario</th>
+                      <th>Contacto</th>
+                      <th>Teléfono</th>
+                      <th class="text-end" style="width:1%; white-space:nowrap;">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="delivery-body">
+                    {% if client and client.delivery_places %}
+                      {% for d in client.delivery_places %}
+                        <tr>
+                          <td>
+                            {{ d.nombre }}
+                            <input type="hidden" name="delivery_name_list" value="{{ d.nombre }}">
+                          </td>
+                          <td>
+                            {{ d.horario or '' }}
+                            <input type="hidden" name="delivery_schedule_list" value="{{ d.horario or '' }}">
+                          </td>
+                          <td>
+                            {{ d.contacto or '' }}
+                            <input type="hidden" name="delivery_contact_list" value="{{ d.contacto or '' }}">
+                          </td>
+                          <td>
+                            {{ d.telefono or '' }}
+                            <input type="hidden" name="delivery_phone_list" value="{{ d.telefono or '' }}">
+                          </td>
+                          <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del">Quitar</button>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr class="js-delivery-empty"><td colspan="5" class="text-center text-muted">Sin lugares de entrega</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="col-12 mt-4">
+              <h3 class="cliente-subsection-title mb-2">Cumpleaños</h3>
+            </div>
+            <div class="col-12">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                  <label class="form-label">Nombre y apellido</label>
+                  <input id="birthday_name_input" type="text" class="form-control" placeholder="Nombre de la persona a saludar">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Puesto</label>
+                  <input id="birthday_role_input" type="text" class="form-control" placeholder="Cargo / puesto">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Fecha de cumpleaños</label>
+                  <input id="birthday_date_input" type="text" class="form-control" placeholder="dd/mm/aaaa" data-datepicker>
+                </div>
+                <div class="col-md-2 d-grid">
+                  <button type="button" id="btnAddBirthday" class="btn btn-outline-secondary btn-sm">Agregar cumpleaños</button>
+                </div>
+              </div>
+              <div class="mt-2">
+                <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Cumpleaños confirmados</div>
+                <div id="birthdays-selected" class="mt-1"></div>
+                <div id="birthdays-hidden"></div>
+              </div>
+            </div>
+
+            <div class="col-12 mt-4">
+              <h3 class="cliente-subsection-title mb-2">Compartir información a empresa</h3>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Seleccionar empresa</label>
+              <select name="share_company_id" class="form-select">
+                <option value="">Seleccionar empresa...</option>
+                {% if companies %}
+                  {% for e in companies %}
+                    <option value="{{ e.id }}" data-mail-pedido="{{ (e.mail_pedido or '')|e }}">{{ e.nombre }}</option>
+                  {% endfor %}
+                {% endif %}
+              </select>
+              <div class="form-text" id="share_company_mails_help"></div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Comentario para la empresa</label>
+              <textarea name="share_comment" class="form-control" rows="1" placeholder="Información que se enviaría con el pedido"></textarea>
+            </div>
+            <div class="col-12 mt-2 d-flex align-items-center gap-2">
+              <button type="button" id="btnSendShareMail" class="btn btn-outline-primary btn-sm">Enviar mail</button>
+              <small class="text-muted">Se abrirá tu cliente de correo con la información del cliente y empresa seleccionada.</small>
+            </div>
+          </div>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Provincia</label>
-          <select name="provincia" class="form-select">
-            <option value="">Seleccionar...</option>
-            {% set pv = (client.provincia if client else '') or '' %}
-            <option value="Tucuman" {{ 'selected' if pv=='Tucuman' else '' }}>Tucumán</option>
-            <option value="Sgo del Estero" {{ 'selected' if pv=='Sgo del Estero' else '' }}>Sgo del Estero</option>
-            <option value="Salta" {{ 'selected' if pv=='Salta' else '' }}>Salta</option>
-            <option value="Jujuy" {{ 'selected' if pv=='Jujuy' else '' }}>Jujuy</option>
-            <option value="Catamarca" {{ 'selected' if pv=='Catamarca' else '' }}>Catamarca</option>
-            <option value="La Rioja" {{ 'selected' if pv=='La Rioja' else '' }}>La Rioja</option>
-          </select>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Contacto</label>
-          <input name="telefono" type="text" class="form-control" value="{{ client.telefono if client }}">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Mail</label>
-          <input name="mail" type="email" class="form-control" value="{{ client.mail if client }}">
-        </div>
-        
+
       </div>
     </div>
     <div class="card-footer d-flex justify-content-end gap-2">
@@ -156,6 +325,168 @@
     if (form) form.addEventListener('submit', function(){ confirmSelection(); });
   } catch(e){}
 })();
+// Gestión de lugares de entrega múltiples (similar a sucursales, sólo frontend por ahora)
+(function(){
+  var tbody = document.getElementById('delivery-body');
+  var btnAdd = document.getElementById('btnAddDelivery');
+  var nameInput = document.getElementById('new_delivery_name');
+  var schedInput = document.getElementById('new_delivery_schedule');
+  var contactInput = document.getElementById('new_delivery_contact');
+  var phoneInput = document.getElementById('new_delivery_phone');
+  if (!tbody || !btnAdd || !nameInput || !schedInput || !contactInput || !phoneInput) return;
+
+  function ensureEmptyRow(){
+    if (!tbody.querySelector('tr') || tbody.querySelectorAll('tr').length === 0){
+      var tr = document.createElement('tr');
+      tr.className = 'js-delivery-empty';
+      tr.innerHTML = '<td colspan="5" class="text-center text-muted">Sin lugares de entrega</td>';
+      tbody.appendChild(tr);
+    }
+  }
+
+  function removeEmptyRow(){
+    var empty = tbody.querySelector('.js-delivery-empty');
+    if (empty) empty.remove();
+  }
+
+  function addRow(name, schedule, contact, phone){
+    name = (name || '').trim();
+    schedule = (schedule || '').trim();
+    contact = (contact || '').trim();
+    phone = (phone || '').trim();
+    if (!name && !schedule && !contact && !phone) return;
+    removeEmptyRow();
+    var tr = document.createElement('tr');
+    tr.innerHTML = ''+
+      '<td>'+ escapeHtml(name || '-') +'<input type="hidden" name="delivery_name_list" value="'+ escapeAttr(name) +'"></td>'+
+      '<td>'+ escapeHtml(schedule || '') +'<input type="hidden" name="delivery_schedule_list" value="'+ escapeAttr(schedule) +'"></td>'+
+      '<td>'+ escapeHtml(contact || '') +'<input type="hidden" name="delivery_contact_list" value="'+ escapeAttr(contact) +'"></td>'+
+      '<td>'+ escapeHtml(phone || '') +'<input type="hidden" name="delivery_phone_list" value="'+ escapeAttr(phone) +'"></td>'+
+      '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del">Quitar</button></td>';
+    tbody.appendChild(tr);
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function escapeAttr(str){
+    return String(str).replace(/"/g,'&quot;');
+  }
+
+  // Forzar que el teléfono sólo tenga dígitos
+  phoneInput.addEventListener('input', function(){
+    var v = phoneInput.value || '';
+    phoneInput.value = v.replace(/[^0-9]/g, '');
+  });
+
+  btnAdd.addEventListener('click', function(e){
+    e.preventDefault();
+    addRow(nameInput.value, schedInput.value, contactInput.value, phoneInput.value);
+    nameInput.value = '';
+    schedInput.value = '';
+    contactInput.value = '';
+    phoneInput.value = '';
+  });
+
+  tbody.addEventListener('click', function(e){
+    var t = e.target;
+    var btn = (t && t.classList && t.classList.contains('js-delivery-row-del')) ? t : (t && t.closest ? t.closest('.js-delivery-row-del') : null);
+    if (!btn) return;
+    e.preventDefault();
+    var tr = btn.closest('tr');
+    if (tr){ tr.remove(); }
+    if (!tbody.querySelector('tr')) ensureEmptyRow();
+  });
+
+  // Asegurar que exista fila vacía si no hay datos
+  ensureEmptyRow();
+})();
+
+// Gestión de múltiples cumpleaños
+(function(){
+  var nameInput = document.getElementById('birthday_name_input');
+  var roleInput = document.getElementById('birthday_role_input');
+  var dateInput = document.getElementById('birthday_date_input');
+  var addBtn = document.getElementById('btnAddBirthday');
+  var list = document.getElementById('birthdays-selected');
+  var hidWrap = document.getElementById('birthdays-hidden');
+  if (!nameInput || !roleInput || !dateInput || !addBtn || !list || !hidWrap) return;
+
+  var birthdays = [];
+
+  function render(){
+    if (!birthdays.length){
+      list.innerHTML = '<span class="text-muted">Ninguno</span>';
+      hidWrap.innerHTML = '';
+      return;
+    }
+    var chips = [];
+    var hidden = [];
+    birthdays.forEach(function(b, idx){
+      var label = (b.name || '') + (b.role ? ' — ' + b.role : '') + (b.date ? ' ('+ b.date +')' : '');
+      var esc = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      chips.push('<span class="badge bg-info text-dark me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-birthday-del" data-idx="'+ idx+'">×</button></span>');
+      hidden.push('<input type="hidden" name="birthday_name_list" value="'+ (b.name||'').replace(/"/g,'&quot;') +'">');
+      hidden.push('<input type="hidden" name="birthday_role_list" value="'+ (b.role||'').replace(/"/g,'&quot;') +'">');
+      hidden.push('<input type="hidden" name="birthday_date_list" value="'+ (b.date||'').replace(/"/g,'&quot;') +'">');
+    });
+    list.innerHTML = chips.join('');
+    hidWrap.innerHTML = hidden.join('');
+  }
+
+  // preload de cumpleaños existentes desde bloque JSON
+  try {
+    var jsonEl = document.getElementById('birthdays-data');
+    var existing = [];
+    if (jsonEl && jsonEl.textContent) {
+      try { existing = JSON.parse(jsonEl.textContent); } catch(e) { existing = []; }
+    }
+    (existing||[]).forEach(function(row){
+      birthdays.push({
+        name: (row && row.nombre) || '',
+        role: (row && row.puesto) || '',
+        date: (row && row.fecha) || ''
+      });
+    });
+  } catch(e){}
+
+  function addBirthday(){
+    var name = (nameInput.value || '').trim();
+    var role = (roleInput.value || '').trim();
+    var date = (dateInput.value || '').trim();
+    if (!name && !role && !date) return; // evitar filas vacías
+    birthdays.push({ name: name, role: role, date: date });
+    nameInput.value = '';
+    roleInput.value = '';
+    dateInput.value = '';
+    if (dateInput._flatpickr) dateInput._flatpickr.clear();
+    render();
+  }
+
+  addBtn.addEventListener('click', function(e){ e.preventDefault(); addBirthday(); });
+
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    var delBtn = (t && t.classList && t.classList.contains('js-birthday-del')) ? t : (t && t.closest ? t.closest('.js-birthday-del') : null);
+    if (delBtn){
+      e.preventDefault();
+      var idx = parseInt(delBtn.getAttribute('data-idx'), 10);
+      if (!isNaN(idx) && idx >=0 && idx < birthdays.length){
+        birthdays.splice(idx,1);
+        render();
+      }
+    }
+  });
+
+  // Antes de enviar el formulario, asegurar que la última edición se incluya si no se presionó el botón
+  try {
+    var form = document.querySelector('form.card');
+    if (form) form.addEventListener('submit', function(){ addBirthday(); });
+  } catch(e){}
+
+  render();
+})();
+
 (function(){
   function mount(){
     var nodes = document.querySelectorAll('input[data-datepicker]');
@@ -184,6 +515,136 @@
     var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/flatpickr'; s.onload = mount; document.head.appendChild(s);
     var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css'; document.head.appendChild(l);
   }
+})();
+
+// Formateo automático de CUIL/CUIT: XX-XXXXXXXX-X
+(function(){
+  var cuitInput = document.querySelector('input[name="cuit"]');
+  if (!cuitInput) return;
+  cuitInput.addEventListener('input', function(){
+    var v = (cuitInput.value || '').replace(/[^0-9]/g, ''); // solo dígitos
+    if (!v) { cuitInput.value = ''; return; }
+    if (v.length > 11) v = v.slice(0,11);
+    var p1 = v.slice(0,2);
+    var p2 = v.slice(2,10);
+    var p3 = v.slice(10,11);
+    var out = p1;
+    if (p2) out += '-' + p2;
+    if (p3) out += '-' + p3;
+    cuitInput.value = out;
+  });
+})();
+
+// Mostrar mails de pedido de la empresa seleccionada (para compartir info)
+(function(){
+  var sel = document.querySelector('select[name="share_company_id"]');
+  var help = document.getElementById('share_company_mails_help');
+  if (!sel || !help) return;
+  function update(){
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value){
+      help.textContent = '';
+      return;
+    }
+    var mails = opt.getAttribute('data-mail-pedido') || '';
+    if (!mails){
+      help.textContent = 'La empresa seleccionada no tiene mails de pedido cargados.';
+    } else {
+      help.textContent = 'Mails de pedido de la empresa: ' + mails;
+    }
+  }
+  sel.addEventListener('change', update);
+  // inicializar si ya hay una empresa seleccionada
+  update();
+})();
+
+// Botón "Enviar mail": arma un mailto con la info del cliente y empresa
+(function(){
+  var btn = document.getElementById('btnSendShareMail');
+  if (!btn) return;
+  btn.addEventListener('click', function(e){
+    e.preventDefault();
+    var sel = document.querySelector('select[name="share_company_id"]');
+    if (!sel || !sel.value){
+      alert('Seleccioná primero una empresa a la que enviar la información.');
+      return;
+    }
+    var opt = sel.options[sel.selectedIndex];
+    var mails = (opt.getAttribute('data-mail-pedido') || '').trim();
+    if (!mails){
+      alert('La empresa seleccionada no tiene mails de pedido cargados.');
+      return;
+    }
+    // tomar el primer mail como destinatario principal
+    var to = mails.split(',')[0].trim();
+    var ccList = mails.split(',').slice(1).map(function(s){return s.trim();}).filter(Boolean);
+
+    // datos del cliente desde los inputs actuales
+    function val(name){
+      var el = document.querySelector('[name="'+name+'"]');
+      return el && el.value ? el.value.trim() : '';
+    }
+    var razon = val('apellido');
+    var nombre = val('nombre');
+    var cuit = val('cuit');
+    var dirDep = val('direccion_principal');
+    var transporte = val('transporte_recomendado');
+    var tel = val('telefono');
+    var comentario = val('share_comment');
+
+    var empresaNombre = opt.textContent || opt.innerText || '';
+
+    var fullName = (razon + ' ' + nombre).trim();
+    var subject = 'ALTA cliente - ' + (fullName || razon || nombre || 'Nuevo cliente');
+
+    var bodyLines = [];
+    bodyLines.push('ALTA (cliente) - Empresa: ' + empresaNombre);
+    bodyLines.push('');
+    bodyLines.push('Razón social: ' + ((razon + ' ' + nombre).trim() || razon || nombre || '-'));
+    bodyLines.push('CUIL/CUIT: ' + (cuit || '-'));
+    bodyLines.push('');
+    bodyLines.push('Dirección de depósito: ' + (dirDep || '-'));
+    bodyLines.push('Dirección de sucursales puntuales: ver legajo en Sirio.');
+    bodyLines.push('Horarios de entrega: ' + (transporte || '-'));
+    bodyLines.push('Contacto depósito: ' + (tel || '-'));
+    bodyLines.push('');
+    bodyLines.push('Información complementaria:');
+    if (comentario){
+      bodyLines.push('');
+      bodyLines.push('Comentario adicional:');
+      bodyLines.push(comentario);
+    }
+
+    // usar todos los mails de pedido como destinatarios (TO)
+    var toAll = mails;
+    var body = encodeURIComponent(bodyLines.join('\n'));
+    var qs = 'view=cm&to=' + encodeURIComponent(toAll) +
+             '&su=' + encodeURIComponent(subject) +
+             '&body=' + body;
+    // Abrir directamente Gmail en modo redactar
+    var href = 'https://mail.google.com/mail/?' + qs;
+    window.open(href, '_blank');
+  });
+})();
+
+// Toggle sección Información complementaria
+(function(){
+  var header = document.getElementById('infoCompToggle');
+  var body = document.getElementById('infoCompBody');
+  var chev = document.getElementById('infoCompChevron');
+  if (!header || !body || !chev) return;
+  header.addEventListener('click', function(){
+    var closed = body.classList.contains('d-none');
+    if (closed){
+      body.classList.remove('d-none');
+      chev.classList.remove('bi-chevron-right');
+      chev.classList.add('bi-chevron-down');
+    } else {
+      body.classList.add('d-none');
+      chev.classList.remove('bi-chevron-down');
+      chev.classList.add('bi-chevron-right');
+    }
+  });
 })();
 </script>
 {% endblock %}

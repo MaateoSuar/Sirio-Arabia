@@ -1,8 +1,16 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h1 class="h4 mb-0">Legajo de Empresas</h1>
-  <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary">+ Crear Empresa</a>
+<style>
+  .empresas-title { color: #0f766e; }
+  .empresa-search-input { min-width: 320px; max-width: 420px; }
+  .btn-create-company { white-space: nowrap; min-width: 160px; }
+</style>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-3">
+  <div>
+    <h1 class="h4 mb-1 empresas-title">Legajo de Empresas</h1>
+    <input type="text" id="empresaSearch" class="form-control form-control-sm empresa-search-input" placeholder="Buscar por marca o razón social">
+  </div>
+  <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary btn-create-company">+ Crear Empresa</a>
 </div>
 <div class="card">
   <div class="card-body p-0">
@@ -16,47 +24,46 @@
         /* Permitir quiebres de línea largos */
         .table-tight td { word-break: break-word; }
         /* Forzar ancho mínimo de tabla para permitir scroll horizontal en móviles */
-        .table-tight { min-width: 820px; }
+        .table-tight { min-width: 720px; }
         /* Evitar wraps en columna Acciones */
-        .table-tight th.col-actions, .table-tight td.col-actions { white-space: nowrap; min-width: 220px; }
+        .table-tight th.col-actions, .table-tight td.col-actions { white-space: nowrap; min-width: 140px; }
         /* Evitar wraps dentro del grupo de botones */
         .btn-group.flex-nowrap .btn { white-space: nowrap; }
       </style>
       <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0 table-tight">
+        <table class="table table-hover align-middle mb-0 table-tight" id="empresas-table">
         <thead class="table-light">
           <tr>
             <th>Marca</th>
             <th>Razón social</th>
-            <th>Demora (días)</th>
-            <th>Pago (días)</th>
-            <th class="col-mail-left">Mail pedido</th>
-            <th class="col-mail-right">Mail pago</th>
+            <th>Despacho</th>
+            <th>Plazo</th>
             <th class="text-end col-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
         {% for e in items %}
-          <tr>
-            <td>{{ e.marca or '-' }}</td>
-            <td>{{ e.nombre }}</td>
-            <td>{{ e.demora_despacho_promedio_dias }}</td>
-            <td>{{ e.plazo_pago_promedio_dias }}</td>
-            <td class="col-mail-left">
-              {% if e.mail_pedido %}
-                {% for m in e.mail_pedido.split(',') %}
-                  <div>{{ m.strip() }}</div>
-                {% endfor %}
-              {% else %}-{% endif %}
-            </td>
-            <td class="col-mail-right">{{ e.mail_pago or '-' }}</td>
+          {% set marca_val = (e.marca if e.marca and e.marca|lower != 'none' else '') %}
+          <tr data-marca="{{ marca_val|lower }}" data-razon="{{ (e.nombre or '')|lower }}">
+            <td>{{ marca_val or '-' }}</td>
+            <td>{{ e.nombre or '-' }}</td>
+            <td>{{ e.demora_despacho_promedio_dias if e.demora_despacho_promedio_dias is not none else '-' }}</td>
+            <td>{{ e.plazo_pago_promedio_dias if e.plazo_pago_promedio_dias is not none else '-' }}</td>
             <td class="text-end col-actions">
-              <div class="btn-group btn-group-sm d-inline-flex align-items-center flex-nowrap">
-                <a class="btn btn-outline-secondary text-nowrap" href="{{ url_for('main.empresas_edit_view', company_id=e.id) }}">Editar</a>
-                <button class="btn btn-outline-secondary text-nowrap" data-bs-toggle="modal" data-bs-target="#links{{ e.id }}">Clientes</button>
-                <form method="post" action="{{ url_for('main.empresas_delete', company_id=e.id) }}" class="mb-0 d-inline" onsubmit="return confirm('Eliminar empresa?')">
-                  <button class="btn btn-outline-danger text-nowrap">Eliminar</button>
-                </form>
+              <div class="dropdown d-inline-block">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="bi bi-three-dots"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" href="{{ url_for('main.empresas_edit_view', company_id=e.id) }}">Ver legajo</a></li>
+                  <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#links{{ e.id }}">Clientes</button></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <form method="post" action="{{ url_for('main.empresas_delete', company_id=e.id) }}" class="mb-0" onsubmit="return confirm('Eliminar empresa?')">
+                      <button class="dropdown-item text-danger" type="submit">Eliminar</button>
+                    </form>
+                  </li>
+                </ul>
               </div>
               <div class="modal fade" id="links{{ e.id }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-lg">
@@ -69,9 +76,9 @@
                       <form class="row g-2 mb-3" method="post" action="{{ url_for('main.empresas_link_add', company_id=e.id) }}">
                         <div class="col-md-6">
                           <select class="form-select" name="client_id" required>
-                            <option value="">Seleccionar cliente...</option>
+                            <option value="">Seleccionar razón social...</option>
                             {% for c in clients %}
-                              <option value="{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</option>
+                              <option value="{{ c.id }}">{{ c.apellido }}</option>
                             {% endfor %}
                           </select>
                         </div>
@@ -91,6 +98,7 @@
                           <thead>
                             <tr>
                               <th>Cliente</th>
+                              <th>Tipo (Factura / Remito)</th>
                               <th>Estado</th>
                               <th class="text-end">Acciones</th>
                             </tr>
@@ -98,9 +106,16 @@
                           <tbody>
                             {% for l in e.links %}
                               <tr>
-                                <td>{{ l.client.apellido }} {{ l.client.nombre }}</td>
+                                <td>{{ l.client.apellido }}</td>
                                 <td>
                                   <form class="d-flex gap-2" method="post" action="{{ url_for('main.empresas_link_update', company_id=e.id, link_id=l.id) }}">
+                                    <select name="comprobante_tipo" class="form-select form-select-sm" style="max-width:160px">
+                                      {% set ct = (l.comprobante_tipo or 'FACTURA') %}
+                                      <option value="FACTURA" {{ 'selected' if ct=='FACTURA' else '' }}>Factura</option>
+                                      <option value="REMITO" {{ 'selected' if ct=='REMITO' else '' }}>Remito</option>
+                                    </select>
+                                </td>
+                                <td>
                                     <select name="status" class="form-select form-select-sm" style="max-width:220px">
                                       <option value="TRABAJA" {{ 'selected' if l.status.value=='TRABAJA' else '' }}>Trabaja</option>
                                       <option value="TRABAJABA" {{ 'selected' if l.status.value=='TRABAJABA' else '' }}>Trabajaba</option>
@@ -110,7 +125,7 @@
                                   </form>
                                 </td>
                                 <td class="text-end">
-                                  <form method="post" action="{{ url_for('main.empresas_link_delete', company_id=e.id, link_id=l.id) }}" onsubmit="return confirm('Quitar vínculo?')">
+                                  <form method="post" action="{{ url_for('main.empresas_link_delete', company_id=e.id, link_id=l.id) }}" class="js-confirm-remove" data-confirm="¿Quitar vínculo con el cliente seleccionado?">
                                     <button class="btn btn-sm btn-outline-danger">Quitar</button>
                                   </form>
                                 </td>
@@ -128,7 +143,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="6" class="text-center text-muted py-4">Sin empresas</td></tr>
+          <tr><td colspan="5" class="text-center text-muted py-4">Sin empresas</td></tr>
         {% endfor %}
         </tbody>
         </table>
@@ -137,4 +152,126 @@
     <div class="mobile-cards"></div>
   </div>
 </div>
+<script>
+(function(){
+  var input = document.getElementById('empresaSearch');
+  var rows = document.querySelectorAll('#empresas-table tbody tr');
+  function applySearch(){
+    var q = (input && input.value || '').toLowerCase();
+    rows.forEach(function(tr){
+      var marca = (tr.getAttribute('data-marca') || '').toLowerCase();
+      var razon = (tr.getAttribute('data-razon') || '').toLowerCase();
+      var match = !q || marca.indexOf(q) !== -1 || razon.indexOf(q) !== -1;
+      tr.style.display = match ? '' : 'none';
+    });
+  }
+  if (input){
+    input.addEventListener('input', applySearch);
+  }
+})();
+</script>
+<!-- Modal de confirmación para eliminar/quitar vínculos (reutilizado de Clientes) -->
+<div class="modal fade" id="confirmRemoveModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0">
+        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Confirmar acción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <div class="alert alert-warning d-flex align-items-center gap-2 mb-0" role="alert">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          <div id="confirmRemoveMsg">¿Estás seguro?</div>
+        </div>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" id="confirmRemoveBtn" class="btn btn-danger">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  (function(){
+    var pendingForm = null;
+    var modalEl = document.getElementById('confirmRemoveModal');
+    var msgEl = document.getElementById('confirmRemoveMsg');
+    var confirmBtn = document.getElementById('confirmRemoveBtn');
+    var ModalCtor = window.bootstrap && window.bootstrap.Modal;
+    var modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
+
+    document.addEventListener('submit', function(e){
+      var form = e.target;
+      if (form && form.classList && form.classList.contains('js-confirm-remove')){
+        e.preventDefault();
+        pendingForm = form;
+        var text = form.getAttribute('data-confirm') || '¿Confirmar acción?';
+        if (msgEl) msgEl.textContent = text;
+        if (modal) {
+          modal.show();
+        } else if (modalEl) {
+          modalEl.classList.add('show');
+          modalEl.style.display = 'block';
+          if (!document.getElementById('confirmRemoveBackdrop')){
+            var bd = document.createElement('div');
+            bd.id='confirmRemoveBackdrop';
+            bd.className='modal-backdrop fade show';
+            document.body.appendChild(bd);
+          }
+        }
+      }
+    });
+
+    if (confirmBtn){
+      confirmBtn.addEventListener('click', function(){
+        if (pendingForm){
+          if (modal) modal.hide();
+          else {
+            modalEl.classList.remove('show');
+            modalEl.style.display='none';
+            var bd = document.getElementById('confirmRemoveBackdrop');
+            if (bd) bd.remove();
+          }
+          var f = pendingForm; pendingForm = null; f.submit();
+        }
+      });
+    }
+  })();
+</script>
+<script>
+// Reabrir modal de clientes desde Empresas si viene ?open_links=
+(function(){
+  function reopenModal(){
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      var openId = params.get('open_links');
+      if (!openId) return;
+      var modalEl = document.getElementById('links' + openId);
+      if (!modalEl) return;
+      if (window.bootstrap && window.bootstrap.Modal){
+        var modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+      } else {
+        // Fallback simple
+        modalEl.classList.add('show');
+        modalEl.style.display = 'block';
+      }
+      // Una vez abierto, quitar open_links de la URL para que no se reabra al entrar de nuevo
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.delete('open_links');
+        window.history.replaceState({}, document.title, url.toString());
+      } catch(e) {}
+    } catch(e) {
+      // silencioso
+    }
+  }
+
+  if (document.readyState === 'complete'){
+    reopenModal();
+  } else {
+    window.addEventListener('load', reopenModal);
+  }
+})();
+</script>
 {% endblock %}

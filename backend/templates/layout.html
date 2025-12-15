@@ -98,11 +98,11 @@
       #orientationLock .orientation-link:hover{ color:#0f766e }
       /* Logout links en navbar y sidebar */
       .logout-link:hover, .logout-link:focus { background: rgba(220,53,69,.18) !important; color: #fff !important; border-radius: .5rem; outline: 2px solid rgba(220,53,69,.35); outline-offset: 2px; }
-      /* Ajuste global: reducir top padding en vista de Clientes */
-      body[data-active="clientes"] main.col { padding-top: 0 !important; }
-      body[data-active="clientes"] main.col > .d-flex.mb-3 { margin-top: 0 !important; }
+      /* Ajuste global: margen superior moderado en vista de Clientes */
+      body[data-active="clientes"] main.col { padding-top: 1.5rem !important; }
+      body[data-active="clientes"] main.col > .d-flex.mb-3 { margin-top: .25rem !important; }
       body[data-active="clientes"] h1.h4.mb-0 { margin-top: 0 !important; }
-      body[data-active="clientes"] .card { margin-top: .25rem !important; }
+      body[data-active="clientes"] .card { margin-top: .5rem !important; }
     </style>
   </head>
   <body class="bg-light" data-active="{{ active }}">

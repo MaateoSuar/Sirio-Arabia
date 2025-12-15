@@ -22,6 +22,7 @@ class ClientCompanyLink(db.Model):
     client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
     status = db.Column(db.Enum(RelationStatus), nullable=False, default=RelationStatus.TRABAJA)
+    comprobante_tipo = db.Column(db.String(20), nullable=False, default="FACTURA")
 
     __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_client_company"),)
 
@@ -35,13 +36,42 @@ class ClientBranch(db.Model):
     __table_args__ = (db.UniqueConstraint("client_id", "nombre", name="uq_client_branch_name"),)
 
 
+class ClientDeliveryPlace(db.Model):
+    __tablename__ = "client_delivery_place"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    nombre = db.Column(db.String(255), nullable=False)
+
+    # Datos específicos por lugar de entrega
+    horario = db.Column(db.String(255))
+    contacto = db.Column(db.String(255))
+    telefono = db.Column(db.String(64))
+
+    __table_args__ = (db.UniqueConstraint("client_id", "nombre", name="uq_client_delivery_name"),)
+
+
+class ClientBirthday(db.Model):
+    __tablename__ = "client_birthday"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    nombre = db.Column(db.String(255), nullable=False)
+    puesto = db.Column(db.String(255))
+    fecha = db.Column(db.Date)
+
+    __table_args__ = (db.UniqueConstraint("client_id", "nombre", "puesto", name="uq_client_birthday"),)
+
+
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     apellido = db.Column(db.String(120), nullable=False)
     nombre = db.Column(db.String(120), nullable=False)
     sucursal = db.Column(db.String(120))
+    cuit = db.Column(db.String(32))
     direccion_principal = db.Column(db.String(255))
     transporte_recomendado = db.Column(db.String(120))
+    delivery_schedule = db.Column(db.String(255))
+    delivery_contact = db.Column(db.String(255))
+    delivery_phone = db.Column(db.String(64))
     provincia = db.Column(db.String(80))
     fecha_incorporacion = db.Column(db.Date, default=date.today)
     telefono = db.Column(db.String(50))
@@ -50,6 +80,8 @@ class Client(db.Model):
     links = db.relationship("ClientCompanyLink", backref="client", cascade="all, delete-orphan")
     orders = db.relationship("Order", backref="client", cascade="all, delete-orphan")
     branches = db.relationship("ClientBranch", backref="client", cascade="all, delete-orphan")
+    delivery_places = db.relationship("ClientDeliveryPlace", backref="client", cascade="all, delete-orphan")
+    birthdays = db.relationship("ClientBirthday", backref="client", cascade="all, delete-orphan")
     documents = db.relationship("ClientDocument", backref="client", cascade="all, delete-orphan")
 
     @property
@@ -73,9 +105,29 @@ class Company(db.Model):
     plazo_pago_promedio_dias = db.Column(db.Integer, default=30)
     mail_pedido = db.Column(db.String(255))
     mail_pago = db.Column(db.String(255))
+    # Información complementaria
+    cuit = db.Column(db.String(32))
+    notas = db.Column(db.Text)
+    cuenta_bancaria_notas = db.Column(db.Text)
 
     links = db.relationship("ClientCompanyLink", backref="company", cascade="all, delete-orphan")
     orders = db.relationship("Order", backref="company", cascade="all, delete-orphan")
+
+
+class CompanyDocument(db.Model):
+    __tablename__ = "company_document"
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+    # category: por ejemplo CONSTANCIA, CATALOGO
+    category = db.Column(db.String(32), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    filepath = db.Column(db.String(500), nullable=False)
+    data = db.Column(db.LargeBinary)
+    mimetype = db.Column(db.String(120))
+    size = db.Column(db.Integer)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    company = db.relationship("Company", backref=db.backref("documents", cascade="all, delete-orphan"))
 
 
 class Order(db.Model):
