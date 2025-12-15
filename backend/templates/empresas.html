@@ -73,7 +73,7 @@
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                      <form class="row g-2 mb-3" method="post" action="{{ url_for('main.empresas_link_add', company_id=e.id) }}">
+                      <form class="row g-2 mb-2" method="post" action="{{ url_for('main.empresas_link_add', company_id=e.id) }}">
                         <div class="col-md-6">
                           <select class="form-select" name="client_id" required>
                             <option value="">Seleccionar razón social...</option>
@@ -93,45 +93,57 @@
                           <button class="btn btn-primary">Agregar</button>
                         </div>
                       </form>
+                      <div class="row g-2 mb-2">
+                        <div class="col-md-4 ms-auto">
+                          <select class="form-select form-select-sm js-link-status-filter" data-target="empresa-links-body-{{ e.id }}">
+                            <option value="">Todos los estados</option>
+                            <option value="TRABAJA">Trabaja</option>
+                            <option value="TRABAJABA">Trabajaba</option>
+                            <option value="A_INCORPORAR">A incorporar</option>
+                          </select>
+                        </div>
+                      </div>
                       <div class="table-responsive">
                         <table class="table table-sm align-middle">
                           <thead>
                             <tr>
-                              <th>Cliente</th>
-                              <th>Tipo (Factura / Remito)</th>
-                              <th>Estado</th>
-                              <th class="text-end">Acciones</th>
+                              <th class="text-start" style="width:30%">Cliente</th>
+                              <th class="text-start" style="width:27%">Tipo (Factura / Remito)</th>
+                              <th class="text-start" style="width:18%">Estado</th>
+                              <th class="text-end" style="width:25%">Acciones</th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody id="empresa-links-body-{{ e.id }}">
                             {% for l in e.links %}
-                              <tr>
-                                <td>{{ l.client.apellido }}</td>
-                                <td>
-                                  <form class="d-flex gap-2" method="post" action="{{ url_for('main.empresas_link_update', company_id=e.id, link_id=l.id) }}">
+                              <tr data-status="{{ l.status.value if l.status is defined and l.status is not none else '' }}">
+                                <td class="align-middle text-start">{{ l.client.apellido }}</td>
+                                <td class="align-middle text-start">
+                                  <form class="d-inline-flex" method="post" action="{{ url_for('main.empresas_link_update', company_id=e.id, link_id=l.id) }}">
                                     <select name="comprobante_tipo" class="form-select form-select-sm" style="max-width:160px">
                                       {% set ct = (l.comprobante_tipo or 'FACTURA') %}
                                       <option value="FACTURA" {{ 'selected' if ct=='FACTURA' else '' }}>Factura</option>
                                       <option value="REMITO" {{ 'selected' if ct=='REMITO' else '' }}>Remito</option>
                                     </select>
                                 </td>
-                                <td>
+                                <td class="align-middle text-start">
                                     <select name="status" class="form-select form-select-sm" style="max-width:220px">
                                       <option value="TRABAJA" {{ 'selected' if l.status.value=='TRABAJA' else '' }}>Trabaja</option>
                                       <option value="TRABAJABA" {{ 'selected' if l.status.value=='TRABAJABA' else '' }}>Trabajaba</option>
                                       <option value="A_INCORPORAR" {{ 'selected' if l.status.value=='A_INCORPORAR' else '' }}>A incorporar</option>
                                     </select>
-                                    <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
-                                  </form>
                                 </td>
-                                <td class="text-end">
-                                  <form method="post" action="{{ url_for('main.empresas_link_delete', company_id=e.id, link_id=l.id) }}" class="js-confirm-remove" data-confirm="¿Quitar vínculo con el cliente seleccionado?">
-                                    <button class="btn btn-sm btn-outline-danger">Quitar</button>
+                                <td class="text-end align-middle" style="white-space: nowrap;">
+                                  <div class="d-inline-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-secondary" type="submit" style="white-space: nowrap;">Guardar</button>
                                   </form>
+                                    <form method="post" action="{{ url_for('main.empresas_link_delete', company_id=e.id, link_id=l.id) }}" class="js-confirm-remove" data-confirm="¿Quitar vínculo con el cliente seleccionado?">
+                                      <button class="btn btn-sm btn-outline-danger" type="submit" style="white-space: nowrap;">Quitar</button>
+                                    </form>
+                                  </div>
                                 </td>
                               </tr>
                             {% else %}
-                              <tr><td colspan="3" class="text-muted text-center">Sin clientes vinculados</td></tr>
+                              <tr><td colspan="4" class="text-muted text-center">Sin clientes vinculados</td></tr>
                             {% endfor %}
                           </tbody>
                         </table>
@@ -168,6 +180,29 @@
   if (input){
     input.addEventListener('input', applySearch);
   }
+})();
+</script>
+<script>
+// Filtro de estado en popups de vínculos (Clientes de empresa)
+(function(){
+  document.addEventListener('change', function(e){
+    var sel = e.target;
+    if (!sel || !sel.classList || !sel.classList.contains('js-link-status-filter')) return;
+    var value = sel.value || '';
+    var targetId = sel.getAttribute('data-target');
+    if (!targetId) return;
+    var tbody = document.getElementById(targetId);
+    if (!tbody) return;
+    var rows = tbody.querySelectorAll('tr');
+    rows.forEach(function(tr){
+      var st = tr.getAttribute('data-status') || '';
+      if (!value || !st || st === value){
+        tr.style.display = '';
+      } else {
+        tr.style.display = 'none';
+      }
+    });
+  });
 })();
 </script>
 <!-- Modal de confirmación para eliminar/quitar vínculos (reutilizado de Clientes) -->

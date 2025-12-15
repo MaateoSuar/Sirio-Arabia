@@ -118,7 +118,10 @@
         <!-- Segunda parte: información complementaria del cliente (colapsable) -->
         <div class="col-12 mt-4">
           <div class="d-flex align-items-center justify-content-between" id="infoCompToggle" style="cursor: pointer;">
-            <h2 class="cliente-section-title mb-0" style="flex:1;">Información complementaria</h2>
+            <h2 class="cliente-section-title mb-0" style="flex:1; text-align:left;">
+              Información complementaria
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h2>
             <i class="bi bi-chevron-right" id="infoCompChevron"></i>
           </div>
         </div>
@@ -130,10 +133,15 @@
                 <div class="col-md-3">
                   <input type="text" class="form-control form-control-sm" id="new_delivery_name" placeholder="Lugar de entrega">
                 </div>
-                <div class="col-md-3">
-                  <input type="time" class="form-control form-control-sm" id="new_delivery_schedule" placeholder="Horario">
+                <div class="col-md-4">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="small text-muted">De</span>
+                    <input type="time" class="form-control form-control-sm" id="new_delivery_from">
+                    <span class="small text-muted">Hasta</span>
+                    <input type="time" class="form-control form-control-sm" id="new_delivery_to">
+                  </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                   <input type="text" class="form-control form-control-sm" id="new_delivery_contact" placeholder="Contacto">
                 </div>
                 <div class="col-md-3">
@@ -330,10 +338,11 @@
   var tbody = document.getElementById('delivery-body');
   var btnAdd = document.getElementById('btnAddDelivery');
   var nameInput = document.getElementById('new_delivery_name');
-  var schedInput = document.getElementById('new_delivery_schedule');
+  var fromInput = document.getElementById('new_delivery_from');
+  var toInput = document.getElementById('new_delivery_to');
   var contactInput = document.getElementById('new_delivery_contact');
   var phoneInput = document.getElementById('new_delivery_phone');
-  if (!tbody || !btnAdd || !nameInput || !schedInput || !contactInput || !phoneInput) return;
+  if (!tbody || !btnAdd || !nameInput || !fromInput || !toInput || !contactInput || !phoneInput) return;
 
   function ensureEmptyRow(){
     if (!tbody.querySelector('tr') || tbody.querySelectorAll('tr').length === 0){
@@ -381,9 +390,16 @@
 
   btnAdd.addEventListener('click', function(e){
     e.preventDefault();
-    addRow(nameInput.value, schedInput.value, contactInput.value, phoneInput.value);
+    var from = (fromInput.value || '').trim();
+    var to = (toInput.value || '').trim();
+    var schedule = '';
+    if (from && to) schedule = from + ' - ' + to;
+    else if (from) schedule = from;
+    else if (to) schedule = to;
+    addRow(nameInput.value, schedule, contactInput.value, phoneInput.value);
     nameInput.value = '';
-    schedInput.value = '';
+    fromInput.value = '';
+    toInput.value = '';
     contactInput.value = '';
     phoneInput.value = '';
   });

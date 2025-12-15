@@ -3,7 +3,7 @@
 <div class="container" style="max-width: 860px;">
   <h1 class="h4 text-dark mb-4">{{ 'Legajo de empresa' if company else 'Nueva empresa' }}</h1>
 
-  <form method="post" class="card shadow-sm">
+  <form method="post" id="empresa-form" class="card shadow-sm">
     <div class="card-body">
       <style>
         /* Títulos y etiquetas más estéticos en esta vista */
@@ -148,28 +148,34 @@
           </div>
         </div>
         <div class="col-12 mt-4">
-          <h2 class="empresa-section-title mb-2">Información complementaria</h2>
+          <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
+            <h2 class="empresa-section-title mb-0" style="flex:1; text-align:left;">
+              Información complementaria
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h2>
+            <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
+          </div>
         </div>
-        <div class="col-md-4">
-          <label class="form-label">CUIL/CUIT</label>
-          <input name="cuit" type="text" class="form-control" value="{{ company.cuit or '' if company else '' }}">
-        </div>
-        <div class="col-md-8">
-          <label class="form-label">Notas</label>
-          <textarea name="notas" class="form-control" rows="2" placeholder="Notas generales de la empresa">{{ company.notas or '' if company else '' }}</textarea>
-        </div>
-        <div class="col-md-12">
-          <label class="form-label">Cuenta Bancaria - Notas</label>
-          <textarea name="cuenta_bancaria_notas" class="form-control" rows="2" placeholder="Datos de cuenta bancaria, CBU, alias, condiciones, etc.">{{ company.cuenta_bancaria_notas or '' if company else '' }}</textarea>
+        <div class="col-12 d-none" id="empresaInfoCompBody">
+          <div class="row g-2 g-md-3">
+            <div class="col-md-4">
+              <label class="form-label">CUIL/CUIT</label>
+              <input name="cuit" type="text" class="form-control" value="{{ company.cuit or '' if company else '' }}">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Notas</label>
+              <textarea name="notas" class="form-control" rows="2" placeholder="Notas generales de la empresa">{{ company.notas or '' if company else '' }}</textarea>
+            </div>
+            <div class="col-md-12">
+              <label class="form-label">Cuenta Bancaria - Notas</label>
+              <textarea name="cuenta_bancaria_notas" class="form-control" rows="2" placeholder="Datos de cuenta bancaria, CBU, alias, condiciones, etc.">{{ company.cuenta_bancaria_notas or '' if company else '' }}</textarea>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-    <div class="card-footer d-flex justify-content-end gap-2">
-      <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
-      <button class="btn btn-primary" type="submit">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
-    </div>
   </form>
-  <div class="mt-4">
+  <div class="mt-4 d-none" id="empresaInfoCompExtra">
     <h2 class="empresa-section-title mb-3">Documentación</h2>
     {% if company %}
     <div class="row g-3">
@@ -301,6 +307,10 @@
       </div>
       {% endif %}
     </div>
+  </div>
+  <div class="mt-4 d-flex justify-content-end gap-2">
+    <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
+    <button class="btn btn-primary" type="submit" form="empresa-form">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
   </div>
 </div>
 <script>
@@ -613,6 +623,30 @@
     if (p2) out += '-' + p2;
     if (p3) out += '-' + p3;
     cuitInput.value = out;
+  });
+})();
+</script>
+<script>
+// Toggle sección Información complementaria en empresas (incluye documentación y compartir info a cliente)
+(function(){
+  var header = document.getElementById('empresaInfoCompToggle');
+  var body = document.getElementById('empresaInfoCompBody');
+  var chev = document.getElementById('empresaInfoCompChevron');
+  var extra = document.getElementById('empresaInfoCompExtra');
+  if (!header || !body || !chev) return;
+  header.addEventListener('click', function(){
+    var closed = body.classList.contains('d-none');
+    if (closed){
+      body.classList.remove('d-none');
+      chev.classList.remove('bi-chevron-right');
+      chev.classList.add('bi-chevron-down');
+      if (extra) extra.classList.remove('d-none');
+    } else {
+      body.classList.add('d-none');
+      chev.classList.remove('bi-chevron-down');
+      chev.classList.add('bi-chevron-right');
+       if (extra) extra.classList.add('d-none');
+    }
   });
 })();
 </script>

@@ -120,7 +120,7 @@
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                      <form class="row g-2 mb-3" method="post" action="{{ url_for('main.clientes_link_add', client_id=c.id) }}">
+                      <form class="row g-2 mb-2" method="post" action="{{ url_for('main.clientes_link_add', client_id=c.id) }}">
                         <div class="col-md-6">
                           <select class="form-select" name="company_id" required>
                             <option value="">Seleccionar empresa...</option>
@@ -140,33 +140,46 @@
                           <button class="btn btn-primary">Agregar</button>
                         </div>
                       </form>
+                      <div class="row g-2 mb-2">
+                        <div class="col-md-4 ms-auto">
+                          <select class="form-select form-select-sm js-link-status-filter" data-target="links-body-{{ c.id }}">
+                            <option value="">Todos los estados</option>
+                            <option value="TRABAJA">Trabaja</option>
+                            <option value="TRABAJABA">Trabajaba</option>
+                            <option value="A_INCORPORAR">A incorporar</option>
+                          </select>
+                        </div>
+                      </div>
                       <div class="table-responsive">
                         <table class="table table-sm align-middle">
                           <thead>
                             <tr>
-                              <th>Empresa</th>
-                              <th>Estado</th>
-                              <th class="text-end">Acciones</th>
+                              <th class="text-start" style="width:40%">Empresa</th>
+                              <th class="text-start" style="width:35%">Estado</th>
+                              <th class="text-end" style="width:25%">Acciones</th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody id="links-body-{{ c.id }}">
                             {% for l in c.links %}
-                              <tr>
-                                <td>{{ l.company.nombre }}</td>
-                                <td>
-                                  <form class="d-flex gap-2" method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
+                              <tr data-status="{{ l.status.value if l.status is defined and l.status is not none else '' }}">
+                                <td class="align-middle text-start">{{ l.company.nombre }}</td>
+                                <td class="align-middle text-start">
+                                  <form class="d-inline-flex" method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
                                     <select name="status" class="form-select form-select-sm" style="max-width:220px">
                                       <option value="TRABAJA" {{ 'selected' if l.status.value=='TRABAJA' else '' }}>Trabaja</option>
                                       <option value="TRABAJABA" {{ 'selected' if l.status.value=='TRABAJABA' else '' }}>Trabajaba</option>
                                       <option value="A_INCORPORAR" {{ 'selected' if l.status.value=='A_INCORPORAR' else '' }}>A incorporar</option>
                                     </select>
-                                    <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
-                                  </form>
                                 </td>
-                                <td class="text-end">
-                                  <form method="post" action="{{ url_for('main.clientes_link_delete', client_id=c.id, link_id=l.id) }}" class="js-confirm-remove" data-confirm="¿Quitar vínculo con la empresa seleccionada?">
-                                    <button class="btn btn-sm btn-outline-danger">Quitar</button>
-                                  </form>
+                                <td class="text-end align-middle">
+                                  <div class="d-inline-flex gap-2">
+                                    <form method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
+                                      <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
+                                    </form>
+                                    <form method="post" action="{{ url_for('main.clientes_link_delete', client_id=c.id, link_id=l.id) }}" class="js-confirm-remove" data-confirm="¿Quitar vínculo con la empresa seleccionada?">
+                                      <button class="btn btn-sm btn-outline-danger" type="submit">Quitar</button>
+                                    </form>
+                                  </div>
                                 </td>
                               </tr>
                             {% else %}
@@ -348,6 +361,29 @@
 
   // aplicar al cargar, para mantener filtros después de navegar
   applyFilters();
+})();
+</script>
+<script>
+// Filtro de estado en popups de vínculos (Empresas de cliente)
+(function(){
+  document.addEventListener('change', function(e){
+    var sel = e.target;
+    if (!sel || !sel.classList || !sel.classList.contains('js-link-status-filter')) return;
+    var value = sel.value || '';
+    var targetId = sel.getAttribute('data-target');
+    if (!targetId) return;
+    var tbody = document.getElementById(targetId);
+    if (!tbody) return;
+    var rows = tbody.querySelectorAll('tr');
+    rows.forEach(function(tr){
+      var st = tr.getAttribute('data-status') || '';
+      if (!value || !st || st === value){
+        tr.style.display = '';
+      } else {
+        tr.style.display = 'none';
+      }
+    });
+  });
 })();
 </script>
 <script>
