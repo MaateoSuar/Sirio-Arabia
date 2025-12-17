@@ -1965,7 +1965,11 @@ def pedidos_create():
     if files and cloud_name and upload_preset:
         for f in files:
             try:
-                r = requests.post(f"https://api.cloudinary.com/v1_1/{cloud_name}/image/upload", data={"upload_preset": upload_preset}, files={"file": (f.filename, f.stream, f.mimetype)})
+                r = requests.post(
+                    f"https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload",
+                    data={"upload_preset": upload_preset, "resource_type": "auto"},
+                    files={"file": (f.filename, f.stream, f.mimetype)},
+                )
                 if r.ok:
                     url = r.json().get("secure_url") or r.json().get("url")
                     if url:
