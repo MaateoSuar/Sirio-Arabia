@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, abort, send_file
+from flask import current_app
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import smtplib
@@ -10,10 +11,219 @@ except Exception:
 import os
 import requests
 from ..extensions import db
-from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument
+from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, ClientAlertState
 from sqlalchemy import func, text
+from sqlalchemy.exc import OperationalError
 
 bp = Blueprint("main", __name__)
+
+
+def _compute_alerts_for_all_clients(now_dt: datetime):
+    alerts = []
+    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    for c in clients:
+        try:
+            state_rows = ClientAlertState.query.filter_by(client_id=c.id).all()
+        except OperationalError:
+            # DB aún no migrada (por ejemplo SQLite sin columnas nuevas)
+            state_rows = []
+        state_map = {(s.order_id, s.kind): s for s in state_rows}
+
+        for o in (c.orders or []):
+            comp_name = o.company.nombre if o.company else "-"
+
+            def _is_muted(kind: str) -> bool:
+                st = state_map.get((o.id, kind))
+                if not st:
+                    return False
+                if st.dismissed_at:
+                    return True
+                return False
+
+            # Mercadería
+            lg = getattr(o, "logistics", None)
+            due = None
+            if lg and not lg.fecha_entrega_efectiva:
+                due = lg.fecha_entrega_estimada
+            if not due and o.demora_despacho_promedio_dias is not None:
+                try:
+                    due = o.created_at + timedelta(days=int(o.demora_despacho_promedio_dias or 0))
+                except Exception:
+                    due = None
+            if due and now_dt > due and not _is_muted("MERCADERIA"):
+                overdue_days = (now_dt - due).days
+                alerts.append({
+                    "client_id": c.id,
+                    "client_name": f"{c.apellido} {c.nombre}",
+                    "order_id": o.id,
+                    "kind": "MERCADERIA",
+                    "severity": "warning" if overdue_days <= 2 else "danger",
+                    "company": comp_name,
+                    "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
+                })
+
+            # Cobranzas
+            col = getattr(o, "collection", None)
+            if col and not col.fecha_cobro_efectiva:
+                pay_due = col.fecha_pago_estimada
+                if not pay_due and o.company and o.company.plazo_pago_promedio_dias is not None:
+                    try:
+                        pay_due = o.created_at + timedelta(days=int(o.company.plazo_pago_promedio_dias or 0))
+                    except Exception:
+                        pay_due = None
+                if pay_due and now_dt > pay_due and not _is_muted("COBRANZA"):
+                    overdue_days = (now_dt - pay_due).days
+                    alerts.append({
+                        "client_id": c.id,
+                        "client_name": f"{c.apellido} {c.nombre}",
+                        "order_id": o.id,
+                        "kind": "COBRANZA",
+                        "severity": "warning" if overdue_days <= 2 else "danger",
+                        "company": comp_name,
+                        "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
+                    })
+    return alerts
+
+
+def _refresh_link_statuses_by_last_order(now_dt: datetime, client_ids=None):
+    threshold = now_dt - timedelta(days=90)
+
+    q_links = ClientCompanyLink.query
+    if client_ids:
+        q_links = q_links.filter(ClientCompanyLink.client_id.in_(client_ids))
+    links = q_links.all()
+    if not links:
+        return
+
+    pairs = {(l.client_id, l.company_id) for l in links}
+    if not pairs:
+        return
+
+    from sqlalchemy import or_, and_
+    conds = [and_(Order.client_id == cid, Order.company_id == coid) for (cid, coid) in pairs]
+    last_map = {}
+    if conds:
+        rows = (
+            db.session.query(Order.client_id, Order.company_id, func.max(Order.created_at))
+            .filter(or_(*conds))
+            .group_by(Order.client_id, Order.company_id)
+            .all()
+        )
+        last_map = {(cid, coid): last_dt for (cid, coid, last_dt) in rows}
+
+    changed = False
+    for l in links:
+        if l.status != RelationStatus.TRABAJA:
+            continue
+        last_dt = last_map.get((l.client_id, l.company_id))
+        if (not last_dt) or (last_dt < threshold):
+            l.status = RelationStatus.TRABAJABA
+            changed = True
+    if changed:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
+@bp.before_app_request
+def auto_refresh_link_statuses_global():
+    # Ejecutar la regla en toda la app, pero con throttling para no impactar rendimiento.
+    # Se ejecuta como máximo cada 10 minutos por proceso.
+    try:
+        if request.endpoint and str(request.endpoint).startswith("static"):
+            return
+        last = current_app.config.get("_LAST_LINK_REFRESH_AT")
+        now_dt = datetime.utcnow()
+        if last and isinstance(last, datetime) and (now_dt - last) < timedelta(minutes=10):
+            return
+        current_app.config["_LAST_LINK_REFRESH_AT"] = now_dt
+        _refresh_link_statuses_by_last_order(now_dt)
+    except Exception:
+        # Nunca romper navegación por errores en tarea automática
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+@bp.before_app_request
+def auto_patch_new_columns():
+    # Evitar caídas por DB desactualizada (especialmente SQLite): agregar columnas nuevas si faltan.
+    # Se intenta solo una vez por proceso.
+    try:
+        if request.endpoint and str(request.endpoint).startswith("static"):
+            return
+        if current_app.config.get("_DID_PATCH_NEW_COLS"):
+            return
+        current_app.config["_DID_PATCH_NEW_COLS"] = True
+        dialect = db.session.bind.dialect.name if db.session.bind is not None else ""
+        if dialect == "postgresql":
+            stmts = [
+                """
+                CREATE TABLE IF NOT EXISTS client_document (
+                    id SERIAL PRIMARY KEY,
+                    client_id INTEGER NOT NULL,
+                    category VARCHAR(32),
+                    filename VARCHAR(255) NOT NULL,
+                    filepath VARCHAR(500) NOT NULL,
+                    data BYTEA,
+                    mimetype VARCHAR(120),
+                    size INTEGER,
+                    uploaded_at TIMESTAMP
+                )
+                """ ,
+                "ALTER TABLE client_company_link ADD COLUMN IF NOT EXISTS descuento NUMERIC(5,2)",
+                "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS provincia VARCHAR(80)",
+                "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS nota VARCHAR(255)",
+                "ALTER TABLE client_birthday ADD COLUMN IF NOT EXISTS notas TEXT",
+                "ALTER TABLE client ADD COLUMN IF NOT EXISTS transporte_contacto VARCHAR(255)",
+                "ALTER TABLE client_document ADD COLUMN IF NOT EXISTS category VARCHAR(32)",
+            ]
+        else:
+            stmts = [
+                """
+                CREATE TABLE IF NOT EXISTS client_document (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    category VARCHAR(32),
+                    filename VARCHAR(255) NOT NULL,
+                    filepath VARCHAR(500) NOT NULL,
+                    data BLOB,
+                    mimetype VARCHAR(120),
+                    size INTEGER,
+                    uploaded_at DATETIME
+                )
+                """ ,
+                "ALTER TABLE client_company_link ADD COLUMN descuento REAL",
+                "ALTER TABLE client_delivery_place ADD COLUMN provincia VARCHAR(80)",
+                "ALTER TABLE client_delivery_place ADD COLUMN nota VARCHAR(255)",
+                "ALTER TABLE client_birthday ADD COLUMN notas TEXT",
+                "ALTER TABLE client ADD COLUMN transporte_contacto VARCHAR(255)",
+                "ALTER TABLE client_document ADD COLUMN category VARCHAR(32)",
+            ]
+        for sql in stmts:
+            try:
+                db.session.execute(text(sql))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                continue
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+@bp.app_context_processor
+def inject_notification_count():
+    try:
+        now_dt = datetime.utcnow()
+        active_alerts = _compute_alerts_for_all_clients(now_dt)
+        return {"notif_active_count": len(active_alerts)}
+    except Exception:
+        return {"notif_active_count": 0}
 
 
 @bp.get("/")
@@ -207,7 +417,173 @@ def index():
 def clientes():
     items = Client.query.order_by(Client.apellido, Client.nombre).all()
     companies = Company.query.order_by(Company.nombre).all()
-    return render_template("clientes.html", active="clientes", items=items, companies=companies)
+
+    # Regla: si pasaron 3 meses sin pedidos, TRABAJA -> TRABAJABA
+    now_dt = datetime.utcnow()
+    _refresh_link_statuses_by_last_order(now_dt, [c.id for c in items])
+
+    alerts_by_client = {}
+    total_active_alerts = 0
+
+    for c in items:
+        # Estados persistidos para filtrar alertas (visto / postergado)
+        try:
+            state_rows = ClientAlertState.query.filter_by(client_id=c.id).all()
+        except OperationalError:
+            state_rows = []
+        state_map = {(s.order_id, s.kind): s for s in state_rows}
+
+        client_alerts = []
+
+        for o in (c.orders or []):
+            comp_name = o.company.nombre if o.company else "-"
+
+            def _is_muted(kind: str) -> bool:
+                st = state_map.get((o.id, kind))
+                if not st:
+                    return False
+                if st.dismissed_at:
+                    return True
+                return False
+
+            # Mercadería / logística (atrasos)
+            lg = getattr(o, "logistics", None)
+            if lg and not lg.fecha_entrega_efectiva:
+                due = lg.fecha_entrega_estimada
+                if not due and o.demora_despacho_promedio_dias is not None:
+                    try:
+                        due = o.created_at + timedelta(days=int(o.demora_despacho_promedio_dias or 0))
+                    except Exception:
+                        due = None
+                if due and now_dt > due:
+                    overdue_days = (now_dt - due).days
+                    if not _is_muted("MERCADERIA"):
+                        client_alerts.append({
+                        "kind": "MERCADERIA",
+                        "severity": "warning" if overdue_days <= 2 else "danger",
+                        "order_id": o.id,
+                        "company": comp_name,
+                        "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
+                        })
+            elif not lg:
+                # Si no hay registro de logística, usar snapshot de demora para recordatorio
+                if o.demora_despacho_promedio_dias is not None:
+                    try:
+                        due = o.created_at + timedelta(days=int(o.demora_despacho_promedio_dias or 0))
+                    except Exception:
+                        due = None
+                    if due and now_dt > due:
+                        overdue_days = (now_dt - due).days
+                        if not _is_muted("MERCADERIA"):
+                            client_alerts.append({
+                            "kind": "MERCADERIA",
+                            "severity": "warning" if overdue_days <= 2 else "danger",
+                            "order_id": o.id,
+                            "company": comp_name,
+                            "message": f"Revisar despacho ({comp_name}). Pasaron {overdue_days} día(s) sobre la demora estimada.",
+                            })
+
+            # Pagos / cobranzas (atrasos)
+            col = getattr(o, "collection", None)
+            if col and not col.fecha_cobro_efectiva:
+                pay_due = col.fecha_pago_estimada
+                if not pay_due and o.company and o.company.plazo_pago_promedio_dias is not None:
+                    try:
+                        pay_due = o.created_at + timedelta(days=int(o.company.plazo_pago_promedio_dias or 0))
+                    except Exception:
+                        pay_due = None
+                if pay_due and now_dt > pay_due:
+                    overdue_days = (now_dt - pay_due).days
+                    if not _is_muted("COBRANZA"):
+                        client_alerts.append({
+                        "kind": "COBRANZA",
+                        "severity": "warning" if overdue_days <= 2 else "danger",
+                        "order_id": o.id,
+                        "company": comp_name,
+                        "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
+                        })
+
+        alerts_by_client[c.id] = client_alerts
+        total_active_alerts += len(client_alerts)
+
+    return render_template(
+        "clientes.html",
+        active="clientes",
+        items=items,
+        companies=companies,
+        alerts_by_client=alerts_by_client,
+        total_active_alerts=total_active_alerts,
+    )
+
+
+@bp.post("/clientes/alertas/visto")
+def clientes_alertas_visto():
+    client_id = request.form.get("client_id", type=int)
+    order_id = request.form.get("order_id", type=int)
+    kind = (request.form.get("kind") or "").strip().upper()
+    if not client_id or not order_id or not kind:
+        return jsonify({"ok": False, "error": "missing_params"}), 400
+
+    try:
+        st = ClientAlertState.query.filter_by(client_id=client_id, order_id=order_id, kind=kind).first()
+    except OperationalError:
+        return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
+    if not st:
+        st = ClientAlertState(client_id=client_id, order_id=order_id, kind=kind)
+        db.session.add(st)
+    # Snapshot para historial
+    st.message = (request.form.get("message") or st.message or "").strip() or st.message
+    st.severity = (request.form.get("severity") or st.severity or "").strip() or st.severity
+    st.company = (request.form.get("company") or st.company or "").strip() or st.company
+    if not st.first_seen_at:
+        st.first_seen_at = datetime.utcnow()
+    st.dismissed_at = datetime.utcnow()
+    st.snoozed_until = None
+    try:
+        db.session.commit()
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
+    return jsonify({"ok": True})
+
+
+@bp.get("/notificaciones")
+def notificaciones():
+    now_dt = datetime.utcnow()
+    active_alerts = _compute_alerts_for_all_clients(now_dt)
+    try:
+        viewed_rows = (
+            ClientAlertState.query
+            .filter(ClientAlertState.dismissed_at.isnot(None))
+            .order_by(ClientAlertState.dismissed_at.desc())
+            .limit(200)
+            .all()
+        )
+    except OperationalError:
+        viewed_rows = []
+    # Map para mostrar nombre de cliente en historial
+    client_ids = sorted({r.client_id for r in viewed_rows if r and r.client_id})
+    clients = Client.query.filter(Client.id.in_(client_ids)).all() if client_ids else []
+    client_name_map = {c.id: f"{c.apellido} {c.nombre}" for c in clients}
+    viewed = [
+        {
+            "client_id": r.client_id,
+            "client_name": client_name_map.get(r.client_id, "-"),
+            "order_id": r.order_id,
+            "kind": r.kind,
+            "company": r.company,
+            "severity": r.severity,
+            "message": r.message,
+            "dismissed_at": r.dismissed_at,
+        }
+        for r in viewed_rows
+    ]
+    return render_template(
+        "notificaciones.html",
+        active="notificaciones",
+        active_alerts=active_alerts,
+        viewed_alerts=viewed,
+    )
 
 
 # Calendario general (entregas y cobranzas)
@@ -215,6 +591,11 @@ def clientes():
 def calendario():
     today = date.today().isoformat()
     return render_template("calendar.html", active="calendario", today=today)
+
+
+@bp.get("/comisiones")
+def comisiones():
+    return render_template("comisiones.html", active="comisiones")
 
 
 @bp.get("/api/calendario/events")
@@ -346,38 +727,53 @@ def clientes_create():
     branch_list = [b.strip() for b in request.form.getlist("branch_list") if (b or "").strip()]
     telefono = request.form.get("telefono", "").strip()
     provincia = (request.form.get("provincia") or "").strip() or None
-    direccion_principal = (request.form.get("direccion_principal") or "").strip() or None
-    transporte_recomendado = (request.form.get("transporte_recomendado") or "").strip() or None
-    delivery_schedule = (request.form.get("delivery_schedule") or "").strip() or None
-    delivery_contact = (request.form.get("delivery_contact") or "").strip() or None
-    delivery_phone = (request.form.get("delivery_phone") or "").strip() or None
-    mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
+    # Transporte (sección colapsable)
+    transporte_nombre = (request.form.get("transporte_nombre") or "").strip() or None
+    transporte_contacto = (request.form.get("transporte_contacto") or "").strip() or None
+    # Mails múltiples
     mail_single = (request.form.get("mail", "") or "").strip()
-    # store as comma-separated for backward compatibility
-    mail = ", ".join(mails) if mails else (mail_single or None)
+    mail = (mail_single or None)
     relacion = (request.form.get("relacion") or "").strip() or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
     company_id = request.form.get("company_id", type=int)
-    # Lugares de entrega múltiples (opcional): ahora con datos por lugar
+    # Direcciones múltiples con provincia, nota, horarios
     delivery_names = [d.strip() for d in request.form.getlist("delivery_name_list")]
+    delivery_provincias = [d.strip() for d in request.form.getlist("delivery_provincia_list")]
+    delivery_notas = [d.strip() for d in request.form.getlist("delivery_nota_list")]
     delivery_schedules = [d.strip() for d in request.form.getlist("delivery_schedule_list")]
     delivery_contacts = [d.strip() for d in request.form.getlist("delivery_contact_list")]
     delivery_phones = [d.strip() for d in request.form.getlist("delivery_phone_list")]
-    # Cumpleaños múltiples (opcional)
+    # Personas (cumpleaños) con notas
     b_names = [v.strip() for v in request.form.getlist("birthday_name_list")]
     b_roles = [v.strip() for v in request.form.getlist("birthday_role_list")]
     b_dates = [v.strip() for v in request.form.getlist("birthday_date_list")]
+    b_notas = [v.strip() for v in request.form.getlist("birthday_notas_list")]
     # Guardar compat 'sucursal' como la primera si viene lista
     compat_sucursal = (branch_list[0] if branch_list else None)
     client = Client(apellido=apellido or "-", nombre=nombre or "-", sucursal=compat_sucursal,
                     cuit=cuit,
-                    direccion_principal=direccion_principal, transporte_recomendado=transporte_recomendado,
-                    delivery_schedule=delivery_schedule, delivery_contact=delivery_contact, delivery_phone=delivery_phone,
+                    transporte_recomendado=transporte_nombre, transporte_contacto=transporte_contacto,
                     provincia=provincia,
                     telefono=telefono or None, mail=mail or None,
                     fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
     db.session.add(client)
     db.session.commit()
+
+    # Sincronizar empresas confirmadas si vinieron company_ids desde el formulario
+    company_ids = request.form.getlist("company_ids", type=int)
+    if company_ids:
+        try:
+            keep_ids = set(company_ids)
+            for coid in keep_ids:
+                comp = Company.query.get(coid)
+                if not comp:
+                    continue
+                link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=coid).first()
+                if not link:
+                    db.session.add(ClientCompanyLink(client_id=client.id, company_id=coid, status=RelationStatus.TRABAJA, comprobante_tipo="FACTURA"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     # Crear sucursales
     if branch_list:
         for nm in branch_list:
@@ -386,14 +782,16 @@ def clientes_create():
             except Exception:
                 pass
         db.session.commit()
-    # Crear cumpleaños
-    if b_names or b_roles or b_dates:
+    # Crear personas (cumpleaños) con notas
+    if b_names or b_roles or b_dates or b_notas:
         try:
-            for idx in range(max(len(b_names), len(b_roles), len(b_dates))):
+            max_len_b = max(len(b_names), len(b_roles), len(b_dates), len(b_notas))
+            for idx in range(max_len_b):
                 nm = (b_names[idx] if idx < len(b_names) else "").strip()
                 rl = (b_roles[idx] if idx < len(b_roles) else "").strip()
                 dt_raw = (b_dates[idx] if idx < len(b_dates) else "").strip()
-                if not (nm or rl or dt_raw):
+                nt = (b_notas[idx] if idx < len(b_notas) else "").strip()
+                if not (nm or rl or dt_raw or nt):
                     continue
                 fecha = None
                 if dt_raw:
@@ -401,21 +799,24 @@ def clientes_create():
                         fecha = date.fromisoformat(dt_raw) if "-" in dt_raw else None
                     except Exception:
                         fecha = None
-                db.session.add(ClientBirthday(client_id=client.id, nombre=nm or "-", puesto=rl or None, fecha=fecha))
+                db.session.add(ClientBirthday(client_id=client.id, nombre=nm or "-", puesto=rl or None, fecha=fecha, notas=nt or None))
             db.session.commit()
         except Exception:
             db.session.rollback()
-    # Crear lugares de entrega
-    if delivery_names or delivery_schedules or delivery_contacts or delivery_phones:
+    # Crear direcciones con provincia, nota, horarios
+    if delivery_names or delivery_provincias or delivery_notas or delivery_schedules or delivery_contacts or delivery_phones:
         try:
-            for idx in range(max(len(delivery_names), len(delivery_schedules), len(delivery_contacts), len(delivery_phones))):
+            max_len = max(len(delivery_names), len(delivery_provincias), len(delivery_notas), len(delivery_schedules), len(delivery_contacts), len(delivery_phones))
+            for idx in range(max_len):
                 nm = (delivery_names[idx] if idx < len(delivery_names) else "").strip()
+                pv = (delivery_provincias[idx] if idx < len(delivery_provincias) else "").strip()
+                nt = (delivery_notas[idx] if idx < len(delivery_notas) else "").strip()
                 hs = (delivery_schedules[idx] if idx < len(delivery_schedules) else "").strip()
                 ct = (delivery_contacts[idx] if idx < len(delivery_contacts) else "").strip()
                 ph = (delivery_phones[idx] if idx < len(delivery_phones) else "").strip()
-                if not (nm or hs or ct or ph):
+                if not (nm or pv or nt or hs or ct or ph):
                     continue
-                db.session.add(ClientDeliveryPlace(client_id=client.id, nombre=nm or "-", horario=hs or None, contacto=ct or None, telefono=ph or None))
+                db.session.add(ClientDeliveryPlace(client_id=client.id, nombre=nm or "-", provincia=pv or None, nota=nt or None, horario=hs or None, contacto=ct or None, telefono=ph or None))
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -451,6 +852,7 @@ def admin_patch_client_columns():
     dialect = db.session.bind.dialect.name if db.session.bind is not None else ""
     if dialect == "postgresql":
         alter_link = "ALTER TABLE client_company_link ADD COLUMN IF NOT EXISTS comprobante_tipo VARCHAR(20) DEFAULT 'FACTURA'"
+        alter_link_desc = "ALTER TABLE client_company_link ADD COLUMN IF NOT EXISTS descuento NUMERIC(5,2)"
         alter_client_cols = [
             "ALTER TABLE client ADD COLUMN IF NOT EXISTS cuit VARCHAR(32)",
             "ALTER TABLE client ADD COLUMN IF NOT EXISTS direccion_principal VARCHAR(255)",
@@ -481,14 +883,64 @@ def admin_patch_client_columns():
             uploaded_at TIMESTAMP
         )
         """
+
+        create_client_document = """
+        CREATE TABLE IF NOT EXISTS client_document (
+            id SERIAL PRIMARY KEY,
+            client_id INTEGER NOT NULL,
+            category VARCHAR(32),
+            filename VARCHAR(255) NOT NULL,
+            filepath VARCHAR(500) NOT NULL,
+            data BYTEA,
+            mimetype VARCHAR(120),
+            size INTEGER,
+            uploaded_at TIMESTAMP
+        )
+        """
+
+        alter_client_document_cols = [
+            "ALTER TABLE client_document ADD COLUMN IF NOT EXISTS category VARCHAR(32)",
+        ]
         alter_delivery_place_cols = [
             "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS horario VARCHAR(255)",
             "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS contacto VARCHAR(255)",
             "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS telefono VARCHAR(64)",
+            "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS provincia VARCHAR(80)",
+            "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS nota VARCHAR(255)",
+        ]
+        alter_birthday_cols = [
+            "ALTER TABLE client_birthday ADD COLUMN IF NOT EXISTS notas TEXT",
+        ]
+        alter_client_transport_cols = [
+            "ALTER TABLE client ADD COLUMN IF NOT EXISTS transporte_contacto VARCHAR(255)",
+        ]
+        create_client_alert_state = """
+        CREATE TABLE IF NOT EXISTS client_alert_state (
+            id SERIAL PRIMARY KEY,
+            client_id INTEGER NOT NULL,
+            order_id INTEGER NOT NULL,
+            kind VARCHAR(32) NOT NULL,
+            dismissed_at TIMESTAMP,
+            snoozed_until TIMESTAMP,
+            message TEXT,
+            severity VARCHAR(16),
+            company VARCHAR(200),
+            first_seen_at TIMESTAMP,
+            updated_at TIMESTAMP,
+            CONSTRAINT uq_client_alert_state UNIQUE (client_id, order_id, kind)
+        )
+        """
+        alter_client_alert_cols = [
+            "ALTER TABLE client_alert_state ADD COLUMN IF NOT EXISTS message TEXT",
+            "ALTER TABLE client_alert_state ADD COLUMN IF NOT EXISTS severity VARCHAR(16)",
+            "ALTER TABLE client_alert_state ADD COLUMN IF NOT EXISTS company VARCHAR(200)",
+            "ALTER TABLE client_alert_state ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMP",
+            "ALTER TABLE client_alert_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         ]
     else:
         # Sintaxis compatible con SQLite: si ya existe fallará pero lo ignoramos con try/except
         alter_link = "ALTER TABLE client_company_link ADD COLUMN comprobante_tipo VARCHAR(20) DEFAULT 'FACTURA'"
+        alter_link_desc = "ALTER TABLE client_company_link ADD COLUMN descuento REAL"
         alter_client_cols = [
             "ALTER TABLE client ADD COLUMN cuit VARCHAR(32)",
             "ALTER TABLE client ADD COLUMN direccion_principal VARCHAR(255)",
@@ -520,10 +972,61 @@ def admin_patch_client_columns():
         )
         """
 
+        create_client_document = """
+        CREATE TABLE IF NOT EXISTS client_document (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER NOT NULL,
+            category VARCHAR(32),
+            filename VARCHAR(255) NOT NULL,
+            filepath VARCHAR(500) NOT NULL,
+            data BLOB,
+            mimetype VARCHAR(120),
+            size INTEGER,
+            uploaded_at DATETIME
+        )
+        """
+
+        alter_client_document_cols = [
+            "ALTER TABLE client_document ADD COLUMN category VARCHAR(32)",
+        ]
+
         alter_delivery_place_cols = [
             "ALTER TABLE client_delivery_place ADD COLUMN horario VARCHAR(255)",
             "ALTER TABLE client_delivery_place ADD COLUMN contacto VARCHAR(255)",
             "ALTER TABLE client_delivery_place ADD COLUMN telefono VARCHAR(64)",
+            "ALTER TABLE client_delivery_place ADD COLUMN provincia VARCHAR(80)",
+            "ALTER TABLE client_delivery_place ADD COLUMN nota VARCHAR(255)",
+        ]
+        alter_birthday_cols = [
+            "ALTER TABLE client_birthday ADD COLUMN notas TEXT",
+        ]
+        alter_client_transport_cols = [
+            "ALTER TABLE client ADD COLUMN transporte_contacto VARCHAR(255)",
+        ]
+
+        create_client_alert_state = """
+        CREATE TABLE IF NOT EXISTS client_alert_state (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER NOT NULL,
+            order_id INTEGER NOT NULL,
+            kind VARCHAR(32) NOT NULL,
+            dismissed_at DATETIME,
+            snoozed_until DATETIME,
+            message TEXT,
+            severity VARCHAR(16),
+            company VARCHAR(200),
+            first_seen_at DATETIME,
+            updated_at DATETIME,
+            CONSTRAINT uq_client_alert_state UNIQUE (client_id, order_id, kind)
+        )
+        """
+
+        alter_client_alert_cols = [
+            "ALTER TABLE client_alert_state ADD COLUMN message TEXT",
+            "ALTER TABLE client_alert_state ADD COLUMN severity VARCHAR(16)",
+            "ALTER TABLE client_alert_state ADD COLUMN company VARCHAR(200)",
+            "ALTER TABLE client_alert_state ADD COLUMN first_seen_at DATETIME",
+            "ALTER TABLE client_alert_state ADD COLUMN updated_at DATETIME",
         ]
 
     stmts = [
@@ -538,6 +1041,8 @@ def admin_patch_client_columns():
         """,
         # Nueva columna en vínculos empresa-cliente: tipo de comprobante (FACTURA/REMITO)
         alter_link,
+        # Nueva columna en vínculos empresa-cliente: descuento (%)
+        alter_link_desc,
         """
         CREATE TABLE IF NOT EXISTS client_birthday (
             id SERIAL PRIMARY KEY,
@@ -548,12 +1053,23 @@ def admin_patch_client_columns():
             CONSTRAINT uq_client_birthday UNIQUE (client_id, nombre, puesto)
         )
         """,
+        # Tabla de documentos de cliente (varía según motor)
+        create_client_document,
         # Tabla de documentos de empresa (varía según motor)
         create_company_document,
+        # Alertas persistidas (centro de notificaciones)
+        create_client_alert_state,
+        # Columnas nuevas para historial (si la tabla ya existía)
+        *alter_client_alert_cols,
         # Columnas nuevas en client_delivery_place, client y company
         *alter_delivery_place_cols,
         *alter_client_cols,
         *alter_company_cols,
+        # Columnas nuevas para personas (cumpleaños) y transporte
+        *alter_birthday_cols,
+        *alter_client_transport_cols,
+        # Columnas nuevas en client_document
+        *alter_client_document_cols,
     ]
     applied = []
     errors = []
@@ -619,7 +1135,8 @@ def clientes_docs_upload(client_id: int):
                         url = j.get("secure_url") or j.get("url") or ""
                 except Exception:
                     url = ""
-            doc = ClientDocument(client_id=client.id, filename=fname, filepath=url or "", data=content, mimetype=mtype, size=size)
+            category = (request.form.get("category") or "CONSTANCIA").upper()
+            doc = ClientDocument(client_id=client.id, category=category, filename=fname, filepath=url or "", data=content, mimetype=mtype, size=size)
             db.session.add(doc)
         except Exception:
             continue
@@ -635,13 +1152,15 @@ def clientes_docs_upload(client_id: int):
         return jsonify([
             {
                 "id": d.id,
+                "category": getattr(d, "category", None),
                 "filename": d.filename,
                 "download_url": url_for("main.clientes_docs_download", client_id=client.id, doc_id=d.id),
+                "delete_url": url_for("main.clientes_docs_delete", client_id=client.id, doc_id=d.id),
                 "uploaded_at": (d.uploaded_at.isoformat() if d.uploaded_at else None),
             }
             for d in docs
         ])
-    return redirect(url_for("main.clientes", open_docs=client.id))
+    return redirect(url_for("main.clientes_edit_view", client_id=client.id))
 
 
 @bp.post("/clientes/<int:client_id>/docs/<int:doc_id>/delete")
@@ -659,13 +1178,15 @@ def clientes_docs_delete(client_id: int, doc_id: int):
         return jsonify([
             {
                 "id": d.id,
+                "category": getattr(d, "category", None),
                 "filename": d.filename,
                 "download_url": url_for("main.clientes_docs_download", client_id=client_id, doc_id=d.id),
+                "delete_url": url_for("main.clientes_docs_delete", client_id=client_id, doc_id=d.id),
                 "uploaded_at": (d.uploaded_at.isoformat() if d.uploaded_at else None),
             }
             for d in docs
         ])
-    return redirect(url_for("main.clientes"))
+    return redirect(url_for("main.clientes_edit_view", client_id=client_id))
 
 @bp.get("/clientes/<int:client_id>/docs/<int:doc_id>/download")
 def clientes_docs_download(client_id: int, doc_id: int):
@@ -692,12 +1213,15 @@ def clientes_link_add(client_id: int):
     client = Client.query.get_or_404(client_id)
     company_id = request.form.get("company_id", type=int)
     status = request.form.get("status") or RelationStatus.TRABAJA.value
+    comprobante_tipo = (request.form.get("comprobante_tipo") or "").upper() or None
     comp = Company.query.get_or_404(company_id)
     link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=comp.id).first()
     if not link:
         link = ClientCompanyLink(client_id=client.id, company_id=comp.id)
         db.session.add(link)
     link.status = RelationStatus(status)
+    if comprobante_tipo in ("FACTURA", "REMITO"):
+        link.comprobante_tipo = comprobante_tipo
     db.session.commit()
     return redirect(url_for("main.clientes", open_links=client.id))
 
@@ -747,49 +1271,54 @@ def clientes_update(client_id: int):
     except Exception:
         pass
     obj.telefono = request.form.get("telefono") or None
-    obj.direccion_principal = (request.form.get("direccion_principal") or None)
-    obj.transporte_recomendado = (request.form.get("transporte_recomendado") or None)
-    obj.delivery_schedule = (request.form.get("delivery_schedule") or None)
-    obj.delivery_contact = (request.form.get("delivery_contact") or None)
-    obj.delivery_phone = (request.form.get("delivery_phone") or None)
     obj.provincia = (request.form.get("provincia") or None)
-    mails = [m.strip() for m in request.form.getlist("mails") if (m or "").strip()]
+    # Transporte (sección colapsable)
+    obj.transporte_recomendado = (request.form.get("transporte_nombre") or None)
+    obj.transporte_contacto = (request.form.get("transporte_contacto") or None)
+    # Mails múltiples
     mail_single = (request.form.get("mail") or "").strip()
-    obj.mail = (", ".join(mails) if mails else (mail_single or None))
-    # Lugares de entrega múltiples con datos por lugar
+    obj.mail = (mail_single or None)
+    # Direcciones múltiples con provincia, nota, horarios
     delivery_names = [d.strip() for d in request.form.getlist("delivery_name_list")]
+    delivery_provincias = [d.strip() for d in request.form.getlist("delivery_provincia_list")]
+    delivery_notas = [d.strip() for d in request.form.getlist("delivery_nota_list")]
     delivery_schedules = [d.strip() for d in request.form.getlist("delivery_schedule_list")]
     delivery_contacts = [d.strip() for d in request.form.getlist("delivery_contact_list")]
     delivery_phones = [d.strip() for d in request.form.getlist("delivery_phone_list")]
-    # Cumpleaños múltiples
+    # Personas (cumpleaños) con notas
     b_names = [v.strip() for v in request.form.getlist("birthday_name_list")]
     b_roles = [v.strip() for v in request.form.getlist("birthday_role_list")]
     b_dates = [v.strip() for v in request.form.getlist("birthday_date_list")]
+    b_notas = [v.strip() for v in request.form.getlist("birthday_notas_list")]
     relacion = (request.form.get("relacion") or "").strip() or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
     obj.fecha_incorporacion = date.fromisoformat(fecha_inc) if fecha_inc else obj.fecha_incorporacion
-    # Sincronizar lugares de entrega
+    # Sincronizar direcciones (lugares de entrega) con provincia, nota, horarios
     try:
         ClientDeliveryPlace.query.filter_by(client_id=obj.id).delete()
-        if delivery_names or delivery_schedules or delivery_contacts or delivery_phones:
-            for idx in range(max(len(delivery_names), len(delivery_schedules), len(delivery_contacts), len(delivery_phones))):
-                nm = (delivery_names[idx] if idx < len(delivery_names) else "").strip()
-                hs = (delivery_schedules[idx] if idx < len(delivery_schedules) else "").strip()
-                ct = (delivery_contacts[idx] if idx < len(delivery_contacts) else "").strip()
-                ph = (delivery_phones[idx] if idx < len(delivery_phones) else "").strip()
-                if not (nm or hs or ct or ph):
-                    continue
-                db.session.add(ClientDeliveryPlace(client_id=obj.id, nombre=nm or "-", horario=hs or None, contacto=ct or None, telefono=ph or None))
+        max_len = max(len(delivery_names), len(delivery_provincias), len(delivery_notas), len(delivery_schedules), len(delivery_contacts), len(delivery_phones)) if (delivery_names or delivery_provincias or delivery_notas or delivery_schedules or delivery_contacts or delivery_phones) else 0
+        for idx in range(max_len):
+            nm = (delivery_names[idx] if idx < len(delivery_names) else "").strip()
+            pv = (delivery_provincias[idx] if idx < len(delivery_provincias) else "").strip()
+            nt = (delivery_notas[idx] if idx < len(delivery_notas) else "").strip()
+            hs = (delivery_schedules[idx] if idx < len(delivery_schedules) else "").strip()
+            ct = (delivery_contacts[idx] if idx < len(delivery_contacts) else "").strip()
+            ph = (delivery_phones[idx] if idx < len(delivery_phones) else "").strip()
+            if not (nm or pv or nt or hs or ct or ph):
+                continue
+            db.session.add(ClientDeliveryPlace(client_id=obj.id, nombre=nm or "-", provincia=pv or None, nota=nt or None, horario=hs or None, contacto=ct or None, telefono=ph or None))
     except Exception:
         db.session.rollback()
-    # Sincronizar cumpleaños
+    # Sincronizar personas (cumpleaños) con notas
     try:
         ClientBirthday.query.filter_by(client_id=obj.id).delete()
-        for idx in range(max(len(b_names), len(b_roles), len(b_dates))):
+        max_len_b = max(len(b_names), len(b_roles), len(b_dates), len(b_notas)) if (b_names or b_roles or b_dates or b_notas) else 0
+        for idx in range(max_len_b):
             nm = (b_names[idx] if idx < len(b_names) else "").strip()
             rl = (b_roles[idx] if idx < len(b_roles) else "").strip()
             dt_raw = (b_dates[idx] if idx < len(b_dates) else "").strip()
-            if not (nm or rl or dt_raw):
+            nt = (b_notas[idx] if idx < len(b_notas) else "").strip()
+            if not (nm or rl or dt_raw or nt):
                 continue
             fecha = None
             if dt_raw:
@@ -797,7 +1326,7 @@ def clientes_update(client_id: int):
                     fecha = date.fromisoformat(dt_raw) if "-" in dt_raw else None
                 except Exception:
                     fecha = None
-            db.session.add(ClientBirthday(client_id=obj.id, nombre=nm or "-", puesto=rl or None, fecha=fecha))
+            db.session.add(ClientBirthday(client_id=obj.id, nombre=nm or "-", puesto=rl or None, fecha=fecha, notas=nt or None))
     except Exception:
         pass
     db.session.commit()
@@ -825,6 +1354,26 @@ def clientes_update(client_id: int):
             db.session.commit()
         except Exception:
             pass
+
+    # Sincronizar empresas confirmadas si vinieron company_ids desde el formulario
+    company_ids = request.form.getlist("company_ids", type=int)
+    if company_ids:
+        try:
+            keep_ids = set(company_ids)
+            existing = {l.company_id: l for l in obj.links}
+            for l in list(obj.links):
+                if l.company_id not in keep_ids:
+                    db.session.delete(l)
+            for coid in keep_ids:
+                if coid in existing:
+                    continue
+                comp = Company.query.get(coid)
+                if not comp:
+                    continue
+                db.session.add(ClientCompanyLink(client_id=obj.id, company_id=coid, status=RelationStatus.TRABAJA, comprobante_tipo="FACTURA"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     return redirect(url_for("main.clientes"))
 
 
@@ -1249,14 +1798,28 @@ def empresas_link_add(company_id: int):
     company = Company.query.get_or_404(company_id)
     client_id = request.form.get("client_id", type=int)
     status = request.form.get("status") or RelationStatus.TRABAJA.value
+    comprobante_tipo = (request.form.get("comprobante_tipo") or "").upper() or None
+    descuento_raw = (request.form.get("descuento") or "").strip()
     client = Client.query.get_or_404(client_id)
     link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=company.id).first()
     if not link:
         link = ClientCompanyLink(client_id=client.id, company_id=company.id)
         db.session.add(link)
     link.status = RelationStatus(status)
+    if comprobante_tipo in ("FACTURA", "REMITO"):
+        link.comprobante_tipo = comprobante_tipo
     if not getattr(link, "comprobante_tipo", None):
         link.comprobante_tipo = "FACTURA"
+    if descuento_raw != "":
+        try:
+            val = int(round(float(descuento_raw)))
+            if val < 0:
+                val = 0
+            if val > 100:
+                val = 100
+            link.descuento = val
+        except Exception:
+            pass
     db.session.commit()
     return redirect(url_for("main.empresas", open_links=company.id))
 
@@ -1266,10 +1829,21 @@ def empresas_link_update(company_id: int, link_id: int):
     link = ClientCompanyLink.query.filter_by(id=link_id, company_id=company_id).first_or_404()
     status = request.form.get("status") or None
     comprobante_tipo = (request.form.get("comprobante_tipo") or "").upper() or None
+    descuento_raw = (request.form.get("descuento") or "").strip()
     if status:
         link.status = RelationStatus(status)
     if comprobante_tipo in ("FACTURA", "REMITO"):
         link.comprobante_tipo = comprobante_tipo
+    if descuento_raw != "":
+        try:
+            val = int(round(float(descuento_raw)))
+            if val < 0:
+                val = 0
+            if val > 100:
+                val = 100
+            link.descuento = val
+        except Exception:
+            pass
     db.session.commit()
     return redirect(url_for("main.empresas", open_links=company_id))
 
@@ -1331,6 +1905,8 @@ def pedidos_create():
     # fechas proporcionadas por el formulario
     fecha_compra_raw = (request.form.get("fecha_compra") or "").strip()
     fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
+    # tipo de comprobante (FACTURA / REMITO)
+    tipo_comprobante = (request.form.get("tipo_comprobante") or "FACTURA").strip().upper() or "FACTURA"
     precio_final = request.form.get("precio_final", type=float)
     forma_pago = request.form.get("forma_pago") or None
 
@@ -1354,11 +1930,19 @@ def pedidos_create():
                 sucursal = first_branch.nombre
 
     order = Order(client=client, company=company, sucursal=sucursal, branch_id=branch_id, nota=nota, descripcion=descripcion,
-                  precio_final=precio_final, forma_pago=PaymentMethod(forma_pago),
+                  precio_final=precio_final, forma_pago=PaymentMethod(forma_pago), tipo_comprobante=tipo_comprobante,
                   demora_despacho_promedio_dias=company.demora_despacho_promedio_dias,
                   mail_pedido=company.mail_pedido)
     db.session.add(order)
     db.session.flush()
+
+    # Regla: al crear pedido, si la relación estaba A_INCORPORAR pasa a TRABAJA
+    try:
+        link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=company.id).first()
+        if link and link.status == RelationStatus.A_INCORPORAR:
+            link.status = RelationStatus.TRABAJA
+    except Exception:
+        pass
 
     # Create logistics record
     # fecha_compra: usar la provista (YYYY-MM-DD) o fallback a ahora
@@ -1396,6 +1980,7 @@ def pedidos_create():
 def status():
     q = LogisticsStatus.query.join(Order)
     estados = request.args.getlist("status")
+    tipos = request.args.getlist("tipo")  # FACTURA / REMITO
     desde = request.args.get("from")
     hasta = request.args.get("to")
     if estados:
@@ -1415,6 +2000,8 @@ def status():
         if conds:
             from sqlalchemy import or_
             q = q.filter(or_(*conds))
+    if tipos:
+        q = q.filter(Order.tipo_comprobante.in_(tipos))
     if desde:
         try:
             d = datetime.fromisoformat(desde)
@@ -1457,13 +2044,25 @@ def status_update(order_id: int):
     forma_pago_raw = request.form.get("forma_pago")
     forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
     fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
+    fecha_compra_raw = (request.form.get("fecha_compra") or "").strip()
+    fecha_entrega_efectiva_raw = (request.form.get("fecha_entrega_efectiva") or "").strip()
     if precio is not None:
         logistics.precio = precio
     if forma_pago_raw is not None:
         logistics.forma_pago = forma_pago
+    if fecha_compra_raw is not None:
+        try:
+            logistics.fecha_compra = datetime.fromisoformat(fecha_compra_raw) if fecha_compra_raw else None
+        except Exception:
+            pass
     if fecha_entrega_estimada_raw:
         try:
             logistics.fecha_entrega_estimada = datetime.fromisoformat(fecha_entrega_estimada_raw)
+        except Exception:
+            pass
+    if fecha_entrega_efectiva_raw is not None:
+        try:
+            logistics.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw) if fecha_entrega_efectiva_raw else None
         except Exception:
             pass
     # Mantener consistencia con cobranzas si existe registro
@@ -1473,6 +2072,23 @@ def status_update(order_id: int):
             coll.monto = precio
         if forma_pago_raw is not None:
             coll.forma_pago = forma_pago
+        if fecha_entrega_efectiva_raw is not None:
+            try:
+                coll.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw) if fecha_entrega_efectiva_raw else None
+            except Exception:
+                pass
+    else:
+        # Si se cargó entrega efectiva manualmente, crear cobranzas para mantener conexión
+        if fecha_entrega_efectiva_raw:
+            try:
+                coll = Collection(order_id=order_id)
+                coll.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw)
+                coll.fecha_pago_estimada = coll.fecha_entrega_efectiva + timedelta(days=30)
+                coll.monto = logistics.precio
+                coll.forma_pago = logistics.forma_pago
+                db.session.add(coll)
+            except Exception:
+                pass
     # Mantener consistencia con la Orden
     order = Order.query.get(order_id)
     if order:
@@ -1488,6 +2104,7 @@ def status_update(order_id: int):
 def cobranzas():
     q = Collection.query.join(Order)
     estados = request.args.getlist("status")
+    tipos = request.args.getlist("tipo")  # FACTURA / REMITO
     desde = request.args.get("from")
     hasta = request.args.get("to")
     if estados:
@@ -1500,6 +2117,8 @@ def cobranzas():
             conds.append(Collection.fecha_cobro_efectiva.isnot(None))
         if conds:
             q = q.filter(or_(*conds))
+    if tipos:
+        q = q.filter(Order.tipo_comprobante.in_(tipos))
     if desde:
         try:
             d = datetime.fromisoformat(desde)
@@ -1532,12 +2151,24 @@ def cobranzas_update(order_id: int):
     forma_pago_raw = request.form.get("forma_pago")
     forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
     pago_estimado = request.form.get("pago_estimado")
+    entrega_efectiva_raw = (request.form.get("fecha_entrega_efectiva") or "").strip()
+    cobro_efectivo_raw = (request.form.get("fecha_cobro_efectiva") or "").strip()
     if monto is not None:
         coll.monto = monto
     if forma_pago_raw is not None:
         coll.forma_pago = forma_pago
     if pago_estimado is not None:
         coll.fecha_pago_estimada = datetime.fromisoformat(pago_estimado) if pago_estimado else None
+    if entrega_efectiva_raw is not None:
+        try:
+            coll.fecha_entrega_efectiva = datetime.fromisoformat(entrega_efectiva_raw) if entrega_efectiva_raw else None
+        except Exception:
+            pass
+    if cobro_efectivo_raw is not None:
+        try:
+            coll.fecha_cobro_efectiva = datetime.fromisoformat(cobro_efectivo_raw) if cobro_efectivo_raw else None
+        except Exception:
+            pass
     # Mantener consistencia con status si existe registro
     logistics = LogisticsStatus.query.filter_by(order_id=order_id).first()
     if logistics:
@@ -1545,6 +2176,11 @@ def cobranzas_update(order_id: int):
             logistics.precio = monto
         if forma_pago_raw is not None:
             logistics.forma_pago = forma_pago
+        if entrega_efectiva_raw is not None:
+            try:
+                logistics.fecha_entrega_efectiva = datetime.fromisoformat(entrega_efectiva_raw) if entrega_efectiva_raw else None
+            except Exception:
+                pass
     # Mantener consistencia con la Orden
     order = Order.query.get(order_id)
     if order:

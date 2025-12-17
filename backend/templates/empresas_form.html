@@ -4,6 +4,7 @@
   <h1 class="h4 text-dark mb-4">{{ 'Legajo de empresa' if company else 'Nueva empresa' }}</h1>
 
   <form method="post" id="empresa-form" class="card shadow-sm">
+    {% if company %}<input type="hidden" id="empresa_id" value="{{ company.id }}">{% endif %}
     <div class="card-body">
       <style>
         /* Títulos y etiquetas más estéticos en esta vista */
@@ -37,16 +38,24 @@
         }
         /* Badges de seleccionados */
         .badge-client { background-color: #0f766e; }
+        .js-sortable-table thead th[data-sort]{ cursor:pointer; user-select:none; }
       </style>
       <div class="row g-3">
-        <div class="col-md-6">
+        <div class="col-12 mt-1">
+          <h2 class="empresa-section-title mb-2">Información básica de la empresa</h2>
+        </div>
+        <div class="col-md-4">
           <label class="form-label">Marca</label>
           {% set marca_val = (company.marca if company and company.marca and company.marca|lower != 'none' else '') %}
           <input name="marca" type="text" class="form-control" value="{{ marca_val }}">
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label class="form-label">Razón social</label>
           <input name="nombre" type="text" class="form-control" value="{{ company.nombre or '' if company else '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">CUIT/CUIL</label>
+          <input name="cuit" type="text" class="form-control" value="{{ company.cuit or '' if company else '' }}">
         </div>
         <div class="col-md-6">
           <label class="form-label">Demora despacho promedio (días)</label>
@@ -106,7 +115,17 @@
             </div>
           </div>
         </div>
-        <div class="col-12">
+        {% if company %}
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#companyLinksCollapse" aria-expanded="false" aria-controls="companyLinksCollapse">
+            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
+              Clientes vinculados
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h3>
+            <i class="bi bi-chevron-right"></i>
+          </div>
+        </div>
+        <div class="col-12 collapse" id="companyLinksCollapse">
           <div class="d-flex align-items-center justify-content-between">
             <label class="form-label m-0">Clientes</label>
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#clients-collapse" aria-expanded="false" aria-controls="clients-collapse">Clientes</button>
@@ -146,36 +165,53 @@
               {% endif %}
             </div>
           </div>
-        </div>
-        <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
-            <h2 class="empresa-section-title mb-0" style="flex:1; text-align:left;">
-              Información complementaria
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h2>
-            <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
+          <div class="table-responsive border rounded mt-2">
+            <table class="table table-sm mb-0 align-middle js-sortable-table">
+              <thead>
+                <tr>
+                  <th data-sort="text">Cliente</th>
+                  <th data-sort="text">Estado</th>
+                  <th data-sort="text">Comprobante</th>
+                  <th class="text-end">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% if company.links %}
+                  {% for l in company.links %}
+                    <tr>
+                      <td>{{ l.client.apellido if l.client else '-' }} {{ l.client.nombre if l.client else '' }}</td>
+                      <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
+                      <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
+                      <td class="text-end">
+                        {% if l.client %}
+                          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=l.client.id) }}">Ver legajo</a>
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr><td colspan="4" class="text-center text-muted">Sin clientes vinculados</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
           </div>
         </div>
-        <div class="col-12 d-none" id="empresaInfoCompBody">
-          <div class="row g-2 g-md-3">
-            <div class="col-md-4">
-              <label class="form-label">CUIL/CUIT</label>
-              <input name="cuit" type="text" class="form-control" value="{{ company.cuit or '' if company else '' }}">
-            </div>
-            <div class="col-md-8">
-              <label class="form-label">Notas</label>
-              <textarea name="notas" class="form-control" rows="2" placeholder="Notas generales de la empresa">{{ company.notas or '' if company else '' }}</textarea>
-            </div>
-            <div class="col-md-12">
-              <label class="form-label">Cuenta Bancaria - Notas</label>
-              <textarea name="cuenta_bancaria_notas" class="form-control" rows="2" placeholder="Datos de cuenta bancaria, CBU, alias, condiciones, etc.">{{ company.cuenta_bancaria_notas or '' if company else '' }}</textarea>
-            </div>
-          </div>
-        </div>
+        {% endif %}
       </div>
     </div>
   </form>
-  <div class="mt-4 d-none" id="empresaInfoCompExtra">
+  <div class="col-12 mt-4">
+    <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
+      <h2 class="empresa-section-title mb-0" style="flex:1; text-align:left;">
+        Información complementaria
+        <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+      </h2>
+      <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
+    </div>
+  </div>
+  <div class="mt-3 d-none" id="empresaInfoCompExtra">
     <h2 class="empresa-section-title mb-3">Documentación</h2>
     {% if company %}
     <div class="row g-3">
@@ -267,6 +303,94 @@
           </div>
         </div>
       </div>
+      <div class="col-md-6">
+        <div class="card shadow-sm">
+          <div class="card-header bg-light">
+            <strong>Cuentas bancarias</strong>
+          </div>
+          <div class="card-body">
+            <form class="mb-3" method="post" enctype="multipart/form-data" action="{{ url_for('main.empresas_docs_upload', company_id=company.id) }}">
+              <input type="hidden" name="category" value="CUENTAS_BANCARIAS">
+              <div class="input-group input-group-sm">
+                <input class="form-control" type="file" name="documents" multiple required>
+                <button class="btn btn-primary" type="submit">Subir</button>
+              </div>
+            </form>
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 70%;">Archivo</th>
+                    <th class="text-end" style="width: 30%; white-space: nowrap;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% set bank_docs = (company.documents | selectattr('category', 'equalto', 'CUENTAS_BANCARIAS') | list) %}
+                  {% for d in bank_docs %}
+                  <tr>
+                    <td>
+                      <a href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener" class="text-decoration-none" style="color:#0f766e;">{{ d.filename }}</a>
+                    </td>
+                    <td class="text-end" style="white-space: nowrap;">
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener"><i class="bi bi-download"></i></a>
+                      <form method="post" action="{{ url_for('main.empresas_docs_delete', company_id=company.id, doc_id=d.id) }}" class="d-inline js-doc-delete-form" data-doc-type="cuentas bancarias">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="2" class="text-center text-muted">Sin documentación</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card shadow-sm">
+          <div class="card-header bg-light">
+            <strong>Datos logísticos</strong>
+          </div>
+          <div class="card-body">
+            <form class="mb-3" method="post" enctype="multipart/form-data" action="{{ url_for('main.empresas_docs_upload', company_id=company.id) }}">
+              <input type="hidden" name="category" value="DATOS_LOGISTICOS">
+              <div class="input-group input-group-sm">
+                <input class="form-control" type="file" name="documents" multiple required>
+                <button class="btn btn-primary" type="submit">Subir</button>
+              </div>
+            </form>
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 70%;">Archivo</th>
+                    <th class="text-end" style="width: 30%; white-space: nowrap;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% set lg_docs = (company.documents | selectattr('category', 'equalto', 'DATOS_LOGISTICOS') | list) %}
+                  {% for d in lg_docs %}
+                  <tr>
+                    <td>
+                      <a href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener" class="text-decoration-none" style="color:#0f766e;">{{ d.filename }}</a>
+                    </td>
+                    <td class="text-end" style="white-space: nowrap;">
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_docs_download', company_id=company.id, doc_id=d.id) }}" target="_blank" rel="noopener"><i class="bi bi-download"></i></a>
+                      <form method="post" action="{{ url_for('main.empresas_docs_delete', company_id=company.id, doc_id=d.id) }}" class="d-inline js-doc-delete-form" data-doc-type="datos logísticos">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="2" class="text-center text-muted">Sin documentación</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     {% else %}
     <div class="alert alert-light border mt-2" role="alert">
@@ -313,6 +437,26 @@
     <button class="btn btn-primary" type="submit" form="empresa-form">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
   </div>
 </div>
+<script>
+(function(){
+  var header = document.getElementById('empresaInfoCompToggle');
+  var extra = document.getElementById('empresaInfoCompExtra');
+  var chev = document.getElementById('empresaInfoCompChevron');
+  if (!header || !extra || !chev) return;
+  header.addEventListener('click', function(){
+    var closed = extra.classList.contains('d-none');
+    if (closed){
+      extra.classList.remove('d-none');
+      chev.classList.remove('bi-chevron-right');
+      chev.classList.add('bi-chevron-down');
+    } else {
+      extra.classList.add('d-none');
+      chev.classList.remove('bi-chevron-down');
+      chev.classList.add('bi-chevron-right');
+    }
+  });
+})();
+</script>
 <script>
 (function(){
   var box = document.getElementById('clients-checklist');
@@ -627,30 +771,6 @@
 })();
 </script>
 <script>
-// Toggle sección Información complementaria en empresas (incluye documentación y compartir info a cliente)
-(function(){
-  var header = document.getElementById('empresaInfoCompToggle');
-  var body = document.getElementById('empresaInfoCompBody');
-  var chev = document.getElementById('empresaInfoCompChevron');
-  var extra = document.getElementById('empresaInfoCompExtra');
-  if (!header || !body || !chev) return;
-  header.addEventListener('click', function(){
-    var closed = body.classList.contains('d-none');
-    if (closed){
-      body.classList.remove('d-none');
-      chev.classList.remove('bi-chevron-right');
-      chev.classList.add('bi-chevron-down');
-      if (extra) extra.classList.remove('d-none');
-    } else {
-      body.classList.add('d-none');
-      chev.classList.remove('bi-chevron-down');
-      chev.classList.add('bi-chevron-right');
-       if (extra) extra.classList.add('d-none');
-    }
-  });
-})();
-</script>
-<script>
 // Aviso si se alcanzó el límite de tamaño de documentos al subir archivos
 (function(){
   document.addEventListener('DOMContentLoaded', function(){
@@ -805,7 +925,12 @@
       }
     }
 
-    var companyId = {{ company.id if company else 'null' }};
+    var companyId = null;
+    try {
+      var rawId = (document.getElementById('empresa_id') && document.getElementById('empresa_id').value) || '';
+      var parsed = parseInt(rawId, 10);
+      companyId = isNaN(parsed) ? null : parsed;
+    } catch(e) { companyId = null; }
     if (!companyId){
       alert('Guardá primero la empresa antes de compartir la información.');
       return;
@@ -898,6 +1023,39 @@
       if (ok) form.submit();
     }
   }, true);
+})();
+</script>
+<script>
+(function(){
+  function getCellText(tr, idx){
+    var cells = tr.children;
+    if (!cells || idx >= cells.length) return '';
+    return (cells[idx].textContent || '').trim().toLowerCase();
+  }
+  function sortTable(table, th){
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var headers = Array.from(table.querySelectorAll('thead th'));
+    var idx = headers.indexOf(th);
+    if (idx < 0) return;
+    headers.forEach(function(h){ if (h !== th) delete h.dataset.dir; });
+    var dir = (th.dataset.dir === 'asc') ? 'desc' : 'asc';
+    th.dataset.dir = dir;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= 1) return;
+    rows.sort(function(a,b){
+      var av = getCellText(a, idx);
+      var bv = getCellText(b, idx);
+      var cmp = av.localeCompare(bv, 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+  document.querySelectorAll('table.js-sortable-table').forEach(function(tbl){
+    tbl.querySelectorAll('thead th[data-sort]').forEach(function(th){
+      th.addEventListener('click', function(){ sortTable(tbl, th); });
+    });
+  });
 })();
 </script>
 <!-- Modal confirmación eliminación de documentos -->

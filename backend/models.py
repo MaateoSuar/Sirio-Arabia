@@ -23,6 +23,7 @@ class ClientCompanyLink(db.Model):
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
     status = db.Column(db.Enum(RelationStatus), nullable=False, default=RelationStatus.TRABAJA)
     comprobante_tipo = db.Column(db.String(20), nullable=False, default="FACTURA")
+    descuento = db.Column(db.Numeric(5, 2))
 
     __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_client_company"),)
 
@@ -43,6 +44,8 @@ class ClientDeliveryPlace(db.Model):
     nombre = db.Column(db.String(255), nullable=False)
 
     # Datos específicos por lugar de entrega
+    provincia = db.Column(db.String(80))
+    nota = db.Column(db.String(255))
     horario = db.Column(db.String(255))
     contacto = db.Column(db.String(255))
     telefono = db.Column(db.String(64))
@@ -57,6 +60,7 @@ class ClientBirthday(db.Model):
     nombre = db.Column(db.String(255), nullable=False)
     puesto = db.Column(db.String(255))
     fecha = db.Column(db.Date)
+    notas = db.Column(db.Text)
 
     __table_args__ = (db.UniqueConstraint("client_id", "nombre", "puesto", name="uq_client_birthday"),)
 
@@ -76,6 +80,7 @@ class Client(db.Model):
     fecha_incorporacion = db.Column(db.Date, default=date.today)
     telefono = db.Column(db.String(50))
     mail = db.Column(db.String(255))
+    transporte_contacto = db.Column(db.String(255))
 
     links = db.relationship("ClientCompanyLink", backref="client", cascade="all, delete-orphan")
     orders = db.relationship("Order", backref="client", cascade="all, delete-orphan")
@@ -144,6 +149,9 @@ class Order(db.Model):
 
     precio_final = db.Column(db.Numeric(12, 2))
     forma_pago = db.Column(db.Enum(PaymentMethod))
+
+    # Tipo de comprobante asociado al pedido (por ejemplo FACTURA o REMITO)
+    tipo_comprobante = db.Column(db.String(16))
 
     # Snapshots from company at order time
     demora_despacho_promedio_dias = db.Column(db.Integer)
@@ -226,6 +234,7 @@ class ClientDocument(db.Model):
     __tablename__ = "client_document"
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    category = db.Column(db.String(32))
     filename = db.Column(db.String(255), nullable=False)
     filepath = db.Column(db.String(500), nullable=False)
     # Nuevo: soporte de almacenamiento en DB (Postgres) para archivos
@@ -233,3 +242,22 @@ class ClientDocument(db.Model):
     mimetype = db.Column(db.String(120))
     size = db.Column(db.Integer)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ClientAlertState(db.Model):
+    __tablename__ = "client_alert_state"
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+    kind = db.Column(db.String(32), nullable=False)
+    dismissed_at = db.Column(db.DateTime)
+    snoozed_until = db.Column(db.DateTime)
+    message = db.Column(db.Text)
+    severity = db.Column(db.String(16))
+    company = db.Column(db.String(200))
+    first_seen_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("client_id", "order_id", "kind", name="uq_client_alert_state"),
+    )

@@ -99,8 +99,15 @@
     }
     /* Asegurar espacio para acciones */
     .w-actions { min-width: 150px; }
+    /* Colores de monto según tipo de comprobante */
+    .monto-factura .input-group-text { background-color:#0d6efd; color:#fff; border-color:#0d6efd; }
+    .monto-factura .form-control { border-color:#0d6efd; }
+    .monto-remito .input-group-text { background-color:#dc3545; color:#fff; border-color:#dc3545; }
+    .monto-remito .form-control { border-color:#dc3545; }
   </style>
-  <form id="statusFilter" class="d-flex align-items-end gap-2" method="get">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+  <form id="statusFilter" class="d-flex align-items-end gap-2 flex-wrap" method="get">
     <div class="btn-group filter-group" role="group" aria-label="Filtros de estado">
       <button type="button" class="btn btn-sm btn-outline-secondary {{ 'active' if 'EN_CAMINO' in request.args.getlist('status') else '' }}" data-status="EN_CAMINO" aria-pressed="{{ 'true' if 'EN_CAMINO' in request.args.getlist('status') else 'false' }}">En camino</button>
       <button type="button" class="btn btn-sm btn-outline-danger {{ 'active' if 'ATRASADO' in request.args.getlist('status') else '' }}" data-status="ATRASADO" aria-pressed="{{ 'true' if 'ATRASADO' in request.args.getlist('status') else 'false' }}">Atrasado</button>
@@ -109,29 +116,35 @@
     {% for st in request.args.getlist('status') %}
       <input type="hidden" name="status" value="{{ st }}">
     {% endfor %}
-    <div class="input-group input-group-sm date-soft" style="width: 240px; overflow: hidden;">
-      <span class="input-group-text" id="from-addon" style="background:#f8f9fa">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-          <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/>
-        </svg>
-      </span>
-      <input type="text" class="form-control" aria-describedby="from-addon" placeholder="Desde" name="from" value="{{ request.args.get('from','') }}" data-datepicker>
-      <button class="btn btn-clear btn-sm" type="button" data-clear="from">×</button>
+    <div class="btn-group filter-group ms-2" role="group" aria-label="Tipo de comprobante">
+      {% set tipos_sel = request.args.getlist('tipo') %}
+      <button type="button" class="btn btn-sm btn-outline-primary {{ 'active' if 'FACTURA' in tipos_sel else '' }}" data-tipo="FACTURA" aria-pressed="{{ 'true' if 'FACTURA' in tipos_sel else 'false' }}">Factura</button>
+      <button type="button" class="btn btn-sm btn-outline-danger {{ 'active' if 'REMITO' in tipos_sel else '' }}" data-tipo="REMITO" aria-pressed="{{ 'true' if 'REMITO' in tipos_sel else 'false' }}">Remito</button>
     </div>
-    <div class="input-group input-group-sm date-soft" style="width: 240px; overflow: hidden;">
-      <span class="input-group-text" id="to-addon" style="background:#f8f9fa">
+    {% for tp in request.args.getlist('tipo') %}
+      <input type="hidden" name="tipo" value="{{ tp }}">
+    {% endfor %}
+    {% set from_val = request.args.get('from','') %}
+    {% set to_val = request.args.get('to','') %}
+    <input type="hidden" name="from" id="statusFrom" value="{{ from_val }}">
+    <input type="hidden" name="to" id="statusTo" value="{{ to_val }}">
+    <div class="input-group input-group-sm date-soft" style="width: 320px; overflow: hidden;">
+      <span class="input-group-text" id="range-addon" style="background:#f8f9fa">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
           <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/>
         </svg>
       </span>
-      <input type="text" class="form-control" aria-describedby="to-addon" placeholder="Hasta" name="to" value="{{ request.args.get('to','') }}" data-datepicker>
-      <button class="btn btn-clear btn-sm" type="button" data-clear="to">×</button>
+      <input type="text" class="form-control" aria-describedby="range-addon" placeholder="Filtrar fechas" id="statusDateRange" readonly value="{{ (from_val ~ ' to ' ~ to_val) if from_val and to_val else '' }}">
+      <button class="btn btn-clear btn-sm" type="button" data-clear="range">×</button>
     </div>
     <div class="d-flex gap-2">
       <button class="btn btn-sm btn-outline-dark" type="button" id="btnClearAll">Limpiar filtros</button>
     </div>
-    </form>
-    </div>
+  </form>
+</div>
+<div class="d-flex justify-content-end mb-2">
+  <input type="text" id="statusSearch" class="form-control form-control-sm" style="max-width: 320px;" placeholder="Buscar por cliente o empresa">
+</div>
 <div class="card">
   <div class="card-body p-0">
     <div class="desktop-table">
@@ -144,25 +157,32 @@
             <th class="d-none d-md-table-cell">Fecha compra</th>
             <th class="d-none d-md-table-cell">Entrega estimada</th>
             <th class="d-none d-md-table-cell">Entrega efectiva</th>
-            <th>Precio</th>
+            <th>Monto</th>
             <th>Forma pago</th>
             <th>Status</th>
             <th class="text-end w-actions">Acciones</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="status-tbody">
         {% for s in items %}
-          <tr>
+          <tr data-cliente="{{ (s.order.client.apellido ~ ' ' ~ (s.order.client.nombre or ''))|lower }}" data-empresa="{{ (s.order.company.nombre or '')|lower }}">
             <td class="col-client">{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
             <td class="col-company">{{ s.order.company.nombre }}</td>
-            <td class="d-none d-md-table-cell">{{ s.fecha_compra.strftime('%d/%m/%Y') if s.fecha_compra else '-' }}</td>
             <td class="d-none d-md-table-cell">
-              <input name="fecha_entrega_estimada" form="upd{{ s.order.id }}" type="date" class="form-control form-control-sm js-estimada"
+              <input name="fecha_compra" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-compra"
+                     value="{{ s.fecha_compra.strftime('%Y-%m-%d') if s.fecha_compra else '' }}">
+            </td>
+            <td class="d-none d-md-table-cell">
+              <input name="fecha_entrega_estimada" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-estimada"
                      value="{{ s.fecha_entrega_estimada.strftime('%Y-%m-%d') if s.fecha_entrega_estimada else '' }}">
             </td>
-            <td class="d-none d-md-table-cell">{{ s.fecha_entrega_efectiva.strftime('%d/%m/%Y') if s.fecha_entrega_efectiva else '-' }}</td>
+            <td class="d-none d-md-table-cell">
+              <input name="fecha_entrega_efectiva" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-entrega-efectiva"
+                     value="{{ s.fecha_entrega_efectiva.strftime('%Y-%m-%d') if s.fecha_entrega_efectiva else '' }}">
+            </td>
             <td class="col-money">
-              <div class="input-group input-group-sm js-price-group">
+              {% set tipo = (s.order.tipo_comprobante or 'FACTURA') %}
+              <div class="input-group input-group-sm js-price-group {{ 'monto-factura' if tipo=='FACTURA' else 'monto-remito' }}">
                 <span class="input-group-text">$</span>
                 <input id="priceDisp{{ s.order.id }}" form="upd{{ s.order.id }}" type="text" class="form-control form-control-sm js-price js-currency" data-hidden="priceHid{{ s.order.id }}" data-raw="{{ s.precio or '' }}" value="" autocomplete="off" inputmode="numeric">
                 <input type="hidden" name="precio" id="priceHid{{ s.order.id }}" form="upd{{ s.order.id }}" value="">
@@ -306,9 +326,65 @@
         form.submit();
       });
     });
+
+    Array.from(form.querySelectorAll('button[data-tipo]')).forEach(function(btn){
+      btn.addEventListener('click', function(ev){
+        // Ripple visual
+        try {
+          var rect = btn.getBoundingClientRect();
+          var ripple = document.createElement('span');
+          ripple.className = 'ripple';
+          ripple.style.left = (ev.clientX - rect.left) + 'px';
+          ripple.style.top = (ev.clientY - rect.top) + 'px';
+          var tp = btn.getAttribute('data-tipo');
+          var color = 'rgba(0,0,0,.18)';
+          if (tp === 'FACTURA') color = 'rgba(13,110,253,.30)';
+          else if (tp === 'REMITO') color = 'rgba(220,53,69,.30)';
+          ripple.style.background = color;
+          btn.appendChild(ripple);
+          setTimeout(function(){ if (ripple && ripple.parentNode) ripple.parentNode.removeChild(ripple); }, 500);
+        } catch (e) { /* ignore */ }
+
+        // Feedback de presión/flash
+        btn.classList.add('btn-pressed','btn-flash');
+        setTimeout(function(){ btn.classList.remove('btn-pressed'); }, 160);
+        setTimeout(function(){ btn.classList.remove('btn-flash'); }, 260);
+
+        var tipo = btn.getAttribute('data-tipo');
+        var active = btn.classList.contains('active');
+        if (active) {
+          btn.classList.remove('active');
+          btn.setAttribute('aria-pressed', 'false');
+          removeHidden('tipo', tipo);
+        } else {
+          // Selección única: desactivar el resto y dejar un solo hidden
+          Array.from(form.querySelectorAll('button[data-tipo].active')).forEach(function(b){
+            b.classList.remove('active');
+            b.setAttribute('aria-pressed','false');
+          });
+          Array.from(form.querySelectorAll('input[type="hidden"][name="tipo"]')).forEach(function(i){ i.remove(); });
+
+          btn.classList.add('active');
+          btn.setAttribute('aria-pressed', 'true');
+          addHidden('tipo', tipo);
+        }
+        form.submit();
+      });
+    });
     Array.from(form.querySelectorAll('button.btn-clear')).forEach(function(btn){
       btn.addEventListener('click', function(){
         var target = btn.getAttribute('data-clear');
+        if (target === 'range'){
+          var fromH = document.getElementById('statusFrom');
+          var toH = document.getElementById('statusTo');
+          if (fromH) fromH.value = '';
+          if (toH) toH.value = '';
+          if (window.__statusRangePicker) window.__statusRangePicker.clear();
+          var range = document.getElementById('statusDateRange');
+          if (range) range.value = '';
+          form.submit();
+          return;
+        }
         var input = form.querySelector('input[name="' + target + '"]');
         if (input) { input.value = ''; }
         form.submit();
@@ -321,92 +397,159 @@
         // limpiar estados
         Array.from(form.querySelectorAll('input[type="hidden"][name="status"]')).forEach(function(i){ i.remove(); });
         Array.from(form.querySelectorAll('button[data-status].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+        // limpiar tipos
+        Array.from(form.querySelectorAll('input[type="hidden"][name="tipo"]')).forEach(function(i){ i.remove(); });
+        Array.from(form.querySelectorAll('button[data-tipo].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
         // limpiar fechas
-        var from = form.querySelector('input[name="from"]');
-        var to = form.querySelector('input[name="to"]');
+        var from = document.getElementById('statusFrom');
+        var to = document.getElementById('statusTo');
         if (from) from.value = '';
         if (to) to.value = '';
+        if (window.__statusRangePicker) window.__statusRangePicker.clear();
+        var range = document.getElementById('statusDateRange');
+        if (range) range.value = '';
         form.submit();
       });
     }
   })();
 </script>
-<!-- Flatpickr CDN -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
   (function(){
-    function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
-    function integerPart(v){
-      if (v == null) return '';
-      var s = String(v).trim().replace(/\s+/g,'');
-      // Caso servidor: 25000.00 o 25000,00 => tomar parte entera
-      var m = s.match(/^(\d+)([\.,]\d{1,2})?$/);
-      if (m) return m[1];
-      // Caso usuario con miles: quitar todo lo no numérico (puntos, comas)
-      return onlyDigits(s);
-    }
-    function fmtThousands(v){ if(!v) return ''; v = v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
-    // currency inputs: update hidden raw on input; format visible only on blur
-    document.querySelectorAll('.js-currency').forEach(function(el){
-      var hidId = el.getAttribute('data-hidden');
-      var hid = hidId ? document.getElementById(hidId) : null;
-      var syncRaw = function(){ var raw = integerPart(el.value); if(hid) hid.value = raw; };
-      var syncFormat = function(){ var raw = integerPart(el.value); el.value = fmtThousands(raw); };
-      el.addEventListener('input', syncRaw);
-      el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
-      // init desde data-raw si existe
-      var initial = el.getAttribute('data-raw') || el.value;
-      el.value = fmtThousands(integerPart(initial));
-      syncRaw();
-    });
+    function mount(){
+      function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+      function integerPart(v){
+        if (v == null) return '';
+        var s = String(v).trim().replace(/\s+/g,'');
+        // Caso servidor: 25000.00 o 25000,00 => tomar parte entera
+        var m = s.match(/^(\d+)([\.,]\d{1,2})?$/);
+        if (m) return m[1];
+        // Caso usuario con miles: quitar todo lo no numérico (puntos, comas)
+        return onlyDigits(s);
+      }
+      function fmtThousands(v){ if(!v) return ''; v = v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
-    // Al cambiar forma de pago, enviar el form sincronizando primero el precio oculto
-    document.querySelectorAll('form select.js-forma').forEach(function(sel){
-      sel.addEventListener('change', function(){
-        var form = sel.closest('form');
-        if (!form) return;
-        var cur = form.querySelector('.js-currency');
-        if (cur) {
-          var hidId = cur.getAttribute('data-hidden');
-          var hid = hidId ? document.getElementById(hidId) : null;
-          var raw = integerPart(cur.value || cur.getAttribute('data-raw') || '');
-          if (hid) hid.value = raw;
-        }
-        (form.requestSubmit ? form.requestSubmit() : form.submit());
+      // Datepickers estéticos
+      try {
+        var nodes = document.querySelectorAll('input[data-datepicker]');
+        nodes.forEach(function(el){
+          flatpickr(el, {
+            altInput: true,
+            altFormat: 'd/m/Y',
+            dateFormat: 'Y-m-d',
+            allowInput: true,
+            disableMobile: true
+          });
+        });
+      } catch(e) {}
+
+      // currency inputs: update hidden raw on input; format visible only on blur
+      document.querySelectorAll('.js-currency').forEach(function(el){
+        var hidId = el.getAttribute('data-hidden');
+        var hid = hidId ? document.getElementById(hidId) : null;
+        var syncRaw = function(){ var raw = integerPart(el.value); if(hid) hid.value = raw; };
+        var syncFormat = function(){ var raw = integerPart(el.value); el.value = fmtThousands(raw); };
+        el.addEventListener('input', syncRaw);
+        el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
+        // init desde data-raw si existe
+        var initial = el.getAttribute('data-raw') || el.value;
+        el.value = fmtThousands(integerPart(initial));
+        syncRaw();
       });
-    });
-    // autosubmit al cambiar entrega estimada
-    document.querySelectorAll('.js-estimada').forEach(function(el){
-      el.addEventListener('change', function(){
-        var formId = el.getAttribute('form');
-        var f = formId ? document.getElementById(formId) : el.closest('form');
-        if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+
+      // Al cambiar forma de pago, enviar el form sincronizando primero el precio oculto
+      document.querySelectorAll('form select.js-forma').forEach(function(sel){
+        sel.addEventListener('change', function(){
+          var form = sel.closest('form');
+          if (!form) return;
+          var cur = form.querySelector('.js-currency');
+          if (cur) {
+            var hidId = cur.getAttribute('data-hidden');
+            var hid = hidId ? document.getElementById(hidId) : null;
+            var raw = integerPart(cur.value || cur.getAttribute('data-raw') || '');
+            if (hid) hid.value = raw;
+          }
+          (form.requestSubmit ? form.requestSubmit() : form.submit());
+        });
       });
-    });
-    var nodes = document.querySelectorAll('input[data-datepicker]');
-    if (!nodes.length) return;
-    nodes.forEach(function(el){
-      var fp = flatpickr(el, {
+
+      // autosubmit al cambiar fechas
+      document.querySelectorAll('.js-estimada, .js-compra, .js-entrega-efectiva').forEach(function(el){
+        el.addEventListener('change', function(){
+          var formId = el.getAttribute('form');
+          var f = formId ? document.getElementById(formId) : el.closest('form');
+          if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+        });
+      });
+
+      // Range picker
+      var rangeEl = document.getElementById('statusDateRange');
+      if (!rangeEl) return;
+      var fromH = document.getElementById('statusFrom');
+      var toH = document.getElementById('statusTo');
+      window.__statusRangePicker = flatpickr(rangeEl, {
+        mode: 'range',
         altInput: true,
         altFormat: 'd/m/Y',
         dateFormat: 'Y-m-d',
-        allowInput: true,
+        allowInput: false,
+        clickOpens: true,
         disableMobile: true,
-        onChange: function() {
-          // Sólo enviar si ambos (from y to) tienen valor
-          var form = document.getElementById('statusFilter');
-          if (!form) return;
-          var from = form.querySelector('input[name="from"]');
-          var to = form.querySelector('input[name="to"]');
-          if (from && to && from.value && to.value) {
-            form.submit();
+        onReady: function(selectedDates, dateStr, instance){
+          try {
+            rangeEl.setAttribute('readonly', 'readonly');
+            if (instance && instance.altInput) instance.altInput.setAttribute('readonly', 'readonly');
+            var target = (instance && instance.altInput) ? instance.altInput : rangeEl;
+            target.addEventListener('click', function(){
+              try { instance.open(); } catch (e) { /* ignore */ }
+            });
+          } catch (e) { /* ignore */ }
+        },
+        onChange: function(selectedDates, dateStr, instance){
+          if (!fromH || !toH) return;
+          if (selectedDates && selectedDates.length === 2){
+            fromH.value = instance.formatDate(selectedDates[0], 'Y-m-d');
+            toH.value = instance.formatDate(selectedDates[1], 'Y-m-d');
+            var form = document.getElementById('statusFilter');
+            if (form) form.submit();
           }
         }
       });
-    });
+    }
+
+    if (typeof window.flatpickr === 'function') {
+      mount();
+    } else {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+      s.onload = mount;
+      document.head.appendChild(s);
+      var l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+      document.head.appendChild(l);
+    }
   })();
   </script>
+<script>
+  (function(){
+    var searchInput = document.getElementById('statusSearch');
+    var tbody = document.getElementById('status-tbody');
+    if (!searchInput || !tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+
+    function applySearch(){
+      var q = (searchInput.value || '').toLowerCase().trim();
+      rows.forEach(function(tr){
+        var cli = (tr.getAttribute('data-cliente') || '').toLowerCase();
+        var emp = (tr.getAttribute('data-empresa') || '').toLowerCase();
+        var visible = !q || cli.indexOf(q) !== -1 || emp.indexOf(q) !== -1;
+        tr.style.display = visible ? '' : 'none';
+      });
+    }
+
+    searchInput.addEventListener('input', applySearch);
+  })();
+</script>
 <script>
   (function(){
     // Auto-submit al cambiar precio o forma de pago

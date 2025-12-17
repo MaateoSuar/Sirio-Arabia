@@ -4,6 +4,11 @@
   .empresas-title { color: #0f766e; }
   .empresa-search-input { min-width: 320px; max-width: 420px; }
   .btn-create-company { white-space: nowrap; min-width: 160px; }
+  .col-descuento { padding-left: 0 !important; padding-right: 1rem !important; }
+  .col-estado { padding-left: .35rem !important; }
+  .descuento-group { max-width: 110px !important; flex-wrap: nowrap !important; }
+  .descuento-group .input-group-text { min-width: 28px; justify-content: center; padding-left: .45rem; padding-right: .45rem; }
+  .descuento-group .form-control { min-width: 0; width: 70px; }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-3 mt-3">
   <div>
@@ -73,26 +78,6 @@
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                      <form class="row g-2 mb-2" method="post" action="{{ url_for('main.empresas_link_add', company_id=e.id) }}">
-                        <div class="col-md-6">
-                          <select class="form-select" name="client_id" required>
-                            <option value="">Seleccionar razón social...</option>
-                            {% for c in clients %}
-                              <option value="{{ c.id }}">{{ c.apellido }}</option>
-                            {% endfor %}
-                          </select>
-                        </div>
-                        <div class="col-md-4">
-                          <select class="form-select" name="status">
-                            <option value="TRABAJA">Trabaja</option>
-                            <option value="TRABAJABA">Trabajaba</option>
-                            <option value="A_INCORPORAR">A incorporar</option>
-                          </select>
-                        </div>
-                        <div class="col-md-2 d-grid">
-                          <button class="btn btn-primary">Agregar</button>
-                        </div>
-                      </form>
                       <div class="row g-2 mb-2">
                         <div class="col-md-4 ms-auto">
                           <select class="form-select form-select-sm js-link-status-filter" data-target="empresa-links-body-{{ e.id }}">
@@ -103,14 +88,41 @@
                           </select>
                         </div>
                       </div>
+                      <form class="row g-2 mb-2" method="post" action="{{ url_for('main.empresas_link_add', company_id=e.id) }}">
+                        <div class="col-md-5">
+                          <select class="form-select" name="client_id" required>
+                            <option value="">Seleccionar razón social...</option>
+                            {% for c in clients %}
+                              <option value="{{ c.id }}">{{ c.apellido }}</option>
+                            {% endfor %}
+                          </select>
+                        </div>
+                        <div class="col-md-3">
+                          <select class="form-select" name="status">
+                            <option value="TRABAJA">Trabaja</option>
+                            <option value="TRABAJABA">Trabajaba</option>
+                            <option value="A_INCORPORAR">A incorporar</option>
+                          </select>
+                        </div>
+                        <div class="col-md-2">
+                          <select class="form-select" name="comprobante_tipo">
+                            <option value="FACTURA">Factura</option>
+                            <option value="REMITO">Remito</option>
+                          </select>
+                        </div>
+                        <div class="col-md-2 d-grid">
+                          <button class="btn btn-primary">Agregar</button>
+                        </div>
+                      </form>
                       <div class="table-responsive">
-                        <table class="table table-sm align-middle">
+                        <table class="table table-sm align-middle js-sortable-table">
                           <thead>
                             <tr>
-                              <th class="text-start" style="width:30%">Cliente</th>
-                              <th class="text-start" style="width:27%">Tipo (Factura / Remito)</th>
-                              <th class="text-start" style="width:18%">Estado</th>
-                              <th class="text-end" style="width:25%">Acciones</th>
+                              <th class="text-start" style="width:30%" data-sort="text">Cliente</th>
+                              <th class="text-start" style="width:18%" data-sort="text">Tipo</th>
+                              <th class="text-start col-descuento" style="width:14%" data-sort="text">Descuento</th>
+                              <th class="text-start col-estado" style="width:18%" data-sort="text">Estado</th>
+                              <th class="text-end" style="width:20%">Acciones</th>
                             </tr>
                           </thead>
                           <tbody id="empresa-links-body-{{ e.id }}">
@@ -125,8 +137,14 @@
                                       <option value="REMITO" {{ 'selected' if ct=='REMITO' else '' }}>Remito</option>
                                     </select>
                                 </td>
-                                <td class="align-middle text-start">
-                                    <select name="status" class="form-select form-select-sm" style="max-width:220px">
+                                <td class="align-middle text-start col-descuento">
+                                  <div class="input-group input-group-sm descuento-group" style="max-width:150px">
+                                    <span class="input-group-text">%</span>
+                                    <input name="descuento" type="number" step="1" min="0" max="100" inputmode="numeric" class="form-control form-control-sm" value="{{ (l.descuento|int) if l.descuento is not none else '' }}" placeholder="0">
+                                  </div>
+                                </td>
+                                <td class="align-middle text-start col-estado">
+                                    <select name="status" class="form-select form-select-sm" style="max-width:260px; min-width: 170px;">
                                       <option value="TRABAJA" {{ 'selected' if l.status.value=='TRABAJA' else '' }}>Trabaja</option>
                                       <option value="TRABAJABA" {{ 'selected' if l.status.value=='TRABAJABA' else '' }}>Trabajaba</option>
                                       <option value="A_INCORPORAR" {{ 'selected' if l.status.value=='A_INCORPORAR' else '' }}>A incorporar</option>
@@ -143,7 +161,7 @@
                                 </td>
                               </tr>
                             {% else %}
-                              <tr><td colspan="4" class="text-muted text-center">Sin clientes vinculados</td></tr>
+                              <tr><td colspan="5" class="text-muted text-center">Sin clientes vinculados</td></tr>
                             {% endfor %}
                           </tbody>
                         </table>
@@ -180,6 +198,52 @@
   if (input){
     input.addEventListener('input', applySearch);
   }
+})();
+</script>
+<script>
+// Ordenar tablas en modales (Clientes de empresa) por click en encabezados
+(function(){
+  function getCellValue(tr, idx){
+    var td = tr.children && tr.children[idx];
+    if (!td) return '';
+    var inp = td.querySelector && td.querySelector('input');
+    if (inp){
+      return (inp.value || '').trim().toLowerCase();
+    }
+    var sel = td.querySelector && td.querySelector('select');
+    if (sel && sel.options && sel.selectedIndex >= 0){
+      return (sel.options[sel.selectedIndex].textContent || '').trim().toLowerCase();
+    }
+    return (td.textContent || '').trim().toLowerCase();
+  }
+  function sortTable(table, th){
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var headers = Array.from(table.querySelectorAll('thead th'));
+    var idx = headers.indexOf(th);
+    if (idx < 0) return;
+    headers.forEach(function(h){ if (h !== th) delete h.dataset.dir; });
+    var dir = (th.dataset.dir === 'asc') ? 'desc' : 'asc';
+    th.dataset.dir = dir;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= 1) return;
+    if (rows.length === 1 && rows[0].children && rows[0].children.length === 1) return;
+    rows.sort(function(a,b){
+      var av = getCellValue(a, idx);
+      var bv = getCellValue(b, idx);
+      var cmp = av.localeCompare(bv, 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+  document.addEventListener('click', function(e){
+    var th = e.target;
+    if (th && th.tagName !== 'TH' && th.closest) th = th.closest('th');
+    if (!th || th.tagName !== 'TH' || !th.hasAttribute('data-sort')) return;
+    var table = th.closest('table.js-sortable-table');
+    if (!table) return;
+    sortTable(table, th);
+  });
 })();
 </script>
 <script>
@@ -235,6 +299,19 @@
     var ModalCtor = window.bootstrap && window.bootstrap.Modal;
     var modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
 
+    function closeModal(){
+      try {
+        if (modal) {
+          modal.hide();
+        } else if (modalEl) {
+          modalEl.classList.remove('show');
+          modalEl.style.display = 'none';
+          var bd = document.getElementById('confirmRemoveBackdrop');
+          if (bd) bd.remove();
+        }
+      } catch(e) {}
+    }
+
     document.addEventListener('submit', function(e){
       var form = e.target;
       if (form && form.classList && form.classList.contains('js-confirm-remove')){
@@ -257,16 +334,27 @@
       }
     });
 
+    // Cancelar / cerrar: asegurar que cierre incluso en fallback manual y limpiar pendingForm
+    if (modalEl) {
+      modalEl.addEventListener('click', function(e){
+        var t = e.target;
+        var dismissBtn = (t && t.getAttribute && t.getAttribute('data-bs-dismiss') === 'modal') ? t : (t && t.closest ? t.closest('[data-bs-dismiss="modal"]') : null);
+        if (dismissBtn) {
+          e.preventDefault();
+          pendingForm = null;
+          closeModal();
+        }
+      });
+      // Si bootstrap dispara hidden, también limpiar
+      modalEl.addEventListener('hidden.bs.modal', function(){
+        pendingForm = null;
+      });
+    }
+
     if (confirmBtn){
       confirmBtn.addEventListener('click', function(){
         if (pendingForm){
-          if (modal) modal.hide();
-          else {
-            modalEl.classList.remove('show');
-            modalEl.style.display='none';
-            var bd = document.getElementById('confirmRemoveBackdrop');
-            if (bd) bd.remove();
-          }
+          closeModal();
           var f = pendingForm; pendingForm = null; f.submit();
         }
       });

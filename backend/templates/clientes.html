@@ -5,6 +5,10 @@
   .table-relaxed th, .table-relaxed td { padding: .75rem 1.35rem; }
   /* Mantener columna Acciones compacta y sin ocupar ancho extra */
   .col-actions { white-space: nowrap; width: 1%; }
+  /* Card de clientes: permitir que los dropdowns se vean completos */
+  .card-clients { overflow: visible; }
+  /* Dejar espacio inferior extra bajo la última fila para que los menús no queden pegados al borde */
+  .card-clients .desktop-table { padding-bottom: 2.5rem; }
   /* Badges más aireados visualmente */
   .table-relaxed .badge { font-weight: 500; }
   .table-relaxed .d-flex.gap-1 { gap: .35rem !important; }
@@ -34,16 +38,14 @@
       <option value="catamarca">Catamarca</option>
       <option value="la rioja">La Rioja</option>
     </select>
-    <select id="estadoSelect" class="form-select form-select-sm" style="max-width: 200px;" aria-label="Filtrar por estado de relación">
-      <option value="">Todos los estados</option>
-      <option value="TRABAJA">Trabaja</option>
-      <option value="TRABAJABA">Trabajaba</option>
-      <option value="A_INCORPORAR">A incorporar</option>
+    <select id="alertasSelect" class="form-select form-select-sm" style="max-width: 200px;" aria-label="Filtrar por alertas">
+      <option value="">Todas</option>
+      <option value="CON_ALERTAS">Con alertas</option>
     </select>
     <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary btn-create-client">+ Crear Cliente</a>
   </div>
 </div>
-<div class="card">
+<div class="card card-clients">
   <div class="card-body p-0">
     <div class="desktop-table">
       <div class="table-responsive">
@@ -53,38 +55,42 @@
             <th>Razón social</th>
             <th>Nombre</th>
             <th>Dirección principal</th>
-            <th>Estado</th>
+            <th>
+              Alertas
+              <span id="totalAlertasWrap" class="{{ '' if (total_active_alerts is defined and (total_active_alerts|int) > 0) else 'd-none' }}">
+                (<span id="totalAlertasCount" class="text-danger fw-bold">{{ total_active_alerts if total_active_alerts is defined else 0 }}</span>)
+              </span>
+            </th>
             <th class="text-end col-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
         {% for c in items %}
-          {% set trabaja_links = c.links | selectattr('status', 'defined') | selectattr('status.value', 'equalto', 'TRABAJA') | list %}
-          {% set trabajaba_links = c.links | selectattr('status', 'defined') | selectattr('status.value', 'equalto', 'TRABAJABA') | list %}
-          {% set ainc_links = c.links | selectattr('status', 'defined') | selectattr('status.value', 'equalto', 'A_INCORPORAR') | list %}
-          {% set total_links = (trabaja_links|length) + (trabajaba_links|length) + (ainc_links|length) %}
+          {% set client_alerts = alerts_by_client[c.id] if alerts_by_client is defined and alerts_by_client and (c.id in alerts_by_client) else [] %}
+          {% set total_alerts = client_alerts|length %}
           <tr data-prov="{{ (c.provincia or '')|lower }}" data-nombre="{{ (c.nombre or '')|lower }}" data-razon="{{ (c.apellido or '')|lower }}"
-              data-has-trabaja="{{ '1' if trabaja_links|length > 0 else '0' }}"
-              data-has-trabajaba="{{ '1' if trabajaba_links|length > 0 else '0' }}"
-              data-has-a_incorporar="{{ '1' if ainc_links|length > 0 else '0' }}">
+              data-has-alertas="{{ '1' if total_alerts > 0 else '0' }}"
+              data-alertas-count="{{ total_alerts }}">
             <td>{{ c.apellido }}</td>
             <td>{{ c.nombre }}</td>
             <td>{{ c.direccion_principal or '-' }}</td>
             <td>
-              <button type="button" class="btn btn-sm btn-outline-success js-toggle-estados" data-client-id="{{ c.id }}" style="border-radius: 999px; padding-inline: 0.85rem; font-weight: 500;">
-                Ver estados
+              <button type="button" class="btn btn-sm btn-outline-secondary js-toggle-alertas" data-client-id="{{ c.id }}" style="border-radius: 999px; padding-inline: 0.85rem; font-weight: 500; color:#0f766e; border-color:#0f766e;">
+                Ver alertas
+                <span class="js-client-alert-wrap {{ '' if total_alerts > 0 else 'd-none' }}" data-client-id="{{ c.id }}">
+                  (<span class="text-danger fw-bold js-client-alert-count" data-client-id="{{ c.id }}">{{ total_alerts }}</span>)
+                </span>
               </button>
-              <div class="mt-1 d-none js-estados-list" data-client-id="{{ c.id }}">
-                {% if total_links > 0 %}
-                  <div class="d-flex flex-wrap gap-1">
-                    {% for l in trabaja_links %}
-                      <span class="badge bg-success js-badge-trabaja">Trabaja en {{ l.company.nombre }}</span>
-                    {% endfor %}
-                    {% for l in trabajaba_links %}
-                      <span class="badge bg-secondary js-badge-trabajaba">Trabajaba en {{ l.company.nombre }}</span>
-                    {% endfor %}
-                    {% for l in ainc_links %}
-                      <span class="badge bg-warning text-dark js-badge-a_incorporar">A incorporar en {{ l.company.nombre }}</span>
+              <div class="mt-1 d-none js-alertas-list" data-client-id="{{ c.id }}">
+                {% if total_alerts > 0 %}
+                  <div class="d-flex flex-column gap-2">
+                    {% for a in client_alerts %}
+                      <div class="d-flex flex-wrap gap-2 align-items-center js-alerta-item" data-client-id="{{ c.id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" data-message="{{ a.message }}" data-severity="{{ a.severity }}" data-company="{{ a.company }}">
+                        <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }} js-badge-alerta" data-kind="{{ a.kind }}">{{ a.message }}</span>
+                        <button type="button" class="btn btn-sm btn-success rounded-circle js-alerta-action" data-action="visto" data-client-id="{{ c.id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" aria-label="Marcar alerta como vista" title="Visto">
+                          <i class="bi bi-check-lg"></i>
+                        </button>
+                      </div>
                     {% endfor %}
                   </div>
                 {% else %}
@@ -121,7 +127,7 @@
                     </div>
                     <div class="modal-body">
                       <form class="row g-2 mb-2" method="post" action="{{ url_for('main.clientes_link_add', client_id=c.id) }}">
-                        <div class="col-md-6">
+                        <div class="col-md-5">
                           <select class="form-select" name="company_id" required>
                             <option value="">Seleccionar empresa...</option>
                             {% for e in companies %}
@@ -129,11 +135,17 @@
                             {% endfor %}
                           </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                           <select class="form-select" name="status">
                             <option value="TRABAJA">Trabaja</option>
                             <option value="TRABAJABA">Trabajaba</option>
                             <option value="A_INCORPORAR">A incorporar</option>
+                          </select>
+                        </div>
+                        <div class="col-md-2">
+                          <select class="form-select" name="comprobante_tipo">
+                            <option value="FACTURA">Factura</option>
+                            <option value="REMITO">Remito</option>
                           </select>
                         </div>
                         <div class="col-md-2 d-grid">
@@ -151,11 +163,11 @@
                         </div>
                       </div>
                       <div class="table-responsive">
-                        <table class="table table-sm align-middle">
+                        <table class="table table-sm align-middle js-sortable-table">
                           <thead>
                             <tr>
-                              <th class="text-start" style="width:40%">Empresa</th>
-                              <th class="text-start" style="width:35%">Estado</th>
+                              <th class="text-start" style="width:40%" data-sort="text">Empresa</th>
+                              <th class="text-start" style="width:35%" data-sort="text">Estado</th>
                               <th class="text-end" style="width:25%">Acciones</th>
                             </tr>
                           </thead>
@@ -164,22 +176,19 @@
                               <tr data-status="{{ l.status.value if l.status is defined and l.status is not none else '' }}">
                                 <td class="align-middle text-start">{{ l.company.nombre }}</td>
                                 <td class="align-middle text-start">
-                                  <form class="d-inline-flex" method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
+                                  <form class="d-inline-flex gap-2" method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
                                     <select name="status" class="form-select form-select-sm" style="max-width:220px">
                                       <option value="TRABAJA" {{ 'selected' if l.status.value=='TRABAJA' else '' }}>Trabaja</option>
                                       <option value="TRABAJABA" {{ 'selected' if l.status.value=='TRABAJABA' else '' }}>Trabajaba</option>
                                       <option value="A_INCORPORAR" {{ 'selected' if l.status.value=='A_INCORPORAR' else '' }}>A incorporar</option>
                                     </select>
+                                    <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
+                                  </form>
                                 </td>
                                 <td class="text-end align-middle">
-                                  <div class="d-inline-flex gap-2">
-                                    <form method="post" action="{{ url_for('main.clientes_link_update', client_id=c.id, link_id=l.id) }}">
-                                      <button class="btn btn-sm btn-outline-secondary" type="submit">Guardar</button>
-                                    </form>
-                                    <form method="post" action="{{ url_for('main.clientes_link_delete', client_id=c.id, link_id=l.id) }}" class="js-confirm-remove" data-confirm="¿Quitar vínculo con la empresa seleccionada?">
-                                      <button class="btn btn-sm btn-outline-danger" type="submit">Quitar</button>
-                                    </form>
-                                  </div>
+                                  <form method="post" action="{{ url_for('main.clientes_link_delete', client_id=c.id, link_id=l.id) }}" class="d-inline js-confirm-remove" data-confirm="¿Quitar vínculo con la empresa seleccionada?">
+                                    <button class="btn btn-sm btn-outline-danger" type="submit">Quitar</button>
+                                  </form>
                                 </td>
                               </tr>
                             {% else %}
@@ -274,6 +283,13 @@
         if (!document.getElementById('confirmRemoveBackdrop')){
           var bd = document.createElement('div'); bd.id='confirmRemoveBackdrop'; bd.className='modal-backdrop fade show'; document.body.appendChild(bd);
         }
+      } else {
+        // Último fallback: confirm() nativo si no existe el modal en el DOM
+        if (confirm(text)){
+          var f = pendingForm; pendingForm = null; f.submit();
+        } else {
+          pendingForm = null;
+        }
       }
     }
   });
@@ -294,24 +310,180 @@
 })();
 </script>
 <script>
-// Filtros combinados: provincia, texto y estado de relación
+// Ordenar tablas en modales (Empresas de cliente) por click en encabezados
+(function(){
+  function getCellValue(tr, idx){
+    var td = tr.children && tr.children[idx];
+    if (!td) return '';
+    var sel = td.querySelector && td.querySelector('select');
+    if (sel && sel.options && sel.selectedIndex >= 0){
+      return (sel.options[sel.selectedIndex].textContent || '').trim().toLowerCase();
+    }
+    return (td.textContent || '').trim().toLowerCase();
+  }
+  function sortTable(table, th){
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var headers = Array.from(table.querySelectorAll('thead th'));
+    var idx = headers.indexOf(th);
+    if (idx < 0) return;
+    headers.forEach(function(h){ if (h !== th) delete h.dataset.dir; });
+    var dir = (th.dataset.dir === 'asc') ? 'desc' : 'asc';
+    th.dataset.dir = dir;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= 1) return;
+    // evitar ordenar fila vacía (colspan)
+    if (rows.length === 1 && rows[0].children && rows[0].children.length === 1) return;
+    rows.sort(function(a,b){
+      var av = getCellValue(a, idx);
+      var bv = getCellValue(b, idx);
+      var cmp = av.localeCompare(bv, 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+  document.addEventListener('click', function(e){
+    var th = e.target;
+    if (th && th.tagName !== 'TH' && th.closest) th = th.closest('th');
+    if (!th || th.tagName !== 'TH' || !th.hasAttribute('data-sort')) return;
+    var table = th.closest('table.js-sortable-table');
+    if (!table) return;
+    sortTable(table, th);
+  });
+})();
+</script>
+<script>
+(function(){
+  function postForm(url, data){
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: new URLSearchParams(data).toString()
+    }).then(function(r){
+      return r.json();
+    });
+  }
+
+  function setTotalCount(n){
+    var wrap = document.getElementById('totalAlertasWrap');
+    var el = document.getElementById('totalAlertasCount');
+    var val = Math.max(0, n);
+    if (el) el.textContent = String(val);
+    if (wrap) wrap.style.display = val > 0 ? 'inline' : 'none';
+  }
+
+  function getTotalCount(){
+    var el = document.getElementById('totalAlertasCount');
+    var n = parseInt(el ? el.textContent : '0', 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function setClientCount(clientId, n){
+    document.querySelectorAll('.js-client-alert-count[data-client-id="' + clientId + '"]').forEach(function(el){
+      el.textContent = String(Math.max(0, n));
+    });
+    document.querySelectorAll('.js-client-alert-wrap[data-client-id="' + clientId + '"]').forEach(function(wrap){
+      wrap.style.display = (n && n > 0) ? 'inline' : 'none';
+    });
+  }
+
+  function getClientCount(clientId){
+    var el = document.querySelector('.js-client-alert-count[data-client-id="' + clientId + '"]');
+    var n = parseInt(el ? el.textContent : '0', 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function updateRowAttrs(clientId, newCount){
+    var tr = document.querySelector('#clientes-table tbody tr .js-client-alert-count[data-client-id="' + clientId + '"]');
+    if (!tr) return;
+    var row = tr.closest('tr');
+    if (!row) return;
+    row.setAttribute('data-alertas-count', String(newCount));
+    row.setAttribute('data-has-alertas', newCount > 0 ? '1' : '0');
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.classList || !btn.classList.contains('js-alerta-action'))){
+      if (btn.closest) btn = btn.closest('.js-alerta-action');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-alerta-action')) return;
+    e.preventDefault();
+
+    var action = btn.getAttribute('data-action') || '';
+    var clientId = btn.getAttribute('data-client-id');
+    var orderId = btn.getAttribute('data-order-id');
+    var kind = btn.getAttribute('data-kind');
+    if (!action || !clientId || !orderId || !kind) return;
+
+    var url = null;
+    var payload = { client_id: clientId, order_id: orderId, kind: kind };
+    if (action === 'visto'){
+      url = "{{ url_for('main.clientes_alertas_visto') }}";
+    } else {
+      return;
+    }
+
+    var item = btn.closest('.js-alerta-item');
+    if (item){
+      payload.message = item.getAttribute('data-message') || '';
+      payload.severity = item.getAttribute('data-severity') || '';
+      payload.company = item.getAttribute('data-company') || '';
+    }
+
+    btn.disabled = true;
+    postForm(url, payload).then(function(resp){
+      if (!resp || !resp.ok){
+        btn.disabled = false;
+        var msg = (resp && resp.error) ? ('No se pudo marcar como visto: ' + resp.error) : 'No se pudo marcar como visto.';
+        if (resp && resp.hint) msg += ' ' + resp.hint;
+        if (window.showToast) window.showToast(msg, 'danger');
+        return;
+      }
+
+      if (item) item.remove();
+
+      var newClientCount = getClientCount(clientId) - 1;
+      setClientCount(clientId, newClientCount);
+      updateRowAttrs(clientId, newClientCount);
+      setTotalCount(getTotalCount() - 1);
+
+      // Si ya no quedan alertas visibles para ese cliente, mostrar '-' y colapsar
+      var panel = document.querySelector('.js-alertas-list[data-client-id="' + clientId + '"]');
+      if (panel){
+        var remaining = panel.querySelectorAll('.js-alerta-item').length;
+        if (remaining <= 0){
+          panel.innerHTML = '<span class="text-muted">-</span>';
+          panel.classList.add('d-none');
+        }
+      }
+    }).catch(function(){
+      btn.disabled = false;
+      if (window.showToast) window.showToast('Error de conexión al marcar como visto.', 'danger');
+    });
+  });
+})();
+</script>
+<script>
+// Filtros combinados: provincia, texto y alertas
 (function(){
   var provSelect = document.getElementById('provSelect');
-  var estadoSelect = document.getElementById('estadoSelect');
+  var alertasSelect = document.getElementById('alertasSelect');
   var searchInput = document.getElementById('clienteSearch');
   var rows = document.querySelectorAll('#clientes-table tbody tr');
 
-  function rowMatchesEstado(tr, estado){
-    if (!estado) return true;
-    if (estado === 'TRABAJA') return tr.getAttribute('data-has-trabaja') === '1';
-    if (estado === 'TRABAJABA') return tr.getAttribute('data-has-trabajaba') === '1';
-    if (estado === 'A_INCORPORAR') return tr.getAttribute('data-has-a_incorporar') === '1';
+  function rowMatchesAlertas(tr, filtro){
+    if (!filtro) return true;
+    if (filtro === 'CON_ALERTAS') return tr.getAttribute('data-has-alertas') === '1';
     return true;
   }
 
   function applyFilters(){
     var prov = (provSelect && provSelect.value || '').toLowerCase();
-    var estado = (estadoSelect && estadoSelect.value) || '';
+    var filtroAlertas = (alertasSelect && alertasSelect.value) || '';
     var q = (searchInput && searchInput.value || '').toLowerCase();
 
     rows.forEach(function(tr){
@@ -320,33 +492,21 @@
       var nm = (tr.getAttribute('data-nombre') || '').toLowerCase();
       var matchProv = !prov || hayProv.indexOf(prov) !== -1;
       var matchSearch = !q || rz.indexOf(q) !== -1 || nm.indexOf(q) !== -1;
-      var matchEstado = rowMatchesEstado(tr, estado);
-      var visible = (matchProv && matchSearch && matchEstado);
+      var matchAlertas = rowMatchesAlertas(tr, filtroAlertas);
+      var visible = (matchProv && matchSearch && matchAlertas);
       tr.style.display = visible ? '' : 'none';
-      // Si hay filtro de estado activo, abrir automáticamente los estados de las filas visibles
-      var estadosPanel = tr.querySelector('.js-estados-list');
-      if (visible && estadosPanel){
-        var allBadges = estadosPanel.querySelectorAll('.js-badge-trabaja, .js-badge-trabajaba, .js-badge-a_incorporar');
-        if (estado){
-          estadosPanel.classList.remove('d-none');
-          // Mostrar sólo los badges del estado elegido
+      // Si hay filtro de alertas activo, abrir automáticamente las alertas de las filas visibles
+      var alertasPanel = tr.querySelector('.js-alertas-list');
+      if (visible && alertasPanel){
+        var allBadges = alertasPanel.querySelectorAll('.js-badge-alerta');
+        if (filtroAlertas){
+          alertasPanel.classList.remove('d-none');
           allBadges.forEach(function(b){
             b.classList.remove('border', 'border-dark', 'border-2');
-            b.classList.add('d-none');
+            b.classList.remove('d-none');
           });
-          var selClass = null;
-          if (estado === 'TRABAJA') selClass = '.js-badge-trabaja';
-          else if (estado === 'TRABAJABA') selClass = '.js-badge-trabajaba';
-          else if (estado === 'A_INCORPORAR') selClass = '.js-badge-a_incorporar';
-          if (selClass){
-            estadosPanel.querySelectorAll(selClass).forEach(function(b){
-              b.classList.remove('d-none');
-              b.classList.add('border', 'border-dark', 'border-2');
-            });
-          }
         } else {
-          // Sin filtro de estado: mantener colapsado por defecto y mostrar todos los badges
-          estadosPanel.classList.add('d-none');
+          alertasPanel.classList.add('d-none');
           allBadges.forEach(function(b){
             b.classList.remove('border', 'border-dark', 'border-2', 'd-none');
           });
@@ -356,7 +516,7 @@
   }
 
   if (provSelect) provSelect.addEventListener('change', applyFilters);
-  if (estadoSelect) estadoSelect.addEventListener('change', applyFilters);
+  if (alertasSelect) alertasSelect.addEventListener('change', applyFilters);
   if (searchInput) searchInput.addEventListener('input', applyFilters);
 
   // aplicar al cargar, para mantener filtros después de navegar
@@ -387,22 +547,22 @@
 })();
 </script>
 <script>
-// Toggle de visualización de estados por cliente
+// Toggle de visualización de alertas por cliente
 (function(){
   document.addEventListener('click', function(e){
     var btn = e.target;
-    if (btn && !btn.classList.contains('js-toggle-estados')){
-      if (btn.closest) btn = btn.closest('.js-toggle-estados');
+    if (btn && !btn.classList.contains('js-toggle-alertas')){
+      if (btn.closest) btn = btn.closest('.js-toggle-alertas');
     }
-    if (!btn || !btn.classList || !btn.classList.contains('js-toggle-estados')) return;
+    if (!btn || !btn.classList || !btn.classList.contains('js-toggle-alertas')) return;
     e.preventDefault();
     var cid = btn.getAttribute('data-client-id');
     if (!cid) return;
-    var panel = document.querySelector('.js-estados-list[data-client-id="'+ cid +'"]');
+    var panel = document.querySelector('.js-alertas-list[data-client-id="'+ cid +'"]');
     if (!panel) return;
     var isHidden = panel.classList.contains('d-none');
     // Ocultar otros paneles si se desea comportamiento “acordeón”
-    document.querySelectorAll('.js-estados-list').forEach(function(p){
+    document.querySelectorAll('.js-alertas-list').forEach(function(p){
       if (p !== panel) p.classList.add('d-none');
     });
     panel.classList.toggle('d-none', !isHidden);

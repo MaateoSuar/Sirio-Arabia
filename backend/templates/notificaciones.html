@@ -1,0 +1,215 @@
+{% extends 'layout.html' %}
+{% block content %}
+<style>
+  #notifTabs .nav-link{ color:#0f766e; font-weight:600; }
+  #notifTabs .nav-link:hover{ color:#0b5f59; }
+  #notifTabs .nav-link.active{ color:#0f766e; border-color:#0f766e #0f766e #fff; }
+</style>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 mb-0">Notificaciones</h1>
+</div>
+
+<ul class="nav nav-tabs" id="notifTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-activas" data-bs-toggle="tab" data-bs-target="#panel-activas" type="button" role="tab" aria-controls="panel-activas" aria-selected="true">Activas (<span id="notifActivasCount">{{ active_alerts|length }}</span>)</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-vistas" data-bs-toggle="tab" data-bs-target="#panel-vistas" type="button" role="tab" aria-controls="panel-vistas" aria-selected="false">Vistas</button>
+  </li>
+</ul>
+
+<div class="tab-content" id="notifTabsContent">
+  <div class="tab-pane fade show active" id="panel-activas" role="tabpanel" aria-labelledby="tab-activas" tabindex="0">
+    <div class="card border-top-0 rounded-0 rounded-bottom">
+      <div class="card-body">
+        {% if active_alerts and active_alerts|length > 0 %}
+          <div class="d-flex flex-column gap-2" id="notifActivasList">
+            {% for a in active_alerts %}
+              <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
+                   data-client-id="{{ a.client_id }}"
+                   data-client-name="{{ a.client_name }}"
+                   data-order-id="{{ a.order_id }}"
+                   data-kind="{{ a.kind }}"
+                   data-message="{{ a.message }}"
+                   data-severity="{{ a.severity }}"
+                   data-company="{{ a.company }}">
+                <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">
+                  {{ a.client_name }}: {{ a.message }}
+                </span>
+                <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada">
+                  <i class="bi bi-check-lg"></i>
+                </button>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">Sin notificaciones activas</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="panel-vistas" role="tabpanel" aria-labelledby="tab-vistas" tabindex="0">
+    <div class="card border-top-0 rounded-0 rounded-bottom">
+      <div class="card-body">
+        {% if viewed_alerts and viewed_alerts|length > 0 %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Cliente</th>
+                  <th>Alerta</th>
+                  <th>Empresa</th>
+                  <th class="text-end">Vista</th>
+                </tr>
+              </thead>
+              <tbody id="notifVistasTbody">
+                {% for v in viewed_alerts %}
+                  <tr>
+                    <td>{{ v.client_name }}</td>
+                    <td>
+                      <span class="badge {{ 'bg-danger' if v.severity=='danger' else 'bg-warning text-dark' }}">{{ v.message or (v.kind or '-') }}</span>
+                    </td>
+                    <td>{{ v.company or '-' }}</td>
+                    <td class="text-end text-muted">
+                      {{ v.dismissed_at.strftime('%d/%m/%Y %H:%M') if v.dismissed_at else '-' }}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div id="notifVistasEmpty" class="text-muted">Sin historial</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function postForm(url, data){
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: new URLSearchParams(data).toString()
+    }).then(function(r){ return r.json(); });
+  }
+
+  function decActivasCount(){
+    var el = document.getElementById('notifActivasCount');
+    if (!el) return;
+    var n = parseInt(el.textContent || '0', 10);
+    if (isNaN(n)) n = 0;
+    el.textContent = String(Math.max(0, n - 1));
+  }
+
+  function ensureVistasTable(){
+    var tbody = document.getElementById('notifVistasTbody');
+    if (tbody) return tbody;
+    var empty = document.getElementById('notifVistasEmpty');
+    if (!empty) return null;
+    empty.outerHTML = '';
+    var panel = document.getElementById('panel-vistas');
+    if (!panel) return null;
+    var cardBody = panel.querySelector('.card-body');
+    if (!cardBody) return null;
+    var wrap = document.createElement('div');
+    wrap.className = 'table-responsive';
+    wrap.innerHTML = '<table class="table table-sm align-middle mb-0">'
+      + '<thead class="table-light"><tr><th>Cliente</th><th>Alerta</th><th>Empresa</th><th class="text-end">Vista</th></tr></thead>'
+      + '<tbody id="notifVistasTbody"></tbody>'
+      + '</table>';
+    cardBody.appendChild(wrap);
+    return document.getElementById('notifVistasTbody');
+  }
+
+  function prependVistaRow(row){
+    var tbody = ensureVistasTable();
+    if (!tbody) return;
+    tbody.insertAdjacentHTML('afterbegin', row);
+  }
+
+  function getBellCount(){
+    var el = document.getElementById('notifBellCount');
+    if (!el) return 0;
+    var n = parseInt(el.textContent || '0', 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function setBellCount(n){
+    var el = document.getElementById('notifBellCount');
+    if (!el){
+      if (n > 0){
+        // si no existe porque estaba en 0 al render, no lo creamos para no modificar layout en runtime
+      }
+      return;
+    }
+    var val = Math.max(0, n);
+    el.textContent = String(val);
+    if (val <= 0){
+      el.remove();
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.classList || !btn.classList.contains('js-notif-visto'))){
+      if (btn.closest) btn = btn.closest('.js-notif-visto');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-notif-visto')) return;
+    e.preventDefault();
+
+    var item = btn.closest('.js-notif-item');
+    if (!item) return;
+
+    var payload = {
+      client_id: item.getAttribute('data-client-id'),
+      order_id: item.getAttribute('data-order-id'),
+      kind: item.getAttribute('data-kind'),
+      message: item.getAttribute('data-message') || '',
+      severity: item.getAttribute('data-severity') || '',
+      company: item.getAttribute('data-company') || ''
+    };
+    if (!payload.client_id || !payload.order_id || !payload.kind) return;
+
+    btn.disabled = true;
+    postForm("{{ url_for('main.clientes_alertas_visto') }}", payload).then(function(resp){
+      if (!resp || !resp.ok){
+        btn.disabled = false;
+        var msg = (resp && resp.error) ? ('No se pudo marcar como visualizada: ' + resp.error) : 'No se pudo marcar como visualizada.';
+        if (resp && resp.hint) msg += ' ' + resp.hint;
+        if (window.showToast) window.showToast(msg, 'danger');
+        return;
+      }
+      // mover a historial
+      var clientName = item.getAttribute('data-client-name') || '-';
+      var company = payload.company || '-';
+      var sev = payload.severity || 'warning';
+      var msg = payload.message || (payload.kind || '-');
+      var dt = new Date();
+      var pad = function(x){ return String(x).padStart(2,'0'); };
+      var when = pad(dt.getDate()) + '/' + pad(dt.getMonth()+1) + '/' + dt.getFullYear() + ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+      var badgeClass = (sev === 'danger') ? 'bg-danger' : 'bg-warning text-dark';
+      prependVistaRow('<tr><td>' + clientName + '</td><td><span class="badge ' + badgeClass + '">' + msg + '</span></td><td>' + company + '</td><td class="text-end text-muted">' + when + '</td></tr>');
+
+      item.remove();
+      decActivasCount();
+      setBellCount(getBellCount() - 1);
+      if (window.showToast) window.showToast('Notificación marcada como visualizada', 'success');
+      var list = document.getElementById('notifActivasList');
+      if (list && list.querySelectorAll('.js-notif-item').length === 0){
+        list.outerHTML = '<div class="text-muted">Sin notificaciones activas</div>';
+      }
+    }).catch(function(){
+      btn.disabled = false;
+      if (window.showToast) window.showToast('Error de conexión al marcar como visualizada.', 'danger');
+    });
+  });
+})();
+</script>
+{% endblock %}

@@ -32,6 +32,7 @@
         <div class="col-12 mt-1">
           <h2 class="cliente-section-title mb-2">Información básica del cliente</h2>
         </div>
+
         <div class="col-md-3">
           <label class="form-label">Razón social</label>
           <input name="apellido" type="text" class="form-control" value="{{ (client.apellido or '') if client else '' }}">
@@ -51,6 +52,7 @@
             <option value="Jujuy" {{ 'selected' if pv=='Jujuy' else '' }}>Jujuy</option>
             <option value="Catamarca" {{ 'selected' if pv=='Catamarca' else '' }}>Catamarca</option>
             <option value="La Rioja" {{ 'selected' if pv=='La Rioja' else '' }}>La Rioja</option>
+            <option value="Mendoza" {{ 'selected' if pv=='Mendoza' else '' }}>Mendoza</option>
           </select>
         </div>
         <div class="col-md-3">
@@ -58,62 +60,154 @@
           <input name="cuit" type="text" class="form-control" value="{{ (client.cuit or '') if client else '' }}">
         </div>
         <div class="col-md-6">
-          <label class="form-label">Dirección principal</label>
-          <input name="direccion_principal" type="text" class="form-control" value="{{ (client.direccion_principal or '') if client else '' }}">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Transporte recomendado</label>
-          <input name="transporte_recomendado" type="text" class="form-control" value="{{ (client.transporte_recomendado or '') if client else '' }}">
-        </div>
-        <div class="col-md-6">
           <label class="form-label">Contacto (Nombre y apellido)</label>
           <input name="telefono" type="text" class="form-control" value="{{ (client.telefono or '') if client else '' }}">
         </div>
         <div class="col-md-6">
-          <label class="form-label">Mail</label>
-          <input name="mail" type="email" class="form-control" value="{{ (client.mail or '') if client else '' }}">
+          {% if client %}<input type="hidden" id="client_mail_raw" value="{{ client.mail or '' }}">{% endif %}
+          <div class="mt-3">
+            <div class="d-flex align-items-center justify-content-between">
+              <label class="form-label m-0">Mails</label>
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#client-mails-collapse" aria-expanded="false" aria-controls="client-mails-collapse">Seleccionar mails</button>
+            </div>
+            <div id="client-mails-collapse" class="collapse mt-2">
+              <div class="d-flex gap-2 mb-2">
+                <input type="email" class="form-control form-control-sm" id="new_client_mail_input" placeholder="Agregar mail" style="max-width:260px">
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddClientMail">Agregar</button>
+              </div>
+              <div id="client-mails-alert" class="mt-1"></div>
+              <div id="client-mails-checklist" class="border rounded p-2" style="max-height:200px; overflow:auto"></div>
+              <div class="d-flex justify-content-end mt-2">
+                <button type="button" id="btnConfirmarClientMails" class="btn btn-sm btn-primary">Confirmar selección</button>
+              </div>
+            </div>
+            <div class="mt-2">
+              <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
+              <div id="client-mails-selected" class="mt-1"></div>
+              <div id="client-mails-hidden"></div>
+            </div>
+          </div>
         </div>
 
-        <!-- Datos JSON para precargar sucursales del cliente (evita Jinja dentro de JS) -->
-        <script type="application/json" id="branches-data">{{ (client.branches|map(attribute='nombre')|list)|tojson if client else '[]' }}</script>
-        <!-- Datos JSON para precargar lugares de entrega del cliente -->
-        <script type="application/json" id="deliveries-data">{{ (client.delivery_places|map(attribute='nombre')|list)|tojson if client else '[]' }}</script>
-        <!-- Datos JSON para precargar cumpleaños del cliente -->
+        <!-- Datos JSON para precargar cumpleaños/personas del cliente -->
         <script type="application/json" id="birthdays-data">[
         {% if client and client.birthdays %}
           {% for b in client.birthdays %}
             {"nombre": "{{ b.nombre|e }}",
              "puesto": "{{ (b.puesto or '')|e }}",
-             "fecha": "{{ b.fecha.isoformat() if b.fecha else '' }}"}{% if not loop.last %},{% endif %}
+             "fecha": "{{ b.fecha.isoformat() if b.fecha else '' }}",
+             "notas": "{{ (b.notas or '')|e }}"}{% if not loop.last %},{% endif %}
           {% endfor %}
         {% endif %}
         ]</script>
 
-        <div class="col-12 mt-3">
-          <div class="d-flex align-items-center justify-content-between">
-            <label class="form-label m-0">Sucursales (opcional)</label>
-            <div class="d-flex gap-2">
-              <input type="text" class="form-control form-control-sm" id="new_branch_input" placeholder="Agregar sucursal" list="branches" style="max-width:260px">
-              <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddBranch">Agregar</button>
-            </div>
-          </div>
-          <datalist id="branches">
-            {% if branches %}
-              {% for b in branches %}
-                <option value="{{ b }}"></option>
-              {% endfor %}
-            {% endif %}
-          </datalist>
-          <div id="branches-checklist" class="border rounded p-2 mt-2" style="max-height:200px; overflow:auto"></div>
-          <div class="d-flex justify-content-end mt-2">
-            <button type="button" id="btnConfirmarBranches" class="btn btn-sm btn-primary">Confirmar selección</button>
-          </div>
-          <div class="mt-2">
-            <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Sucursales confirmadas</div>
-            <div id="branches-selected" class="mt-1"></div>
-            <div id="branches-hidden"></div>
+        <!-- Sección Transporte (colapsable) -->
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#transporteCollapse" aria-expanded="false" aria-controls="transporteCollapse">
+            <h3 class="cliente-subsection-title mb-0" style="flex:1; text-align:left;">
+              Transporte
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h3>
+            <i class="bi bi-chevron-right" id="transporteChevron"></i>
           </div>
         </div>
+        <div class="col-12 collapse" id="transporteCollapse">
+          <div class="row g-2 mt-2">
+            <div class="col-md-6">
+              <label class="form-label">Nombre de transporte</label>
+              <input name="transporte_nombre" type="text" class="form-control" value="{{ (client.transporte_recomendado or '') if client else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contacto del transporte</label>
+              <input name="transporte_contacto" type="text" class="form-control" value="{{ (client.transporte_contacto or '') if client else '' }}">
+            </div>
+          </div>
+        </div>
+
+        {% if client %}
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#clientLinksCollapse" aria-expanded="false" aria-controls="clientLinksCollapse">
+            <h3 class="cliente-subsection-title mb-0" style="flex:1; text-align:left;">
+              Empresas confirmadas
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h3>
+            <i class="bi bi-chevron-right"></i>
+          </div>
+        </div>
+        <div class="col-12 collapse" id="clientLinksCollapse">
+          <div class="d-flex align-items-center justify-content-between">
+            <label class="form-label m-0">Empresas</label>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#companies-collapse" aria-expanded="false" aria-controls="companies-collapse">Empresas</button>
+          </div>
+          <div id="companies-collapse" class="collapse mt-2">
+            <div id="companies-checklist" class="border rounded p-2" style="max-height: 260px; overflow: auto;">
+              {% for e in companies %}
+              <div class="form-check">
+                <input class="form-check-input js-company-chk" type="checkbox" value="{{ e.id }}" id="co{{ e.id }}" name="company_ids">
+                <label class="form-check-label" for="co{{ e.id }}">{{ e.nombre }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="d-flex justify-content-end mt-2">
+              <button type="button" id="btnConfirmarEmpresas" class="btn btn-sm btn-primary">Confirmar selección</button>
+            </div>
+          </div>
+          <div id="companies-selected-wrapper" class="mt-3">
+            <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Empresas confirmadas</div>
+            <div id="companies-selected" class="mt-1">
+              {% if client and client.links %}
+                {% for l in client.links %}
+                  <span class="badge bg-success me-1 mb-1" data-company-id="{{ l.company_id }}">
+                    {{ l.company.nombre if l.company else '-' }}
+                    <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-company-del" data-company-id="{{ l.company_id }}">×</button>
+                  </span>
+                {% endfor %}
+              {% else %}
+                <span class="text-muted">Ninguno</span>
+              {% endif %}
+            </div>
+            <div id="companies-hidden">
+              {% if client and client.links %}
+                {% for l in client.links %}
+                  <input type="hidden" name="company_ids" value="{{ l.company_id }}">
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+          <div class="table-responsive border rounded mt-2">
+            <table class="table table-sm mb-0 align-middle js-sortable-table">
+              <thead>
+                <tr>
+                  <th data-sort="text">Empresa</th>
+                  <th data-sort="text">Estado</th>
+                  <th data-sort="text">Comprobante</th>
+                  <th class="text-end">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% if client.links %}
+                  {% for l in client.links %}
+                    <tr>
+                      <td>{{ l.company.nombre if l.company else '-' }}</td>
+                      <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
+                      <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
+                      <td class="text-end">
+                        {% if l.company %}
+                          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_edit_view', company_id=l.company.id) }}">Ver legajo</a>
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr><td colspan="4" class="text-center text-muted">Sin empresas confirmadas</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
 
         <!-- Segunda parte: información complementaria del cliente (colapsable) -->
         <div class="col-12 mt-4">
@@ -128,37 +222,86 @@
         <div class="col-12 d-none" id="infoCompBody">
           <div class="row g-2 g-md-3">
             <div class="col-12">
-              <label class="form-label m-0">Lugares de entrega</label>
+              <label class="form-label m-0">Direcciones</label>
               <div class="row g-2 align-items-end mt-1">
+                <div class="col-md-5">
+                  <input type="text" class="form-control form-control-sm" id="new_delivery_name" placeholder="Dirección">
+                </div>
                 <div class="col-md-3">
-                  <input type="text" class="form-control form-control-sm" id="new_delivery_name" placeholder="Lugar de entrega">
+                  <select class="form-select form-select-sm" id="new_delivery_provincia">
+                    <option value="">Provincia...</option>
+                    <option value="Tucuman">Tucumán</option>
+                    <option value="Sgo del Estero">Sgo del Estero</option>
+                    <option value="Salta">Salta</option>
+                    <option value="Jujuy">Jujuy</option>
+                    <option value="Catamarca">Catamarca</option>
+                    <option value="La Rioja">La Rioja</option>
+                    <option value="Mendoza">Mendoza</option>
+                  </select>
                 </div>
                 <div class="col-md-4">
-                  <div class="d-flex align-items-center gap-2">
-                    <span class="small text-muted">De</span>
-                    <input type="time" class="form-control form-control-sm" id="new_delivery_from">
-                    <span class="small text-muted">Hasta</span>
-                    <input type="time" class="form-control form-control-sm" id="new_delivery_to">
+                  <input type="text" class="form-control form-control-sm" id="new_delivery_nota" placeholder="Nota (Depósito, Oficina...)">
+                </div>
+                <div class="col-md-6">
+                  <div class="delivery-hours-card">
+                    <div class="delivery-hours-head">
+                      <span class="delivery-hours-title">Horarios</span>
+                      <div class="form-check form-switch m-0">
+                        <input class="form-check-input" type="checkbox" id="new_delivery_doble">
+                        <label class="form-check-label" for="new_delivery_doble">Doble jornada</label>
+                      </div>
+                    </div>
+                    <div class="delivery-hours-body">
+                      <div class="delivery-hours-range">
+                        <div class="delivery-hours-range-label">1° rango</div>
+                        <div class="delivery-hours-range-row">
+                          <div class="input-group input-group-sm delivery-hours-group">
+                            <span class="input-group-text">De</span>
+                            <input type="time" class="form-control" id="new_delivery_hora1_desde">
+                          </div>
+                          <div class="input-group input-group-sm delivery-hours-group">
+                            <span class="input-group-text">A</span>
+                            <input type="time" class="form-control" id="new_delivery_hora1_hasta">
+                          </div>
+                        </div>
+                      </div>
+                      <div class="delivery-hours-range mt-2 d-none" id="deliveryHoursSecondRow">
+                        <div class="delivery-hours-range-label">2° rango</div>
+                        <div class="delivery-hours-range-row">
+                          <div class="input-group input-group-sm delivery-hours-group">
+                            <span class="input-group-text">De</span>
+                            <input type="time" class="form-control" id="new_delivery_hora2_desde">
+                          </div>
+                          <div class="input-group input-group-sm delivery-hours-group">
+                            <span class="input-group-text">A</span>
+                            <input type="time" class="form-control" id="new_delivery_hora2_hasta">
+                          </div>
+                        </div>
+                      </div>
+                      <input type="hidden" id="new_delivery_horarios">
+                    </div>
                   </div>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                   <input type="text" class="form-control form-control-sm" id="new_delivery_contact" placeholder="Contacto">
                 </div>
                 <div class="col-md-3">
-                  <div class="d-flex gap-2">
-                    <input type="tel" class="form-control form-control-sm" id="new_delivery_phone" placeholder="Teléfono" inputmode="numeric" pattern="[0-9]*">
-                    <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddDelivery">Agregar</button>
+                  <div class="input-group input-group-sm">
+                    <input type="tel" class="form-control" id="new_delivery_phone" placeholder="Teléfono" inputmode="numeric" pattern="[0-9]*">
+                    <button class="btn btn-outline-secondary" type="button" id="btnAddDelivery">Agregar</button>
                   </div>
                 </div>
               </div>
             </div>
             <div class="col-12 mt-2">
               <div class="table-responsive border rounded">
-                <table class="table table-sm mb-0" id="delivery-table">
+                <table class="table table-sm mb-0" id="delivery-table" style="min-width: 980px;">
                   <thead>
                     <tr>
-                      <th>Lugar</th>
-                      <th>Horario</th>
+                      <th>Dirección</th>
+                      <th>Provincia</th>
+                      <th>Nota</th>
+                      <th style="min-width: 160px;">Horarios</th>
                       <th>Contacto</th>
                       <th>Teléfono</th>
                       <th class="text-end" style="width:1%; white-space:nowrap;">Acciones</th>
@@ -173,6 +316,14 @@
                             <input type="hidden" name="delivery_name_list" value="{{ d.nombre }}">
                           </td>
                           <td>
+                            {{ d.provincia or '' }}
+                            <input type="hidden" name="delivery_provincia_list" value="{{ d.provincia or '' }}">
+                          </td>
+                          <td>
+                            {{ d.nota or '' }}
+                            <input type="hidden" name="delivery_nota_list" value="{{ d.nota or '' }}">
+                          </td>
+                          <td>
                             {{ d.horario or '' }}
                             <input type="hidden" name="delivery_schedule_list" value="{{ d.horario or '' }}">
                           </td>
@@ -185,12 +336,15 @@
                             <input type="hidden" name="delivery_phone_list" value="{{ d.telefono or '' }}">
                           </td>
                           <td class="text-end">
-                            <button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del">Quitar</button>
+                            <div class="d-flex gap-1 justify-content-end">
+                              <button type="button" class="btn btn-sm btn-outline-secondary js-delivery-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
+                              <button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del" title="Quitar"><i class="bi bi-trash"></i></button>
+                            </div>
                           </td>
                         </tr>
                       {% endfor %}
                     {% else %}
-                      <tr class="js-delivery-empty"><td colspan="5" class="text-center text-muted">Sin lugares de entrega</td></tr>
+                      <tr class="js-delivery-empty"><td colspan="7" class="text-center text-muted">Sin direcciones</td></tr>
                     {% endif %}
                   </tbody>
                 </table>
@@ -198,32 +352,133 @@
             </div>
 
             <div class="col-12 mt-4">
-              <h3 class="cliente-subsection-title mb-2">Cumpleaños</h3>
+              <h3 class="cliente-subsection-title mb-2">Personas</h3>
             </div>
             <div class="col-12">
               <div class="row g-2 align-items-end">
-                <div class="col-md-4">
+                <div class="col-md-3">
                   <label class="form-label">Nombre y apellido</label>
-                  <input id="birthday_name_input" type="text" class="form-control" placeholder="Nombre de la persona a saludar">
+                  <input id="birthday_name_input" type="text" class="form-control form-control-sm" placeholder="Nombre">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                   <label class="form-label">Puesto</label>
-                  <input id="birthday_role_input" type="text" class="form-control" placeholder="Cargo / puesto">
+                  <input id="birthday_role_input" type="text" class="form-control form-control-sm" placeholder="Cargo">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Cumpleaños</label>
+                  <input id="birthday_date_input" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa" data-datepicker>
                 </div>
                 <div class="col-md-3">
-                  <label class="form-label">Fecha de cumpleaños</label>
-                  <input id="birthday_date_input" type="text" class="form-control" placeholder="dd/mm/aaaa" data-datepicker>
+                  <label class="form-label">Notas</label>
+                  <input id="birthday_notas_input" type="text" class="form-control form-control-sm" placeholder="Descripción / notas">
                 </div>
                 <div class="col-md-2 d-grid">
-                  <button type="button" id="btnAddBirthday" class="btn btn-outline-secondary btn-sm">Agregar cumpleaños</button>
+                  <label class="form-label">&nbsp;</label>
+                  <button type="button" id="btnAddBirthday" class="btn btn-outline-secondary btn-sm">Agregar</button>
                 </div>
               </div>
-              <div class="mt-2">
-                <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Cumpleaños confirmados</div>
-                <div id="birthdays-selected" class="mt-1"></div>
-                <div id="birthdays-hidden"></div>
+              <div class="col-12 mt-2">
+                <div class="table-responsive border rounded">
+                  <table class="table table-sm mb-0" id="personas-table">
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Puesto</th>
+                        <th>Cumpleaños</th>
+                        <th>Notas</th>
+                        <th class="text-end" style="width:1%; white-space:nowrap;">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody id="personas-body">
+                      {% if client and client.birthdays %}
+                        {% for b in client.birthdays %}
+                          <tr>
+                            <td>
+                              {{ b.nombre }}
+                              <input type="hidden" name="birthday_name_list" value="{{ b.nombre }}">
+                            </td>
+                            <td>
+                              {{ b.puesto or '' }}
+                              <input type="hidden" name="birthday_role_list" value="{{ b.puesto or '' }}">
+                            </td>
+                            <td>
+                              {{ b.fecha.strftime('%d/%m/%Y') if b.fecha else '' }}
+                              <input type="hidden" name="birthday_date_list" value="{{ b.fecha.isoformat() if b.fecha else '' }}">
+                            </td>
+                            <td>
+                              {{ b.notas or '' }}
+                              <input type="hidden" name="birthday_notas_list" value="{{ b.notas or '' }}">
+                            </td>
+                            <td class="text-end">
+                              <div class="d-flex gap-1 justify-content-end">
+                                <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
+                                <button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button>
+                              </div>
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      {% else %}
+                        <tr class="js-persona-empty"><td colspan="5" class="text-center text-muted">Sin personas</td></tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
+
+            <!-- Sección Documentación -->
+            <div class="col-12 mt-4">
+              <h3 class="cliente-subsection-title mb-2">Documentación</h3>
+            </div>
+            {% if client %}
+            <div class="col-12">
+              <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                  <strong>Constancias</strong>
+                </div>
+                <div class="card-body">
+                  <div class="mb-3" id="clientConstanciasUpload" data-action="{{ url_for('main.clientes_docs_upload', client_id=client.id) }}">
+                    <div class="input-group input-group-sm">
+                      <input class="form-control" type="file" id="clientConstanciasFiles" multiple>
+                      <button class="btn btn-primary" type="button" id="clientConstanciasSubmit">Subir</button>
+                    </div>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                      <thead>
+                        <tr>
+                          <th style="width: 70%;">Archivo</th>
+                          <th class="text-end" style="width: 30%; white-space: nowrap;">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="client-constancias-body">
+                        {% set const_docs = (client.documents | selectattr('category', 'equalto', 'CONSTANCIA') | list) %}
+                        {% for d in const_docs %}
+                        <tr>
+                          <td>
+                            <a href="{{ url_for('main.clientes_docs_download', client_id=client.id, doc_id=d.id) }}" target="_blank" rel="noopener" class="text-decoration-none" style="color:#0f766e;">{{ d.filename }}</a>
+                          </td>
+                          <td class="text-end" style="white-space: nowrap;">
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.clientes_docs_download', client_id=client.id, doc_id=d.id) }}" target="_blank" rel="noopener"><i class="bi bi-download"></i></a>
+                            <button type="button" class="btn btn-sm btn-outline-danger js-client-doc-del" data-delete-url="{{ url_for('main.clientes_docs_delete', client_id=client.id, doc_id=d.id) }}">Eliminar</button>
+                          </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2" class="text-center text-muted">Sin constancias</td></tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% else %}
+            <div class="col-12">
+              <div class="alert alert-light border" role="alert">
+                Guardá primero el cliente para poder subir constancias.
+              </div>
+            </div>
+            {% endif %}
 
             <div class="col-12 mt-4">
               <h3 class="cliente-subsection-title mb-2">Compartir información a empresa</h3>
@@ -259,6 +514,26 @@
     </div>
   </form>
 </div>
+
+<!-- Modal de confirmación para eliminar -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title" id="confirmDeleteModalLabel">Confirmar</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmDeleteMessage" class="mb-0"></p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Quitar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <style>
   .date-soft { border-radius:.75rem; box-shadow:0 4px 10px rgba(0,0,0,.06); background:#fff; }
   .date-soft .input-group-text { background:#f3f4f6; border:1px solid #e5e7eb; }
@@ -268,87 +543,334 @@
   .date-soft .btn-clear:hover { background:#f8f9fa; }
   .flatpickr-calendar { z-index: 2000; }
   .flatpickr-calendar.open { z-index: 3050; }
+  .js-sortable-table thead th[data-sort]{ cursor:pointer; user-select:none; }
+  .delivery-hours-card {
+    border: 1px solid #e5e7eb;
+    background: linear-gradient(180deg, #ffffff, #fbfdff);
+    border-radius: .65rem;
+    padding: .6rem .75rem;
+    box-shadow: 0 4px 10px rgba(0,0,0,.04);
+  }
+  .delivery-hours-head {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    margin-bottom:.4rem;
+  }
+  .delivery-hours-title {
+    font-weight: 700;
+    color:#0b1120;
+    font-size: .95rem;
+  }
+  .delivery-hours-body { width:100%; }
+  .delivery-hours-range { width:100%; }
+  .delivery-hours-range-label {
+    font-size: .78rem;
+    font-weight: 700;
+    color: #0f766e;
+    margin-bottom: .25rem;
+  }
+  .delivery-hours-range-row {
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+    align-items:center;
+  }
+  .delivery-hours-group { width: 100%; }
+  @media (max-width: 992px) {
+    .delivery-hours-range-row { grid-template-columns: 1fr; }
+  }
 </style>
 <script>
+// Función global para mostrar modal de confirmación
+var _confirmCallback = null;
+function showConfirmModal(title, message, onConfirm) {
+  var modal = document.getElementById('confirmDeleteModal');
+  var titleEl = document.getElementById('confirmDeleteModalLabel');
+  var msgEl = document.getElementById('confirmDeleteMessage');
+  var btnEl = document.getElementById('confirmDeleteBtn');
+  if (!modal || !titleEl || !msgEl || !btnEl) {
+    // Fallback a confirm() nativo si no hay modal
+    if (confirm(title + '\n' + message)) { onConfirm(); }
+    return;
+  }
+  titleEl.textContent = title || 'Confirmar';
+  msgEl.textContent = message || '';
+  _confirmCallback = onConfirm;
+  var bsModal = bootstrap.Modal.getOrCreateInstance(modal);
+  bsModal.show();
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var btnEl = document.getElementById('confirmDeleteBtn');
+  if (btnEl) {
+    btnEl.addEventListener('click', function(){
+      var modal = document.getElementById('confirmDeleteModal');
+      var bsModal = bootstrap.Modal.getInstance(modal);
+      if (bsModal) bsModal.hide();
+      if (typeof _confirmCallback === 'function') { _confirmCallback(); _confirmCallback = null; }
+    });
+  }
+});
+</script>
+<script>
 (function(){
-  // Gestión de sucursales múltiples
-  var box = document.getElementById('branches-checklist');
-  var list = document.getElementById('branches-selected');
-  var hidWrap = document.getElementById('branches-hidden');
-  var addBtn = document.getElementById('btnAddBranch');
-  var input = document.getElementById('new_branch_input');
+  // Upload y delete de constancias sin recargar la página
+  var uploadWrap = document.getElementById('clientConstanciasUpload');
+  var uploadBtn = document.getElementById('clientConstanciasSubmit');
+  var fileInput = document.getElementById('clientConstanciasFiles');
+  var constBody = document.getElementById('client-constancias-body');
+  function esc(s){
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function renderConstancias(docs){
+    if (!constBody) return;
+    constBody.innerHTML = '';
+    if (!docs || !docs.length){
+      constBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">Sin constancias</td></tr>';
+      return;
+    }
+    docs.forEach(function(d){
+      var fn = esc(d.filename);
+      var dl = d.download_url;
+      var delUrl = d.delete_url;
+      constBody.insertAdjacentHTML('beforeend',
+        '<tr>'+
+          '<td><a href="'+ dl +'" target="_blank" rel="noopener" class="text-decoration-none" style="color:#0f766e;">'+ fn +'</a></td>'+
+          '<td class="text-end" style="white-space: nowrap;">'+
+            '<a class="btn btn-sm btn-outline-secondary" href="'+ dl +'" target="_blank" rel="noopener"><i class="bi bi-download"></i></a> '+
+            '<button type="button" class="btn btn-sm btn-outline-danger js-client-doc-del" data-delete-url="'+ delUrl +'">Eliminar</button>'+
+          '</td>'+
+        '</tr>'
+      );
+    });
+  }
+  function normalizeDocs(raw){
+    return (raw || []).filter(function(d){
+      return (d.category || 'CONSTANCIA') === 'CONSTANCIA';
+    }).map(function(d){
+      return {
+        id: d.id,
+        category: d.category || 'CONSTANCIA',
+        filename: d.filename,
+        download_url: d.download_url,
+        delete_url: d.delete_url
+      };
+    });
+  }
+  if (uploadWrap && uploadBtn && fileInput) {
+    uploadBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      var action = uploadWrap.getAttribute('data-action') || '';
+      if (!action) return;
+      if (!fileInput.files || fileInput.files.length === 0) return;
+      var fd = new FormData();
+      fd.append('category', 'CONSTANCIA');
+      Array.from(fileInput.files).forEach(function(f){ fd.append('documents', f); });
+      fetch(action, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+      }).then(function(r){ return r.json(); })
+        .then(function(docs){
+          renderConstancias(normalizeDocs(docs));
+          fileInput.value = '';
+        }).catch(function(){
+          window.location.reload();
+        });
+    });
+  }
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    var btn = (t && t.classList && t.classList.contains('js-client-doc-del')) ? t : (t && t.closest ? t.closest('.js-client-doc-del') : null);
+    if (!btn) return;
+    e.preventDefault();
+    var url = btn.getAttribute('data-delete-url');
+    if (!url) return;
+    showConfirmModal('¿Eliminar constancia?', 'Esta acción no se puede deshacer.', function(){
+      fetch(url, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+      }).then(function(r){ return r.json(); })
+        .then(function(docs){ renderConstancias(normalizeDocs(docs)); })
+        .catch(function(){ window.location.reload(); });
+    });
+  });
+})();
+
+(function(){
+  function getCellText(tr, idx){
+    var cells = tr.children;
+    if (!cells || idx >= cells.length) return '';
+    return (cells[idx].textContent || '').trim().toLowerCase();
+  }
+  function sortTable(table, th){
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var headers = Array.from(table.querySelectorAll('thead th'));
+    var idx = headers.indexOf(th);
+    if (idx < 0) return;
+    headers.forEach(function(h){ if (h !== th) delete h.dataset.dir; });
+    var dir = (th.dataset.dir === 'asc') ? 'desc' : 'asc';
+    th.dataset.dir = dir;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= 1) return;
+    // no ordenar filas de mensaje (colspan)
+    if (rows.length === 1 && rows[0].children && rows[0].children.length === 1) return;
+    rows.sort(function(a,b){
+      var av = getCellText(a, idx);
+      var bv = getCellText(b, idx);
+      var cmp = av.localeCompare(bv, 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+  document.querySelectorAll('table.js-sortable-table').forEach(function(tbl){
+    tbl.querySelectorAll('thead th[data-sort]').forEach(function(th){
+      th.addEventListener('click', function(){ sortTable(tbl, th); });
+    });
+  });
+})();
+
+(function(){
+  var box = document.getElementById('companies-checklist');
+  var list = document.getElementById('companies-selected');
+  var hidWrap = document.getElementById('companies-hidden');
+  var btn = document.getElementById('btnConfirmarEmpresas');
   if (!box || !list || !hidWrap) return;
-  var confirmed = new Set();
+  var confirmed = new Map();
+
+  var initialHidden = hidWrap.querySelectorAll('input[type="hidden"][name="company_ids"]');
+  initialHidden.forEach(function(inp){
+    var id = String(inp.value);
+    var labelEl = box.querySelector('label[for="co'+id+'"]');
+    var label = labelEl ? labelEl.textContent.trim() : ('Empresa ' + id);
+    confirmed.set(id, label);
+  });
+
+  function esc(s){
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
   function render(){
     if (confirmed.size === 0){
-      list.innerHTML = '<span class="text-muted">Ninguna</span>';
+      list.innerHTML = '<span class="text-muted">Ninguno</span>';
       hidWrap.innerHTML = '';
       return;
     }
-    var chips = [];
+    var html = [];
     var hidden = [];
-    confirmed.forEach(function(name){
-      var esc = name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      chips.push('<span class="badge bg-success text-white me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-branch-del" data-branch="'+ esc +'">×</button></span>');
-      hidden.push('<input type="hidden" name="branch_list" value="'+ esc +'">');
+    confirmed.forEach(function(label, id){
+      html.push('<span class="badge bg-success me-1 mb-1" data-company-id="'+ id +'">'+ esc(label) +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-company-del" data-company-id="'+ id +'">×</button></span>');
+      hidden.push('<input type="hidden" name="company_ids" value="'+ id +'">');
     });
-    list.innerHTML = chips.join('');
+    list.innerHTML = html.join('');
     hidWrap.innerHTML = hidden.join('');
   }
-  function addToChecklist(name){
-    if (!name) return;
-    var val = name.trim(); if (!val) return;
-    // evitar duplicados visuales
-    if (Array.from(box.querySelectorAll('.js-branch-chk')).some(function(c){return c.value===val;})) return;
-    var row = document.createElement('div'); row.className='form-check';
-    var chk = document.createElement('input'); chk.type='checkbox'; chk.className='form-check-input js-branch-chk'; chk.value=val; chk.id='br_'+btoa(val).replace(/=+/g,'');
-    var lbl = document.createElement('label'); lbl.className='form-check-label'; lbl.setAttribute('for', chk.id); lbl.textContent=val;
-    row.appendChild(chk); row.appendChild(lbl); box.appendChild(row);
-    // auto-confirmar
-    chk.checked = true; confirmSelection();
-  }
+
   function confirmSelection(){
-    box.querySelectorAll('.js-branch-chk:checked').forEach(function(chk){ var v=String(chk.value).trim(); if(v) confirmed.add(v); chk.checked=false; });
+    var checks = box.querySelectorAll('.js-company-chk:checked');
+    checks.forEach(function(chk){
+      var id = String(chk.value);
+      var lbl = box.querySelector('label[for="'+ chk.id +'"]');
+      var label = lbl ? lbl.textContent.trim() : ('Empresa ' + id);
+      confirmed.set(id, label);
+      chk.checked = false;
+    });
     render();
   }
-  // preload de sucursales existentes del cliente (si hay) desde bloque JSON
-  try {
-    var jsonEl = document.getElementById('branches-data');
-    var existing = [];
-    if (jsonEl && jsonEl.textContent) {
-      try { existing = JSON.parse(jsonEl.textContent); } catch(e) { existing = []; }
-    }
-    (existing||[]).forEach(function(n){ addToChecklist(n); });
-  } catch(e){}
-  document.addEventListener('click', function(e){
-    var t = e.target;
-    if (t && t.id==='btnConfirmarBranches'){ e.preventDefault(); confirmSelection(); }
-    if (t && t.id==='btnAddBranch'){ e.preventDefault(); var v=(input&&input.value)||''; if(v){ addToChecklist(v); input.value=''; } }
-    var delBtn = (t && t.classList && t.classList.contains('js-branch-del')) ? t : (t && t.closest ? t.closest('.js-branch-del') : null);
-    if (delBtn){ e.preventDefault(); var nm = delBtn.getAttribute('data-branch'); if(nm && confirmed.has(nm)){ confirmed.delete(nm); render(); } }
-  });
-  // Confirmar antes de submit
+
+  if (btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      confirmSelection();
+    });
+  }
+
   try {
     var form = document.querySelector('form.card');
     if (form) form.addEventListener('submit', function(){ confirmSelection(); });
   } catch(e){}
+
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    var delBtn = (t && t.classList && t.classList.contains('js-company-del')) ? t : (t && t.closest ? t.closest('.js-company-del') : null);
+    if (delBtn){
+      e.preventDefault();
+      var cid = delBtn.getAttribute('data-company-id');
+      if (cid && confirmed.has(cid)){
+        confirmed.delete(cid);
+        render();
+      }
+    }
+  });
+
+  render();
 })();
-// Gestión de lugares de entrega múltiples (similar a sucursales, sólo frontend por ahora)
+// Gestión de direcciones múltiples (con provincia, nota, horarios)
 (function(){
   var tbody = document.getElementById('delivery-body');
   var btnAdd = document.getElementById('btnAddDelivery');
   var nameInput = document.getElementById('new_delivery_name');
-  var fromInput = document.getElementById('new_delivery_from');
-  var toInput = document.getElementById('new_delivery_to');
+  var provinciaInput = document.getElementById('new_delivery_provincia');
+  var notaInput = document.getElementById('new_delivery_nota');
+  var hora1Desde = document.getElementById('new_delivery_hora1_desde');
+  var hora1Hasta = document.getElementById('new_delivery_hora1_hasta');
+  var dobleChk = document.getElementById('new_delivery_doble');
+  var hora2Desde = document.getElementById('new_delivery_hora2_desde');
+  var hora2Hasta = document.getElementById('new_delivery_hora2_hasta');
+  var secondRow = document.getElementById('deliveryHoursSecondRow');
   var contactInput = document.getElementById('new_delivery_contact');
   var phoneInput = document.getElementById('new_delivery_phone');
-  if (!tbody || !btnAdd || !nameInput || !fromInput || !toInput || !contactInput || !phoneInput) return;
+  if (!tbody || !btnAdd || !nameInput) return;
+
+  function setDobleEnabled(enabled){
+    if (!hora2Desde || !hora2Hasta) return;
+    if (secondRow) {
+      if (enabled) secondRow.classList.remove('d-none');
+      else secondRow.classList.add('d-none');
+    }
+    hora2Desde.disabled = !enabled;
+    hora2Hasta.disabled = !enabled;
+    if (!enabled) {
+      hora2Desde.value = '';
+      hora2Hasta.value = '';
+    }
+  }
+
+  if (dobleChk) {
+    setDobleEnabled(!!dobleChk.checked);
+    dobleChk.addEventListener('change', function(){
+      setDobleEnabled(!!dobleChk.checked);
+    });
+  }
+
+  function collectHorarios(){
+    var rangos = [];
+    var d1 = hora1Desde ? hora1Desde.value : '';
+    var h1 = hora1Hasta ? hora1Hasta.value : '';
+    if (d1 || h1) rangos.push((d1 || '?') + '-' + (h1 || '?'));
+    var use2 = !!(dobleChk && dobleChk.checked);
+    if (use2) {
+      var d2 = hora2Desde ? hora2Desde.value : '';
+      var h2 = hora2Hasta ? hora2Hasta.value : '';
+      if (d2 || h2) rangos.push((d2 || '?') + '-' + (h2 || '?'));
+    }
+    return rangos.join(', ');
+  }
+
+  function clearHorarios(){
+    if (hora1Desde) hora1Desde.value = '';
+    if (hora1Hasta) hora1Hasta.value = '';
+    if (dobleChk) dobleChk.checked = false;
+    setDobleEnabled(false);
+  }
 
   function ensureEmptyRow(){
     if (!tbody.querySelector('tr') || tbody.querySelectorAll('tr').length === 0){
       var tr = document.createElement('tr');
       tr.className = 'js-delivery-empty';
-      tr.innerHTML = '<td colspan="5" class="text-center text-muted">Sin lugares de entrega</td>';
+      tr.innerHTML = '<td colspan="7" class="text-center text-muted">Sin direcciones</td>';
       tbody.appendChild(tr);
     }
   }
@@ -358,20 +880,24 @@
     if (empty) empty.remove();
   }
 
-  function addRow(name, schedule, contact, phone){
+  function addRow(name, provincia, nota, horarios, contact, phone){
     name = (name || '').trim();
-    schedule = (schedule || '').trim();
+    provincia = (provincia || '').trim();
+    nota = (nota || '').trim();
+    horarios = (horarios || '').trim();
     contact = (contact || '').trim();
     phone = (phone || '').trim();
-    if (!name && !schedule && !contact && !phone) return;
+    if (!name && !provincia && !nota && !horarios && !contact && !phone) return;
     removeEmptyRow();
     var tr = document.createElement('tr');
     tr.innerHTML = ''+
       '<td>'+ escapeHtml(name || '-') +'<input type="hidden" name="delivery_name_list" value="'+ escapeAttr(name) +'"></td>'+
-      '<td>'+ escapeHtml(schedule || '') +'<input type="hidden" name="delivery_schedule_list" value="'+ escapeAttr(schedule) +'"></td>'+
+      '<td>'+ escapeHtml(provincia || '') +'<input type="hidden" name="delivery_provincia_list" value="'+ escapeAttr(provincia) +'"></td>'+
+      '<td>'+ escapeHtml(nota || '') +'<input type="hidden" name="delivery_nota_list" value="'+ escapeAttr(nota) +'"></td>'+
+      '<td>'+ escapeHtml(horarios || '') +'<input type="hidden" name="delivery_schedule_list" value="'+ escapeAttr(horarios) +'"></td>'+
       '<td>'+ escapeHtml(contact || '') +'<input type="hidden" name="delivery_contact_list" value="'+ escapeAttr(contact) +'"></td>'+
       '<td>'+ escapeHtml(phone || '') +'<input type="hidden" name="delivery_phone_list" value="'+ escapeAttr(phone) +'"></td>'+
-      '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del">Quitar</button></td>';
+      '<td class="text-end"><div class="d-flex gap-1 justify-content-end"><button type="button" class="btn btn-sm btn-outline-secondary js-delivery-row-edit" title="Editar"><i class="bi bi-pencil"></i></button><button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del" title="Quitar"><i class="bi bi-trash"></i></button></div></td>';
     tbody.appendChild(tr);
   }
 
@@ -383,124 +909,205 @@
   }
 
   // Forzar que el teléfono sólo tenga dígitos
-  phoneInput.addEventListener('input', function(){
-    var v = phoneInput.value || '';
-    phoneInput.value = v.replace(/[^0-9]/g, '');
-  });
+  if (phoneInput) {
+    phoneInput.addEventListener('input', function(){
+      var v = phoneInput.value || '';
+      phoneInput.value = v.replace(/[^0-9]/g, '');
+    });
+  }
 
   btnAdd.addEventListener('click', function(e){
     e.preventDefault();
-    var from = (fromInput.value || '').trim();
-    var to = (toInput.value || '').trim();
-    var schedule = '';
-    if (from && to) schedule = from + ' - ' + to;
-    else if (from) schedule = from;
-    else if (to) schedule = to;
-    addRow(nameInput.value, schedule, contactInput.value, phoneInput.value);
+    var horarios = collectHorarios();
+    addRow(
+      nameInput.value,
+      provinciaInput ? provinciaInput.value : '',
+      notaInput ? notaInput.value : '',
+      horarios,
+      contactInput ? contactInput.value : '',
+      phoneInput ? phoneInput.value : ''
+    );
     nameInput.value = '';
-    fromInput.value = '';
-    toInput.value = '';
-    contactInput.value = '';
-    phoneInput.value = '';
+    if (provinciaInput) provinciaInput.selectedIndex = 0;
+    if (notaInput) notaInput.value = '';
+    clearHorarios();
+    if (contactInput) contactInput.value = '';
+    if (phoneInput) phoneInput.value = '';
   });
+
+  // Variable para guardar la fila a eliminar mientras se muestra el modal
+  var pendingDeleteRow = null;
 
   tbody.addEventListener('click', function(e){
     var t = e.target;
-    var btn = (t && t.classList && t.classList.contains('js-delivery-row-del')) ? t : (t && t.closest ? t.closest('.js-delivery-row-del') : null);
-    if (!btn) return;
-    e.preventDefault();
-    var tr = btn.closest('tr');
-    if (tr){ tr.remove(); }
-    if (!tbody.querySelector('tr')) ensureEmptyRow();
+    // Botón Quitar - mostrar confirmación
+    var delBtn = (t && t.classList && t.classList.contains('js-delivery-row-del')) ? t : (t && t.closest ? t.closest('.js-delivery-row-del') : null);
+    if (delBtn) {
+      e.preventDefault();
+      pendingDeleteRow = delBtn.closest('tr');
+      showConfirmModal('¿Quitar esta dirección?', 'Esta acción no se puede deshacer.', function(){
+        if (pendingDeleteRow) { pendingDeleteRow.remove(); pendingDeleteRow = null; }
+        if (!tbody.querySelector('tr')) ensureEmptyRow();
+      });
+      return;
+    }
+    // Botón Editar - cargar datos en inputs y eliminar fila
+    var editBtn = (t && t.classList && t.classList.contains('js-delivery-row-edit')) ? t : (t && t.closest ? t.closest('.js-delivery-row-edit') : null);
+    if (editBtn) {
+      e.preventDefault();
+      var tr = editBtn.closest('tr');
+      if (!tr) return;
+      // Leer valores de los hidden inputs
+      var nm = (tr.querySelector('input[name="delivery_name_list"]') || {}).value || '';
+      var pv = (tr.querySelector('input[name="delivery_provincia_list"]') || {}).value || '';
+      var nt = (tr.querySelector('input[name="delivery_nota_list"]') || {}).value || '';
+      var hs = (tr.querySelector('input[name="delivery_schedule_list"]') || {}).value || '';
+      var ct = (tr.querySelector('input[name="delivery_contact_list"]') || {}).value || '';
+      var ph = (tr.querySelector('input[name="delivery_phone_list"]') || {}).value || '';
+      // Cargar en inputs
+      if (nameInput) nameInput.value = nm;
+      if (provinciaInput) { for(var i=0;i<provinciaInput.options.length;i++){ if(provinciaInput.options[i].value===pv){ provinciaInput.selectedIndex=i; break; } } }
+      if (notaInput) notaInput.value = nt;
+      // Horarios: cargar 1 o 2 rangos si existen
+      clearHorarios();
+      if (hs) {
+        var ranges = hs.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+        if (ranges[0] && hora1Desde && hora1Hasta) {
+          var p1 = ranges[0].split('-');
+          if (p1[0]) hora1Desde.value = p1[0].trim();
+          if (p1[1]) hora1Hasta.value = p1[1].trim();
+        }
+        if (ranges[1] && dobleChk) {
+          dobleChk.checked = true;
+          setDobleEnabled(true);
+          var p2 = ranges[1].split('-');
+          if (hora2Desde && p2[0]) hora2Desde.value = p2[0].trim();
+          if (hora2Hasta && p2[1]) hora2Hasta.value = p2[1].trim();
+        }
+      }
+      if (contactInput) contactInput.value = ct;
+      if (phoneInput) phoneInput.value = ph;
+      // Eliminar la fila para que se pueda volver a agregar editada
+      tr.remove();
+      if (!tbody.querySelector('tr')) ensureEmptyRow();
+    }
   });
 
   // Asegurar que exista fila vacía si no hay datos
   ensureEmptyRow();
 })();
 
-// Gestión de múltiples cumpleaños
+// Gestión de personas (cumpleaños) en formato tabla con notas
 (function(){
+  var tbody = document.getElementById('personas-body');
   var nameInput = document.getElementById('birthday_name_input');
   var roleInput = document.getElementById('birthday_role_input');
   var dateInput = document.getElementById('birthday_date_input');
+  var notasInput = document.getElementById('birthday_notas_input');
   var addBtn = document.getElementById('btnAddBirthday');
-  var list = document.getElementById('birthdays-selected');
-  var hidWrap = document.getElementById('birthdays-hidden');
-  if (!nameInput || !roleInput || !dateInput || !addBtn || !list || !hidWrap) return;
+  if (!tbody || !nameInput || !addBtn) return;
 
-  var birthdays = [];
+  function ensureEmptyRow(){
+    if (!tbody.querySelector('tr') || tbody.querySelectorAll('tr').length === 0){
+      var tr = document.createElement('tr');
+      tr.className = 'js-persona-empty';
+      tr.innerHTML = '<td colspan="5" class="text-center text-muted">Sin personas</td>';
+      tbody.appendChild(tr);
+    }
+  }
 
-  function render(){
-    if (!birthdays.length){
-      list.innerHTML = '<span class="text-muted">Ninguno</span>';
-      hidWrap.innerHTML = '';
+  function removeEmptyRow(){
+    var empty = tbody.querySelector('.js-persona-empty');
+    if (empty) empty.remove();
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function escapeAttr(str){
+    return String(str).replace(/"/g,'&quot;');
+  }
+
+  function formatDate(isoDate){
+    if (!isoDate) return '';
+    var parts = isoDate.split('-');
+    if (parts.length === 3) return parts[2] + '/' + parts[1] + '/' + parts[0];
+    return isoDate;
+  }
+
+  function addRow(name, role, date, notas){
+    name = (name || '').trim();
+    role = (role || '').trim();
+    date = (date || '').trim();
+    notas = (notas || '').trim();
+    if (!name && !role && !date && !notas) return;
+    removeEmptyRow();
+    var tr = document.createElement('tr');
+    tr.innerHTML = ''+
+      '<td>'+ escapeHtml(name || '-') +'<input type="hidden" name="birthday_name_list" value="'+ escapeAttr(name) +'"></td>'+
+      '<td>'+ escapeHtml(role || '') +'<input type="hidden" name="birthday_role_list" value="'+ escapeAttr(role) +'"></td>'+
+      '<td>'+ escapeHtml(formatDate(date) || '') +'<input type="hidden" name="birthday_date_list" value="'+ escapeAttr(date) +'"></td>'+
+      '<td>'+ escapeHtml(notas || '') +'<input type="hidden" name="birthday_notas_list" value="'+ escapeAttr(notas) +'"></td>'+
+      '<td class="text-end"><div class="d-flex gap-1 justify-content-end"><button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button><button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button></div></td>';
+    tbody.appendChild(tr);
+  }
+
+  addBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    addRow(
+      nameInput.value,
+      roleInput ? roleInput.value : '',
+      dateInput ? dateInput.value : '',
+      notasInput ? notasInput.value : ''
+    );
+    nameInput.value = '';
+    if (roleInput) roleInput.value = '';
+    if (dateInput) { dateInput.value = ''; if (dateInput._flatpickr) dateInput._flatpickr.clear(); }
+    if (notasInput) notasInput.value = '';
+  });
+
+  var pendingDeleteRow = null;
+  tbody.addEventListener('click', function(e){
+    var t = e.target;
+
+    var delBtn = (t && t.classList && t.classList.contains('js-persona-row-del')) ? t : (t && t.closest ? t.closest('.js-persona-row-del') : null);
+    if (delBtn) {
+      e.preventDefault();
+      pendingDeleteRow = delBtn.closest('tr');
+      showConfirmModal('¿Quitar esta persona?', 'Esta acción no se puede deshacer.', function(){
+        if (pendingDeleteRow) { pendingDeleteRow.remove(); pendingDeleteRow = null; }
+        if (!tbody.querySelector('tr')) ensureEmptyRow();
+      });
       return;
     }
-    var chips = [];
-    var hidden = [];
-    birthdays.forEach(function(b, idx){
-      var label = (b.name || '') + (b.role ? ' — ' + b.role : '') + (b.date ? ' ('+ b.date +')' : '');
-      var esc = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      chips.push('<span class="badge bg-info text-dark me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-birthday-del" data-idx="'+ idx+'">×</button></span>');
-      hidden.push('<input type="hidden" name="birthday_name_list" value="'+ (b.name||'').replace(/"/g,'&quot;') +'">');
-      hidden.push('<input type="hidden" name="birthday_role_list" value="'+ (b.role||'').replace(/"/g,'&quot;') +'">');
-      hidden.push('<input type="hidden" name="birthday_date_list" value="'+ (b.date||'').replace(/"/g,'&quot;') +'">');
-    });
-    list.innerHTML = chips.join('');
-    hidWrap.innerHTML = hidden.join('');
-  }
 
-  // preload de cumpleaños existentes desde bloque JSON
-  try {
-    var jsonEl = document.getElementById('birthdays-data');
-    var existing = [];
-    if (jsonEl && jsonEl.textContent) {
-      try { existing = JSON.parse(jsonEl.textContent); } catch(e) { existing = []; }
-    }
-    (existing||[]).forEach(function(row){
-      birthdays.push({
-        name: (row && row.nombre) || '',
-        role: (row && row.puesto) || '',
-        date: (row && row.fecha) || ''
-      });
-    });
-  } catch(e){}
-
-  function addBirthday(){
-    var name = (nameInput.value || '').trim();
-    var role = (roleInput.value || '').trim();
-    var date = (dateInput.value || '').trim();
-    if (!name && !role && !date) return; // evitar filas vacías
-    birthdays.push({ name: name, role: role, date: date });
-    nameInput.value = '';
-    roleInput.value = '';
-    dateInput.value = '';
-    if (dateInput._flatpickr) dateInput._flatpickr.clear();
-    render();
-  }
-
-  addBtn.addEventListener('click', function(e){ e.preventDefault(); addBirthday(); });
-
-  document.addEventListener('click', function(e){
-    var t = e.target;
-    var delBtn = (t && t.classList && t.classList.contains('js-birthday-del')) ? t : (t && t.closest ? t.closest('.js-birthday-del') : null);
-    if (delBtn){
+    var editBtn = (t && t.classList && t.classList.contains('js-persona-row-edit')) ? t : (t && t.closest ? t.closest('.js-persona-row-edit') : null);
+    if (editBtn) {
       e.preventDefault();
-      var idx = parseInt(delBtn.getAttribute('data-idx'), 10);
-      if (!isNaN(idx) && idx >=0 && idx < birthdays.length){
-        birthdays.splice(idx,1);
-        render();
+      var tr = editBtn.closest('tr');
+      if (!tr) return;
+      var nm = (tr.querySelector('input[name="birthday_name_list"]') || {}).value || '';
+      var rl = (tr.querySelector('input[name="birthday_role_list"]') || {}).value || '';
+      var dt = (tr.querySelector('input[name="birthday_date_list"]') || {}).value || '';
+      var nt = (tr.querySelector('input[name="birthday_notas_list"]') || {}).value || '';
+
+      if (nameInput) nameInput.value = nm;
+      if (roleInput) roleInput.value = rl;
+      if (notasInput) notasInput.value = nt;
+
+      if (dateInput) {
+        dateInput.value = dt;
+        if (dateInput._flatpickr) {
+          try { dateInput._flatpickr.setDate(dt || null, true, 'Y-m-d'); } catch(e) {}
+        }
       }
+
+      tr.remove();
+      if (!tbody.querySelector('tr')) ensureEmptyRow();
     }
   });
 
-  // Antes de enviar el formulario, asegurar que la última edición se incluya si no se presionó el botón
-  try {
-    var form = document.querySelector('form.card');
-    if (form) form.addEventListener('submit', function(){ addBirthday(); });
-  } catch(e){}
-
-  render();
+  ensureEmptyRow();
 })();
 
 (function(){

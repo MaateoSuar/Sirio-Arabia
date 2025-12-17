@@ -126,6 +126,7 @@
             <li class="nav-item"><a class="nav-link {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
+            <li class="nav-item"><a class="nav-link {% if active=='comisiones' %}active{% endif %}" href="{{ url_for('main.comisiones') }}"><i class="bi bi-cash-stack me-2"></i>Comisiones</a></li>
             <li class="nav-item"><a class="nav-link logout-link" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a></li>
           </ul>
         </div>
@@ -146,11 +147,20 @@
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
+              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='comisiones' %}active{% endif %}" href="{{ url_for('main.comisiones') }}"><i class="bi bi-cash-stack me-2"></i>Comisiones</a></li>
               <li class="nav-item mt-2"><a class="nav-link nav-link-ghost logout-link" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a></li>
             </ul>
           </div>
         </aside>
         <main class="col p-4">
+          <div class="d-flex justify-content-end mb-2">
+            <a href="{{ url_for('main.notificaciones') }}" class="btn btn-light position-relative" aria-label="Centro de notificaciones" title="Notificaciones">
+              <i class="bi bi-bell"></i>
+              {% if notif_active_count is defined and notif_active_count|int > 0 %}
+                <span id="notifBellCount" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">{{ notif_active_count }}</span>
+              {% endif %}
+            </a>
+          </div>
           {% block content %}{% endblock %}
         </main>
       </div>
