@@ -3,9 +3,10 @@
 <div class="container" style="max-width: 860px;">
   <h1 class="h4 text-dark mb-4">{{ 'Legajo de empresa' if company else 'Nueva empresa' }}</h1>
 
-  <form method="post" id="empresa-form" class="card shadow-sm">
-    {% if company %}<input type="hidden" id="empresa_id" value="{{ company.id }}">{% endif %}
-    <div class="card-body">
+  <div class="card shadow-sm">
+    <form method="post" id="empresa-form">
+      {% if company %}<input type="hidden" id="empresa_id" value="{{ company.id }}">{% endif %}
+      <div class="card-body">
       <style>
         /* Títulos y etiquetas más estéticos en esta vista */
         .form-label { color: #0f766e; font-weight: 600; letter-spacing: .2px; }
@@ -200,21 +201,26 @@
         </div>
         {% endif %}
       </div>
-    </div>
-  </form>
-  <div class="col-12 mt-4">
-    <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
-      <h2 class="empresa-section-title mb-0" style="flex:1; text-align:left;">
-        Información complementaria
-        <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-      </h2>
-      <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
-    </div>
-  </div>
-  <div class="mt-3 d-none" id="empresaInfoCompExtra">
-    <h2 class="empresa-section-title mb-3">Documentación</h2>
-    {% if company %}
-    <div class="row g-3">
+      </div>
+    </form>
+
+    <div class="card-body pt-0">
+      <div class="row g-3">
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
+            <h2 class="empresa-section-title mb-0" style="flex:1; text-align:left;">
+              Información complementaria
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h2>
+            <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3 d-none" id="empresaInfoCompExtra">
+        <h2 class="empresa-section-title mb-3">Documentación</h2>
+        {% if company %}
+        <div class="row g-3">
       <div class="col-md-6">
         <div class="card shadow-sm">
           <div class="card-header bg-light">
@@ -431,10 +437,13 @@
       </div>
       {% endif %}
     </div>
-  </div>
-  <div class="mt-4 d-flex justify-content-end gap-2">
-    <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
-    <button class="btn btn-primary" type="submit" form="empresa-form">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
+      </div>
+
+      <div class="mt-4 d-flex justify-content-end gap-2">
+        <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
+        <button class="btn btn-primary" type="submit" form="empresa-form">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
+      </div>
+    </div>
   </div>
 </div>
 <script>
