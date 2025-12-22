@@ -1889,8 +1889,7 @@ def api_empresas():
 @bp.get("/pedidos")
 def pedidos():
     return render_template("pedidos.html", active="pedidos", today=date.today().isoformat(),
-                           clientes=Client.query.order_by(Client.apellido, Client.nombre).all(),
-                           empresas=Company.query.order_by(Company.nombre).all())
+                           clientes=Client.query.order_by(Client.apellido, Client.nombre).all())
 
 
 @bp.post("/pedidos")

@@ -154,9 +154,9 @@
           <tr>
             <th class="col-client">Cliente</th>
             <th class="col-company">Empresa</th>
-            <th class="d-none d-md-table-cell">Fecha compra</th>
-            <th class="d-none d-md-table-cell">Entrega estimada</th>
-            <th class="d-none d-md-table-cell">Entrega efectiva</th>
+            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Fecha compra</th>
+            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega estimada</th>
+            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
             <th>Monto</th>
             <th>Forma pago</th>
             <th>Status</th>
@@ -529,7 +529,63 @@
       document.head.appendChild(l);
     }
   })();
-  </script>
+</script>
+<script>
+  (function(){
+    var tbody = document.getElementById('status-tbody');
+    if (!tbody) return;
+    var table = tbody.closest('table');
+    if (!table) return;
+    var thead = table.querySelector('thead');
+    if (!thead) return;
+
+    function parseDateValue(cell){
+      if (!cell) return null;
+      var inp = cell.querySelector && cell.querySelector('input');
+      var v = '';
+      if (inp) v = (inp.value || '').trim();
+      else v = (cell.textContent || '').trim();
+      if (!v) return null;
+      var t = Date.parse(v);
+      if (!isNaN(t)) return t;
+      var m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) {
+        var dd = parseInt(m[1], 10);
+        var mm = parseInt(m[2], 10) - 1;
+        var yy = parseInt(m[3], 10);
+        var dt = new Date(yy, mm, dd);
+        var tt = dt.getTime();
+        return isNaN(tt) ? null : tt;
+      }
+      return null;
+    }
+
+    function sortByDateColumn(colIndex, direction){
+      var rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort(function(a, b){
+        var ta = parseDateValue(a.children[colIndex]);
+        var tb = parseDateValue(b.children[colIndex]);
+        if (ta == null && tb == null) return 0;
+        if (ta == null) return 1;
+        if (tb == null) return -1;
+        return direction === 'desc' ? (tb - ta) : (ta - tb);
+      });
+      rows.forEach(function(r){ tbody.appendChild(r); });
+    }
+
+    var current = { idx: null, dir: 'desc' };
+    Array.from(thead.querySelectorAll('th.js-sort-date')).forEach(function(th){
+      th.addEventListener('click', function(){
+        var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+        var dir = 'desc';
+        if (current.idx === idx) dir = (current.dir === 'desc') ? 'asc' : 'desc';
+        current.idx = idx;
+        current.dir = dir;
+        sortByDateColumn(idx, dir);
+      });
+    });
+  })();
+</script>
 <script>
   (function(){
     var searchInput = document.getElementById('statusSearch');
