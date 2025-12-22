@@ -79,6 +79,7 @@
       </div>
       <div class="col-md-3">
         <label class="form-label">Empresa</label>
+        <input type="text" class="form-control form-control-sm mb-1" id="pedido_empresa_search" placeholder="Buscar empresa...">
         <select class="form-select" id="pedido_empresa" name="company_id" required onchange="window.__onSelChange && window.__onSelChange()">
           <option value="">Empresa...</option>
           {% for e in empresas %}
@@ -155,6 +156,7 @@
   (function(){
     const clienteSel = document.getElementById('pedido_cliente');
     const empresaSel = document.getElementById('pedido_empresa');
+    const empresaSearchInput = document.getElementById('pedido_empresa_search');
     const mailInput = document.getElementById('pedido_mail_pedido');
     const notaInput = document.getElementById('pedido_nota');
     const descInput = document.getElementById('pedido_descripcion');
@@ -184,6 +186,35 @@
     // Guardar opciones completas de empresas por si se requiere restaurar (no usado actualmente)
     const empresaAllOptions = Array.from(empresaSel?.options || []);
     let pendingDeleteDraft = null;
+
+    function norm(str){
+      str = (str || '').toString().toLowerCase();
+      try {
+        str = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      } catch (e) {}
+      str = str.replace(/[\u2018\u2019\u201B\u2032\u00B4\u0060\u02B9\u02BB\uFF07']/g, "'");
+      return str;
+    }
+
+    function applyCompanyFilter(){
+      if (!empresaSel) return;
+      const q = norm(empresaSearchInput && empresaSearchInput.value || '');
+      const qNoApos = q.replace(/'/g, '');
+      Array.from(empresaSel.options || []).forEach((opt, idx)=>{
+        if (idx === 0){
+          opt.hidden = false;
+          return;
+        }
+        const txt = norm(opt.textContent || '');
+        const txtNoApos = txt.replace(/'/g, '');
+        const match = !q || txt.indexOf(q) !== -1 || txtNoApos.indexOf(qNoApos) !== -1;
+        opt.hidden = !match;
+      });
+    }
+
+    if (empresaSearchInput){
+      empresaSearchInput.addEventListener('input', applyCompanyFilter);
+    }
 
     // Opciones de forma de pago según tipo de comprobante
     const paymentOptions = {
@@ -637,6 +668,7 @@
 
     // Estado inicial
     updateEnabledBySelection();
+    applyCompanyFilter();
     const tipoHidden = document.getElementById('pedido_tipo_comprobante');
     const btnFactura = document.getElementById('btn_tipo_factura');
     const btnRemito = document.getElementById('btn_tipo_remito');

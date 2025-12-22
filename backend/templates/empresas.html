@@ -186,12 +186,27 @@
 (function(){
   var input = document.getElementById('empresaSearch');
   var rows = document.querySelectorAll('#empresas-table tbody tr');
+  function norm(str){
+    str = (str || '').toString().toLowerCase();
+    try {
+      // Quitar diacríticos (acentos) y unificar apóstrofes comunes
+      str = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    } catch (e) {}
+    // Unificar apóstrofes (', ´, `, ’, etc.) y también permitir búsqueda sin apóstrofe
+    str = str.replace(/[\u2018\u2019\u201B\u2032\u00B4\u0060\u02B9\u02BB\uFF07']/g, "'");
+    return str;
+  }
   function applySearch(){
-    var q = (input && input.value || '').toLowerCase();
+    var q = norm(input && input.value || '');
+    var qNoApos = q.replace(/'/g, '');
     rows.forEach(function(tr){
-      var marca = (tr.getAttribute('data-marca') || '').toLowerCase();
-      var razon = (tr.getAttribute('data-razon') || '').toLowerCase();
-      var match = !q || marca.indexOf(q) !== -1 || razon.indexOf(q) !== -1;
+      var marca = norm(tr.getAttribute('data-marca') || '');
+      var razon = norm(tr.getAttribute('data-razon') || '');
+      var marcaNoApos = marca.replace(/'/g, '');
+      var razonNoApos = razon.replace(/'/g, '');
+      var match = !q ||
+        marca.indexOf(q) !== -1 || razon.indexOf(q) !== -1 ||
+        marcaNoApos.indexOf(qNoApos) !== -1 || razonNoApos.indexOf(qNoApos) !== -1;
       tr.style.display = match ? '' : 'none';
     });
   }
