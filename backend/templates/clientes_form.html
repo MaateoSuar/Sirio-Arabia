@@ -59,9 +59,20 @@
           <label class="form-label">CUIL/CUIT</label>
           <input name="cuit" type="text" class="form-control" value="{{ (client.cuit or '') if client else '' }}">
         </div>
-        <div class="col-md-6">
+        <div class="col-md-3">
           <label class="form-label">Contacto (Nombre y apellido)</label>
           <input name="telefono" type="text" class="form-control" value="{{ (client.telefono or '') if client else '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Forma de pago habitual</label>
+          {% set fph = ((client.forma_pago_habitual if client else '') or '') %}
+          <select name="forma_pago_habitual" class="form-select">
+            <option value="">-</option>
+            <option value="EFECTIVO" {{ 'selected' if fph=='EFECTIVO' else '' }}>Efectivo</option>
+            <option value="CHEQUE" {{ 'selected' if fph=='CHEQUE' else '' }}>Cheque</option>
+            <option value="TRANSFERENCIA" {{ 'selected' if fph=='TRANSFERENCIA' else '' }}>Transferencia</option>
+            <option value="NO_SE_SABE" {{ 'selected' if fph=='NO_SE_SABE' else '' }}>No se sabe</option>
+          </select>
         </div>
         <div class="col-md-6">
           {% if client %}<input type="hidden" id="client_mail_raw" value="{{ client.mail or '' }}">{% endif %}
@@ -356,21 +367,17 @@
             </div>
             <div class="col-12">
               <div class="row g-2 align-items-end">
-                <div class="col-md-3">
+                <div class="col-md-4">
                   <label class="form-label">Nombre y apellido</label>
                   <input id="birthday_name_input" type="text" class="form-control form-control-sm" placeholder="Nombre">
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                   <label class="form-label">Puesto</label>
                   <input id="birthday_role_input" type="text" class="form-control form-control-sm" placeholder="Cargo">
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                   <label class="form-label">Cumpleaños</label>
                   <input id="birthday_date_input" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa" data-datepicker>
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label">Notas</label>
-                  <input id="birthday_notas_input" type="text" class="form-control form-control-sm" placeholder="Descripción / notas">
                 </div>
                 <div class="col-md-2 d-grid">
                   <label class="form-label">&nbsp;</label>
@@ -385,7 +392,6 @@
                         <th>Nombre</th>
                         <th>Puesto</th>
                         <th>Cumpleaños</th>
-                        <th>Notas</th>
                         <th class="text-end" style="width:1%; white-space:nowrap;">Acciones</th>
                       </tr>
                     </thead>
@@ -396,6 +402,7 @@
                             <td>
                               {{ b.nombre }}
                               <input type="hidden" name="birthday_name_list" value="{{ b.nombre }}">
+                              <input type="hidden" name="birthday_notas_list" value="{{ b.notas or '' }}">
                             </td>
                             <td>
                               {{ b.puesto or '' }}
@@ -405,12 +412,9 @@
                               {{ b.fecha.strftime('%d/%m/%Y') if b.fecha else '' }}
                               <input type="hidden" name="birthday_date_list" value="{{ b.fecha.isoformat() if b.fecha else '' }}">
                             </td>
-                            <td>
-                              {{ b.notas or '' }}
-                              <input type="hidden" name="birthday_notas_list" value="{{ b.notas or '' }}">
-                            </td>
                             <td class="text-end">
                               <div class="d-flex gap-1 justify-content-end">
+                                <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-notes" title="Notas"><i class="bi bi-journal-text"></i></button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
                                 <button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button>
                               </div>
@@ -418,7 +422,7 @@
                           </tr>
                         {% endfor %}
                       {% else %}
-                        <tr class="js-persona-empty"><td colspan="5" class="text-center text-muted">Sin personas</td></tr>
+                        <tr class="js-persona-empty"><td colspan="4" class="text-center text-muted">Sin personas</td></tr>
                       {% endif %}
                     </tbody>
                   </table>
@@ -529,6 +533,39 @@
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Quitar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="personaNotasModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Notas</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex gap-2">
+          <div id="personaNotasToolbar" class="btn-group-vertical" role="group" aria-label="Herramientas">
+            <button type="button" class="btn btn-outline-secondary" data-cmd="bold" title="Negrita"><strong>B</strong></button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="italic" title="Itálica"><em>I</em></button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="underline" title="Subrayado"><u>U</u></button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="insertUnorderedList" title="Lista">•</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="justifyLeft" title="Alinear izquierda">L</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="justifyCenter" title="Centrar">C</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="justifyRight" title="Alinear derecha">R</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="fontSize" data-value="2" title="Texto pequeño">A-</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="fontSize" data-value="3" title="Texto normal">A</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="fontSize" data-value="5" title="Texto grande">A+</button>
+            <button type="button" class="btn btn-outline-secondary" data-cmd="removeFormat" title="Quitar formato">Tx</button>
+          </div>
+          <div id="personaNotasEditor" class="form-control" contenteditable="true" style="min-height: 60vh; overflow:auto;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="personaNotasGuardarBtn">Guardar</button>
       </div>
     </div>
   </div>
@@ -905,7 +942,11 @@ document.addEventListener('DOMContentLoaded', function(){
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
   function escapeAttr(str){
-    return String(str).replace(/"/g,'&quot;');
+    return String(str)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
   }
 
   // Forzar que el teléfono sólo tenga dígitos
@@ -1003,7 +1044,6 @@ document.addEventListener('DOMContentLoaded', function(){
   var nameInput = document.getElementById('birthday_name_input');
   var roleInput = document.getElementById('birthday_role_input');
   var dateInput = document.getElementById('birthday_date_input');
-  var notasInput = document.getElementById('birthday_notas_input');
   var addBtn = document.getElementById('btnAddBirthday');
   if (!tbody || !nameInput || !addBtn) return;
 
@@ -1011,7 +1051,7 @@ document.addEventListener('DOMContentLoaded', function(){
     if (!tbody.querySelector('tr') || tbody.querySelectorAll('tr').length === 0){
       var tr = document.createElement('tr');
       tr.className = 'js-persona-empty';
-      tr.innerHTML = '<td colspan="5" class="text-center text-muted">Sin personas</td>';
+      tr.innerHTML = '<td colspan="4" class="text-center text-muted">Sin personas</td>';
       tbody.appendChild(tr);
     }
   }
@@ -1035,6 +1075,8 @@ document.addEventListener('DOMContentLoaded', function(){
     return isoDate;
   }
 
+  var editNotasCache = '';
+
   function addRow(name, role, date, notas){
     name = (name || '').trim();
     role = (role || '').trim();
@@ -1044,11 +1086,10 @@ document.addEventListener('DOMContentLoaded', function(){
     removeEmptyRow();
     var tr = document.createElement('tr');
     tr.innerHTML = ''+
-      '<td>'+ escapeHtml(name || '-') +'<input type="hidden" name="birthday_name_list" value="'+ escapeAttr(name) +'"></td>'+
+      '<td>'+ escapeHtml(name || '-') +'<input type="hidden" name="birthday_name_list" value="'+ escapeAttr(name) +'"><input type="hidden" name="birthday_notas_list" value="'+ escapeAttr(notas) +'"></td>'+
       '<td>'+ escapeHtml(role || '') +'<input type="hidden" name="birthday_role_list" value="'+ escapeAttr(role) +'"></td>'+
       '<td>'+ escapeHtml(formatDate(date) || '') +'<input type="hidden" name="birthday_date_list" value="'+ escapeAttr(date) +'"></td>'+
-      '<td>'+ escapeHtml(notas || '') +'<input type="hidden" name="birthday_notas_list" value="'+ escapeAttr(notas) +'"></td>'+
-      '<td class="text-end"><div class="d-flex gap-1 justify-content-end"><button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button><button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button></div></td>';
+      '<td class="text-end"><div class="d-flex gap-1 justify-content-end"><button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-notes" title="Notas"><i class="bi bi-journal-text"></i></button><button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button><button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button></div></td>';
     tbody.appendChild(tr);
   }
 
@@ -1058,17 +1099,136 @@ document.addEventListener('DOMContentLoaded', function(){
       nameInput.value,
       roleInput ? roleInput.value : '',
       dateInput ? dateInput.value : '',
-      notasInput ? notasInput.value : ''
+      editNotasCache
     );
+    editNotasCache = '';
     nameInput.value = '';
     if (roleInput) roleInput.value = '';
     if (dateInput) { dateInput.value = ''; if (dateInput._flatpickr) dateInput._flatpickr.clear(); }
-    if (notasInput) notasInput.value = '';
   });
 
   var pendingDeleteRow = null;
+  var pendingNotesRow = null;
+  var notesModalEl = document.getElementById('personaNotasModal');
+  var notesEditor = document.getElementById('personaNotasEditor');
+  var notesToolbar = document.getElementById('personaNotasToolbar');
+  var notesSaveBtn = document.getElementById('personaNotasGuardarBtn');
+  var notesModal = (notesModalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(notesModalEl) : null;
+  function showNotesModal(){
+    if (notesModal) {
+      notesModal.show();
+      return;
+    }
+    if (notesModalEl) {
+      notesModalEl.classList.add('show');
+      notesModalEl.style.display = 'block';
+      notesModalEl.removeAttribute('aria-hidden');
+      if (!document.getElementById('personaNotasBackdrop')){
+        var bd = document.createElement('div');
+        bd.id = 'personaNotasBackdrop';
+        bd.className = 'modal-backdrop fade show';
+        document.body.appendChild(bd);
+      }
+    }
+  }
+  function hideNotesModal(){
+    if (notesModal) {
+      notesModal.hide();
+      return;
+    }
+    if (notesModalEl) {
+      notesModalEl.classList.remove('show');
+      notesModalEl.style.display = 'none';
+      notesModalEl.setAttribute('aria-hidden', 'true');
+      var bd = document.getElementById('personaNotasBackdrop');
+      if (bd) bd.remove();
+    }
+  }
+
+  if (notesModalEl) {
+    notesModalEl.addEventListener('click', function(e){
+      var t = e.target;
+      // Click en el fondo (fuera del dialog)
+      if (t === notesModalEl) {
+        hideNotesModal();
+        return;
+      }
+      // Click en botones con data-bs-dismiss o X
+      var dismiss = (t && t.closest) ? t.closest('[data-bs-dismiss="modal"], .btn-close') : null;
+      if (dismiss) {
+        e.preventDefault();
+        hideNotesModal();
+      }
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    var bd = document.getElementById('personaNotasBackdrop');
+    if (bd && e.target === bd) {
+      e.preventDefault();
+      hideNotesModal();
+    }
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Escape') return;
+    if (!notesModalEl) return;
+    var isShown = notesModalEl.classList.contains('show') || (notesModalEl.style && notesModalEl.style.display === 'block');
+    if (isShown) {
+      e.preventDefault();
+      hideNotesModal();
+    }
+  });
+
+  if (notesToolbar) {
+    notesToolbar.addEventListener('click', function(e){
+      var btn = e.target;
+      if (btn && btn.tagName !== 'BUTTON' && btn.closest) btn = btn.closest('button');
+      if (!btn || btn.tagName !== 'BUTTON') return;
+      var cmd = btn.getAttribute('data-cmd');
+      if (!cmd) return;
+      var val = btn.getAttribute('data-value');
+      e.preventDefault();
+
+      if (notesEditor && notesEditor.focus) notesEditor.focus();
+      try {
+        document.execCommand(cmd, false, val || null);
+      } catch (err) {}
+      if (notesEditor && notesEditor.focus) notesEditor.focus();
+    });
+  }
+
+  if (notesSaveBtn) {
+    notesSaveBtn.addEventListener('click', function(){
+      if (!pendingNotesRow) return;
+      var inp = pendingNotesRow.querySelector('input[name="birthday_notas_list"]');
+      if (inp) inp.value = (notesEditor ? (notesEditor.innerHTML || '') : '');
+      var btn = pendingNotesRow.querySelector('.js-persona-row-notes');
+      if (btn) {
+        var has = !!(inp && inp.value && inp.value.trim());
+        btn.classList.toggle('btn-outline-secondary', !has);
+        btn.classList.toggle('btn-outline-primary', has);
+      }
+      pendingNotesRow = null;
+      hideNotesModal();
+    });
+  }
+
   tbody.addEventListener('click', function(e){
     var t = e.target;
+
+    var notesBtn = (t && t.classList && t.classList.contains('js-persona-row-notes')) ? t : (t && t.closest ? t.closest('.js-persona-row-notes') : null);
+    if (notesBtn) {
+      e.preventDefault();
+      var trNotes = notesBtn.closest('tr');
+      if (!trNotes) return;
+      pendingNotesRow = trNotes;
+      var inpNotes = trNotes.querySelector('input[name="birthday_notas_list"]');
+      if (notesEditor) notesEditor.innerHTML = (inpNotes ? (inpNotes.value || '') : '');
+      if (notesEditor && notesEditor.focus) notesEditor.focus();
+      showNotesModal();
+      return;
+    }
 
     var delBtn = (t && t.classList && t.classList.contains('js-persona-row-del')) ? t : (t && t.closest ? t.closest('.js-persona-row-del') : null);
     if (delBtn) {
@@ -1093,7 +1253,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
       if (nameInput) nameInput.value = nm;
       if (roleInput) roleInput.value = rl;
-      if (notasInput) notasInput.value = nt;
+      editNotasCache = nt;
 
       if (dateInput) {
         dateInput.value = dt;

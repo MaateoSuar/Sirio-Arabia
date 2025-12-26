@@ -181,6 +181,7 @@
     // Guardar opciones completas de empresas por si se requiere restaurar (no usado actualmente)
     const empresaAllOptions = Array.from(empresaSel?.options || []);
     let pendingDeleteDraft = null;
+    let lastCompanyId = '';
 
     // Opciones de forma de pago según tipo de comprobante
     const paymentOptions = {
@@ -414,7 +415,43 @@
       // Al cambiar empresa, NO borrar sucursales ni otros datos del cliente;
       // sólo actualizar mails, pedidos anteriores y destinatarios.
       const opt = empresaSel.options[empresaSel.selectedIndex];
+      const currCompanyId = (empresaSel && empresaSel.value) ? String(empresaSel.value) : '';
+      if (currCompanyId !== lastCompanyId) {
+        // reset flags de defaults por cambio real de empresa
+        delete document.body.dataset.tipoTouched;
+        if (formaPagoSel) delete formaPagoSel.dataset.touched;
+        lastCompanyId = currCompanyId;
+      }
       if (mailInput) mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
+
+      // Default: pedido estándar recomendado de la empresa (si el usuario todavía no escribió nada)
+      try {
+        const std = opt ? (opt.getAttribute('data-pedido-std') || '') : '';
+        const hasText = !!(descInput && descInput.value && descInput.value.trim());
+        if (descInput && !descInput.dataset.touched && !hasText && std && std.trim()) {
+          descInput.value = std;
+          descInput.dispatchEvent(new Event('input'));
+        }
+      } catch(e) {}
+
+      // Defaults de la empresa: tipo comprobante + forma de pago
+      try {
+        const defTipo = opt ? (opt.getAttribute('data-tipo-default') || '') : '';
+        const defPago = opt ? (opt.getAttribute('data-pago-default') || '') : '';
+        // setTipo está definido abajo en el script
+        if (defTipo && typeof setTipo === 'function' && !document.body.dataset.tipoTouched) {
+          setTipo(defTipo);
+        }
+        if (defPago && formaPagoSel && !formaPagoSel.dataset.touched) {
+          // setTipo() ya llama populateFormaPago(), entonces acá sólo intentamos setear si existe
+          const exists = Array.from(formaPagoSel.options || []).some(o => String(o.value) === String(defPago));
+          if (exists) {
+            formaPagoSel.value = defPago;
+            formaPagoSel.dispatchEvent(new Event('change'));
+          }
+        }
+      } catch(e) {}
+
       loadPrevOrders();
       loadRecipientsFromCompany();
       updateEnabledBySelection();
@@ -501,6 +538,9 @@
           opt.textContent = e.label;
           opt.setAttribute('data-mail', e.mail_pedido || '');
           opt.setAttribute('data-mail-pago', e.mail_pago || '');
+          opt.setAttribute('data-pedido-std', e.pedido_estandar_recomendado || '');
+          opt.setAttribute('data-tipo-default', (e.tipo_comprobante_default || '').toString());
+          opt.setAttribute('data-pago-default', (e.forma_pago_default || '').toString());
           empresaSel.appendChild(opt);
         }
       }catch(e){/* noop */}
@@ -509,6 +549,9 @@
       const id = clienteSel.value;
       // Al cambiar cliente, solo limpiar (no guardar automático)
       clearFormForClientChange();
+      // reset de flags de defaults
+      delete document.body.dataset.tipoTouched;
+      if (formaPagoSel) delete formaPagoSel.dataset.touched;
       loadBranches(id);
       loadCompanies(id);
       loadPrevOrders();
@@ -572,6 +615,20 @@
       el.addEventListener('input', saveDraft);
       el.addEventListener('change', saveDraft);
     });
+
+    // Marcar cuando el usuario tocó la descripción para no pisarla con defaults
+    if (descInput) {
+      descInput.addEventListener('input', function(){
+        descInput.dataset.touched = '1';
+      });
+    }
+
+    // Marcar cuando el usuario tocó la forma de pago
+    if (formaPagoSel) {
+      formaPagoSel.addEventListener('change', function(){
+        formaPagoSel.dataset.touched = '1';
+      });
+    }
 
     // Abrir modal de borradores
     draftsOpenBtn?.addEventListener('click', ()=>{
@@ -665,10 +722,10 @@
       }
     }
     if (btnFactura){
-      btnFactura.addEventListener('click', function(){ setTipo('FACTURA'); });
+      btnFactura.addEventListener('click', function(){ document.body.dataset.tipoTouched = '1'; setTipo('FACTURA'); });
     }
     if (btnRemito){
-      btnRemito.addEventListener('click', function(){ setTipo('REMITO'); });
+      btnRemito.addEventListener('click', function(){ document.body.dataset.tipoTouched = '1'; setTipo('REMITO'); });
     }
     // Inicializar en FACTURA por defecto
     setTipo('FACTURA');

@@ -9,6 +9,7 @@
   .descuento-group { max-width: 110px !important; flex-wrap: nowrap !important; }
   .descuento-group .input-group-text { min-width: 28px; justify-content: center; padding-left: .45rem; padding-right: .45rem; }
   .descuento-group .form-control { min-width: 0; width: 70px; }
+  .js-company-sort{ cursor:pointer; user-select:none; }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-3 mt-3">
   <div>
@@ -39,21 +40,65 @@
         <table class="table table-hover align-middle mb-0 table-tight" id="empresas-table">
         <thead class="table-light">
           <tr>
-            <th>Marca</th>
-            <th>Razón social</th>
+            <th class="js-company-sort" data-sort-key="marca">Marca</th>
+            <th class="js-company-sort" data-sort-key="razon">Razón social</th>
             <th>Despacho</th>
             <th>Plazo</th>
+            <th>
+              Alertas
+              <span id="totalAlertasWrap" class="{{ '' if (total_active_alerts is defined and (total_active_alerts|int) > 0) else 'd-none' }}">
+                (<span id="totalAlertasCount" class="text-danger fw-bold">{{ total_active_alerts if total_active_alerts is defined else 0 }}</span>)
+              </span>
+            </th>
             <th class="text-end col-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
         {% for e in items %}
           {% set marca_val = (e.marca if e.marca and e.marca|lower != 'none' else '') %}
-          <tr data-marca="{{ marca_val|lower }}" data-razon="{{ (e.nombre or '')|lower }}">
-            <td>{{ marca_val or '-' }}</td>
-            <td>{{ e.nombre or '-' }}</td>
+          {% set company_alerts = alerts_by_company[e.id] if alerts_by_company is defined and alerts_by_company and (e.id in alerts_by_company) else [] %}
+          {% set total_alerts = company_alerts|length %}
+          <tr data-marca="{{ marca_val|lower }}" data-razon="{{ (e.nombre or '')|lower }}" data-has-alertas="{{ '1' if total_alerts > 0 else '0' }}" data-alertas-count="{{ total_alerts }}">
+            <td>
+              <div>{{ marca_val or '-' }}</div>
+              <div class="mt-2 d-none js-alertas-list" data-company-id="{{ e.id }}">
+                {% if total_alerts > 0 %}
+                  <div class="d-flex flex-column gap-2">
+                    {% for a in company_alerts %}
+                      <div class="d-flex flex-wrap gap-2 align-items-center js-alerta-item" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" data-message="{{ a.message }}" data-severity="{{ a.severity }}" data-company="{{ a.company }}">
+                        <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }}</span>
+                        <button type="button" class="btn btn-sm btn-success rounded-circle js-alerta-action" data-action="visto" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" aria-label="Marcar alerta como vista" title="Visto">
+                          <i class="bi bi-check-lg"></i>
+                        </button>
+                        <div class="dropdown">
+                          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Posponer</button>
+                          <ul class="dropdown-menu dropdown-menu-end">
+                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="1" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">1 día</button></li>
+                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="7" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">7 días</button></li>
+                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="30" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">30 días</button></li>
+                          </ul>
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div class="fw-semibold">{{ e.nombre or '-' }}</div>
+            </td>
             <td>{{ e.demora_despacho_promedio_dias if e.demora_despacho_promedio_dias is not none else '-' }}</td>
             <td>{{ e.plazo_pago_promedio_dias if e.plazo_pago_promedio_dias is not none else '-' }}</td>
+            <td>
+              <button type="button" class="btn btn-sm btn-outline-secondary js-toggle-alertas" data-company-id="{{ e.id }}" style="border-radius: 999px; padding-inline: 0.85rem; font-weight: 500; color:#0f766e; border-color:#0f766e;">
+                Ver
+                <span class="js-company-alert-wrap {{ '' if total_alerts > 0 else 'd-none' }}" data-company-id="{{ e.id }}">
+                  (<span class="text-danger fw-bold js-company-alert-count" data-company-id="{{ e.id }}">{{ total_alerts }}</span>)
+                </span>
+              </button>
+            </td>
             <td class="text-end col-actions">
               <div class="dropdown d-inline-block">
                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -185,7 +230,8 @@
 <script>
 (function(){
   var input = document.getElementById('empresaSearch');
-  var rows = document.querySelectorAll('#empresas-table tbody tr');
+  var tbody = document.querySelector('#empresas-table tbody');
+  var rows = tbody ? Array.from(tbody.children).filter(function(n){ return n && n.tagName === 'TR'; }) : [];
   function norm(str){
     str = (str || '').toString().toLowerCase();
     try {
@@ -213,6 +259,172 @@
   if (input){
     input.addEventListener('input', applySearch);
   }
+})();
+</script>
+<script>
+// Ordenamiento A-Z / Z-A para empresas (solo filas principales)
+(function(){
+  var table = document.getElementById('empresas-table');
+  if (!table) return;
+  var tbody = table.querySelector('tbody');
+  if (!tbody) return;
+  function sortRows(key, th){
+    var dir = (th.dataset.dir === 'asc') ? 'desc' : 'asc';
+    th.dataset.dir = dir;
+    table.querySelectorAll('thead th.js-company-sort').forEach(function(other){
+      if (other !== th) delete other.dataset.dir;
+    });
+    var rows = Array.from(tbody.children).filter(function(n){ return n && n.tagName === 'TR'; });
+    if (rows.length <= 1 && rows[0] && !rows[0].hasAttribute('data-marca') && !rows[0].hasAttribute('data-razon')) return;
+    rows.sort(function(a,b){
+      var av = (a.getAttribute('data-' + key) || '').toLowerCase();
+      var bv = (b.getAttribute('data-' + key) || '').toLowerCase();
+      var cmp = av.localeCompare(bv, 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+  table.querySelectorAll('thead th.js-company-sort').forEach(function(th){
+    th.addEventListener('click', function(e){
+      e.preventDefault();
+      var key = th.getAttribute('data-sort-key');
+      if (!key) return;
+      sortRows(key, th);
+    });
+  });
+})();
+</script>
+<script>
+// Toggle y acciones de alertas en empresas (usa endpoints de clientes)
+(function(){
+  function postForm(url, data){
+    var form = new URLSearchParams();
+    Object.keys(data || {}).forEach(function(k){
+      if (data[k] !== undefined && data[k] !== null) form.append(k, data[k]);
+    });
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: form.toString(),
+      credentials: 'same-origin'
+    }).then(function(r){ return r.json(); });
+  }
+  function getCompanyCount(companyId){
+    var el = document.querySelector('.js-company-alert-count[data-company-id="' + companyId + '"]');
+    if (!el) return 0;
+    var v = parseInt(el.textContent || '0', 10);
+    return isNaN(v) ? 0 : v;
+  }
+  function setCompanyCount(companyId, n){
+    var el = document.querySelector('.js-company-alert-count[data-company-id="' + companyId + '"]');
+    var wrap = document.querySelector('.js-company-alert-wrap[data-company-id="' + companyId + '"]');
+    if (el) el.textContent = String(Math.max(0, n));
+    if (wrap){
+      wrap.classList.toggle('d-none', !(n > 0));
+    }
+  }
+  function getTotalCount(){
+    var el = document.getElementById('totalAlertasCount');
+    if (!el) return 0;
+    var v = parseInt(el.textContent || '0', 10);
+    return isNaN(v) ? 0 : v;
+  }
+  function setTotalCount(n){
+    var el = document.getElementById('totalAlertasCount');
+    var wrap = document.getElementById('totalAlertasWrap');
+    if (el) el.textContent = String(Math.max(0, n));
+    if (wrap) wrap.classList.toggle('d-none', !(n > 0));
+  }
+  function updateRowAttrs(companyId, newCount){
+    var row = document.querySelector('#empresas-table tbody tr button.js-toggle-alertas[data-company-id="' + companyId + '"]');
+    if (!row) return;
+    var tr = row.closest('tr');
+    if (!tr) return;
+    tr.setAttribute('data-alertas-count', String(Math.max(0, newCount)));
+    tr.setAttribute('data-has-alertas', (newCount > 0) ? '1' : '0');
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.classList || !btn.classList.contains('js-toggle-alertas'))){
+      if (btn.closest) btn = btn.closest('.js-toggle-alertas');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-toggle-alertas')) return;
+    var companyId = btn.getAttribute('data-company-id');
+    if (!companyId) return;
+    var panel = document.querySelector('.js-alertas-list[data-company-id="' + companyId + '"]');
+    if (!panel) return;
+    panel.classList.toggle('d-none');
+  });
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.classList || !btn.classList.contains('js-alerta-action'))){
+      if (btn.closest) btn = btn.closest('.js-alerta-action');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-alerta-action')) return;
+    e.preventDefault();
+
+    var action = btn.getAttribute('data-action') || '';
+    var clientId = btn.getAttribute('data-client-id');
+    var orderId = btn.getAttribute('data-order-id');
+    var kind = btn.getAttribute('data-kind');
+    if (!action || !clientId || !orderId || !kind) return;
+
+    var url = null;
+    var payload = { client_id: clientId, order_id: orderId, kind: kind };
+    if (action === 'visto'){
+      url = "{{ url_for('main.clientes_alertas_visto') }}";
+    } else if (action === 'snooze'){
+      url = "{{ url_for('main.clientes_alertas_snooze') }}";
+      payload.days = btn.getAttribute('data-days') || '';
+    } else {
+      return;
+    }
+
+    var item = btn.closest('.js-alerta-item');
+    if (item){
+      payload.message = item.getAttribute('data-message') || '';
+      payload.severity = item.getAttribute('data-severity') || '';
+      payload.company = item.getAttribute('data-company') || '';
+    }
+
+    btn.disabled = true;
+    postForm(url, payload).then(function(resp){
+      if (!resp || !resp.ok){
+        btn.disabled = false;
+        var msg = (resp && resp.error) ? ('No se pudo procesar la alerta: ' + resp.error) : 'No se pudo procesar la alerta.';
+        if (resp && resp.hint) msg += ' ' + resp.hint;
+        if (window.showToast) window.showToast(msg, 'danger');
+        return;
+      }
+
+      // Quitar item de la lista
+      if (item) item.remove();
+
+      // Determinar company_id desde el panel contenedor
+      var panel = btn.closest('.js-alertas-list');
+      var companyId = panel ? panel.getAttribute('data-company-id') : null;
+      if (companyId){
+        var newCompanyCount = getCompanyCount(companyId) - 1;
+        setCompanyCount(companyId, newCompanyCount);
+        updateRowAttrs(companyId, newCompanyCount);
+      }
+      setTotalCount(getTotalCount() - 1);
+
+      // Si ya no quedan items, ocultar el panel y mostrar '-'
+      if (panel){
+        var remaining = panel.querySelectorAll('.js-alerta-item').length;
+        if (remaining <= 0){
+          panel.innerHTML = '<span class="text-muted">-</span>';
+          panel.classList.add('d-none');
+        }
+      }
+    }).catch(function(){
+      btn.disabled = false;
+      if (window.showToast) window.showToast('Error de conexión al procesar la alerta.', 'danger');
+    });
+  });
 })();
 </script>
 <script>

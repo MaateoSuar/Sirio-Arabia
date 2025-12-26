@@ -67,6 +67,25 @@
           <input name="plazo" type="number" class="form-control" min="0" value="{{ company.plazo_pago_promedio_dias or '' if company else '' }}">
         </div>
         <div class="col-md-6">
+          <label class="form-label">Plazo usual</label>
+          <input name="plazo_usual" type="text" class="form-control" value="{{ company.plazo_usual or '' if company else '' }}" placeholder="Ej: 15 días / contado / etc">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Pedido estándar recomendado</label>
+          <textarea name="pedido_estandar_recomendado" class="form-control" rows="3" placeholder="Detalle de pedido estándar...">{{ company.pedido_estandar_recomendado or '' if company else '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Forma de pago (default)</label>
+          {% set fpd = ((company.forma_pago_default if company else '') or '') %}
+          <select name="forma_pago_default" class="form-select">
+            <option value="">-</option>
+            <option value="EFECTIVO" {{ 'selected' if fpd=='EFECTIVO' else '' }}>Efectivo</option>
+            <option value="TRANSFERENCIA" {{ 'selected' if fpd=='TRANSFERENCIA' else '' }}>Transferencia</option>
+            <option value="CHEQUE" {{ 'selected' if fpd=='CHEQUE' else '' }}>Cheque</option>
+            <option value="NO_SE_SABE" {{ 'selected' if fpd=='NO_SE_SABE' else '' }}>No se sabe</option>
+          </select>
+        </div>
+        <div class="col-md-6">
           {% if company %}<input type="hidden" id="company_mail_pedido_raw" value="{{ company.mail_pedido or '' }}">{% endif %}
           <div class="mt-3">
             <div class="d-flex align-items-center justify-content-between">

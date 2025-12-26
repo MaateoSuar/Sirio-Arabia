@@ -72,6 +72,7 @@ class Client(db.Model):
     sucursal = db.Column(db.String(120))
     cuit = db.Column(db.String(32))
     direccion_principal = db.Column(db.String(255))
+    forma_pago_habitual = db.Column(db.String(32))
     transporte_recomendado = db.Column(db.String(120))
     delivery_schedule = db.Column(db.String(255))
     delivery_contact = db.Column(db.String(255))
@@ -110,6 +111,10 @@ class Company(db.Model):
     plazo_pago_promedio_dias = db.Column(db.Integer, default=30)
     mail_pedido = db.Column(db.String(255))
     mail_pago = db.Column(db.String(255))
+    pedido_estandar_recomendado = db.Column(db.Text)
+    plazo_usual = db.Column(db.String(120))
+    tipo_comprobante_default = db.Column(db.String(16))
+    forma_pago_default = db.Column(db.String(32))
     # Información complementaria
     cuit = db.Column(db.String(32))
     notas = db.Column(db.Text)

@@ -5,6 +5,8 @@
   .table-relaxed th, .table-relaxed td { padding: .75rem 1.35rem; }
   /* Mantener columna Acciones compacta y sin ocupar ancho extra */
   .col-actions { white-space: nowrap; width: 1%; }
+  .js-sortable-table thead th[data-sort]{ cursor:pointer; user-select:none; }
+  .js-client-sort{ cursor:pointer; user-select:none; }
   /* Card de clientes: permitir que los dropdowns se vean completos */
   .card-clients { overflow: visible; }
   /* Dejar espacio inferior extra bajo la última fila para que los menús no queden pegados al borde */
@@ -52,9 +54,11 @@
         <table class="table table-hover align-middle mb-0 table-relaxed w-100" id="clientes-table">
         <thead class="table-light">
           <tr>
-            <th>Razón social</th>
-            <th>Nombre</th>
-            <th>Dirección principal</th>
+            <th class="js-client-sort" data-sort-key="razon">
+              Razón social
+            </th>
+            <th class="js-client-sort" data-sort-key="nombre">Nombre</th>
+            <th>Provincia</th>
             <th>
               Alertas
               <span id="totalAlertasWrap" class="{{ '' if (total_active_alerts is defined and (total_active_alerts|int) > 0) else 'd-none' }}">
@@ -71,17 +75,9 @@
           <tr data-prov="{{ (c.provincia or '')|lower }}" data-nombre="{{ (c.nombre or '')|lower }}" data-razon="{{ (c.apellido or '')|lower }}"
               data-has-alertas="{{ '1' if total_alerts > 0 else '0' }}"
               data-alertas-count="{{ total_alerts }}">
-            <td>{{ c.apellido }}</td>
-            <td>{{ c.nombre }}</td>
-            <td>{{ c.direccion_principal or '-' }}</td>
             <td>
-              <button type="button" class="btn btn-sm btn-outline-secondary js-toggle-alertas" data-client-id="{{ c.id }}" style="border-radius: 999px; padding-inline: 0.85rem; font-weight: 500; color:#0f766e; border-color:#0f766e;">
-                Ver alertas
-                <span class="js-client-alert-wrap {{ '' if total_alerts > 0 else 'd-none' }}" data-client-id="{{ c.id }}">
-                  (<span class="text-danger fw-bold js-client-alert-count" data-client-id="{{ c.id }}">{{ total_alerts }}</span>)
-                </span>
-              </button>
-              <div class="mt-1 d-none js-alertas-list" data-client-id="{{ c.id }}">
+              <div class="fw-semibold">{{ c.apellido }}</div>
+              <div class="mt-2 d-none js-alertas-list" data-client-id="{{ c.id }}">
                 {% if total_alerts > 0 %}
                   <div class="d-flex flex-column gap-2">
                     {% for a in client_alerts %}
@@ -90,6 +86,14 @@
                         <button type="button" class="btn btn-sm btn-success rounded-circle js-alerta-action" data-action="visto" data-client-id="{{ c.id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" aria-label="Marcar alerta como vista" title="Visto">
                           <i class="bi bi-check-lg"></i>
                         </button>
+                        <div class="dropdown">
+                          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Posponer</button>
+                          <ul class="dropdown-menu dropdown-menu-end">
+                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="1" data-client-id="{{ c.id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">1 día</button></li>
+                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="7" data-client-id="{{ c.id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">7 días</button></li>
+                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="30" data-client-id="{{ c.id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">30 días</button></li>
+                          </ul>
+                        </div>
                       </div>
                     {% endfor %}
                   </div>
@@ -97,6 +101,16 @@
                   <span class="text-muted">-</span>
                 {% endif %}
               </div>
+            </td>
+            <td>{{ c.nombre }}</td>
+            <td>{{ c.provincia or '-' }}</td>
+            <td>
+              <button type="button" class="btn btn-sm btn-outline-secondary js-toggle-alertas" data-client-id="{{ c.id }}" style="border-radius: 999px; padding-inline: 0.85rem; font-weight: 500; color:#0f766e; border-color:#0f766e;">
+                Ver
+                <span class="js-client-alert-wrap {{ '' if total_alerts > 0 else 'd-none' }}" data-client-id="{{ c.id }}">
+                  (<span class="text-danger fw-bold js-client-alert-count" data-client-id="{{ c.id }}">{{ total_alerts }}</span>)
+                </span>
+              </button>
             </td>
             <td class="text-end col-actions">
               <div class="dropdown d-inline-block">
@@ -310,6 +324,42 @@
 })();
 </script>
 <script>
+(function(){
+  var table = document.getElementById('clientes-table');
+  if (!table) return;
+  var tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  function sortRows(key, th){
+    var dir = (th.dataset.dir === 'asc') ? 'desc' : 'asc';
+    th.dataset.dir = dir;
+    table.querySelectorAll('thead th.js-client-sort').forEach(function(other){
+      if (other !== th) delete other.dataset.dir;
+    });
+
+    var rows = Array.from(tbody.children).filter(function(n){ return n && n.tagName === 'TR'; });
+    // Si la tabla está vacía (fila "Sin clientes"), no ordenar
+    if (rows.length <= 1 && rows[0] && !rows[0].hasAttribute('data-razon') && !rows[0].hasAttribute('data-nombre')) return;
+    rows.sort(function(a,b){
+      var av = (a.getAttribute('data-' + key) || '').toLowerCase();
+      var bv = (b.getAttribute('data-' + key) || '').toLowerCase();
+      var cmp = av.localeCompare(bv, 'es', { sensitivity: 'base' });
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+
+  table.querySelectorAll('thead th.js-client-sort').forEach(function(th){
+    th.addEventListener('click', function(e){
+      e.preventDefault();
+      var key = th.getAttribute('data-sort-key');
+      if (!key) return;
+      sortRows(key, th);
+    });
+  });
+})();
+</script>
+<script>
 // Ordenar tablas en modales (Empresas de cliente) por click en encabezados
 (function(){
   function getCellValue(tr, idx){
@@ -423,6 +473,9 @@
     var payload = { client_id: clientId, order_id: orderId, kind: kind };
     if (action === 'visto'){
       url = "{{ url_for('main.clientes_alertas_visto') }}";
+    } else if (action === 'snooze'){
+      url = "{{ url_for('main.clientes_alertas_snooze') }}";
+      payload.days = btn.getAttribute('data-days') || '';
     } else {
       return;
     }
@@ -438,7 +491,7 @@
     postForm(url, payload).then(function(resp){
       if (!resp || !resp.ok){
         btn.disabled = false;
-        var msg = (resp && resp.error) ? ('No se pudo marcar como visto: ' + resp.error) : 'No se pudo marcar como visto.';
+        var msg = (resp && resp.error) ? ('No se pudo procesar la alerta: ' + resp.error) : 'No se pudo procesar la alerta.';
         if (resp && resp.hint) msg += ' ' + resp.hint;
         if (window.showToast) window.showToast(msg, 'danger');
         return;
@@ -462,7 +515,7 @@
       }
     }).catch(function(){
       btn.disabled = false;
-      if (window.showToast) window.showToast('Error de conexión al marcar como visto.', 'danger');
+      if (window.showToast) window.showToast('Error de conexión al procesar la alerta.', 'danger');
     });
   });
 })();
@@ -473,7 +526,8 @@
   var provSelect = document.getElementById('provSelect');
   var alertasSelect = document.getElementById('alertasSelect');
   var searchInput = document.getElementById('clienteSearch');
-  var rows = document.querySelectorAll('#clientes-table tbody tr');
+  var tbody = document.querySelector('#clientes-table tbody');
+  var rows = tbody ? Array.from(tbody.children).filter(function(n){ return n && n.tagName === 'TR'; }) : [];
 
   function rowMatchesAlertas(tr, filtro){
     if (!filtro) return true;

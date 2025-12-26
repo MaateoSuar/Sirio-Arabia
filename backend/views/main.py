@@ -38,6 +38,8 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                     return False
                 if st.dismissed_at:
                     return True
+                if st.snoozed_until and st.snoozed_until > now_dt:
+                    return True
                 return False
 
             # Mercadería
@@ -55,6 +57,7 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                 alerts.append({
                     "client_id": c.id,
                     "client_name": f"{c.apellido} {c.nombre}",
+                    "company_id": o.company_id,
                     "order_id": o.id,
                     "kind": "MERCADERIA",
                     "severity": "warning" if overdue_days <= 2 else "danger",
@@ -76,6 +79,7 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                     alerts.append({
                         "client_id": c.id,
                         "client_name": f"{c.apellido} {c.nombre}",
+                        "company_id": o.company_id,
                         "order_id": o.id,
                         "kind": "COBRANZA",
                         "severity": "warning" if overdue_days <= 2 else "danger",
@@ -178,7 +182,12 @@ def auto_patch_new_columns():
                 "ALTER TABLE client_delivery_place ADD COLUMN IF NOT EXISTS nota VARCHAR(255)",
                 "ALTER TABLE client_birthday ADD COLUMN IF NOT EXISTS notas TEXT",
                 "ALTER TABLE client ADD COLUMN IF NOT EXISTS transporte_contacto VARCHAR(255)",
+                "ALTER TABLE client ADD COLUMN IF NOT EXISTS forma_pago_habitual VARCHAR(32)",
                 "ALTER TABLE client_document ADD COLUMN IF NOT EXISTS category VARCHAR(32)",
+                "ALTER TABLE company ADD COLUMN IF NOT EXISTS pedido_estandar_recomendado TEXT",
+                "ALTER TABLE company ADD COLUMN IF NOT EXISTS plazo_usual VARCHAR(120)",
+                "ALTER TABLE company ADD COLUMN IF NOT EXISTS tipo_comprobante_default VARCHAR(16)",
+                "ALTER TABLE company ADD COLUMN IF NOT EXISTS forma_pago_default VARCHAR(32)",
             ]
         else:
             stmts = [
@@ -200,7 +209,12 @@ def auto_patch_new_columns():
                 "ALTER TABLE client_delivery_place ADD COLUMN nota VARCHAR(255)",
                 "ALTER TABLE client_birthday ADD COLUMN notas TEXT",
                 "ALTER TABLE client ADD COLUMN transporte_contacto VARCHAR(255)",
+                "ALTER TABLE client ADD COLUMN forma_pago_habitual VARCHAR(32)",
                 "ALTER TABLE client_document ADD COLUMN category VARCHAR(32)",
+                "ALTER TABLE company ADD COLUMN pedido_estandar_recomendado TEXT",
+                "ALTER TABLE company ADD COLUMN plazo_usual VARCHAR(120)",
+                "ALTER TABLE company ADD COLUMN tipo_comprobante_default VARCHAR(16)",
+                "ALTER TABLE company ADD COLUMN forma_pago_default VARCHAR(32)",
             ]
         for sql in stmts:
             try:
@@ -444,6 +458,8 @@ def clientes():
                     return False
                 if st.dismissed_at:
                     return True
+                if st.snoozed_until and st.snoozed_until > now_dt:
+                    return True
                 return False
 
             # Mercadería / logística (atrasos)
@@ -545,6 +561,41 @@ def clientes_alertas_visto():
         db.session.rollback()
         return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
     return jsonify({"ok": True})
+
+
+@bp.post("/clientes/alertas/snooze")
+def clientes_alertas_snooze():
+    client_id = request.form.get("client_id", type=int)
+    order_id = request.form.get("order_id", type=int)
+    kind = (request.form.get("kind") or "").strip().upper()
+    days = request.form.get("days", type=int)
+    if not client_id or not order_id or not kind or not days:
+        return jsonify({"ok": False, "error": "missing_params"}), 400
+    if days not in (1, 7, 30):
+        return jsonify({"ok": False, "error": "invalid_days"}), 400
+
+    try:
+        st = ClientAlertState.query.filter_by(client_id=client_id, order_id=order_id, kind=kind).first()
+    except OperationalError:
+        return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
+    if not st:
+        st = ClientAlertState(client_id=client_id, order_id=order_id, kind=kind)
+        db.session.add(st)
+
+    st.message = (request.form.get("message") or st.message or "").strip() or st.message
+    st.severity = (request.form.get("severity") or st.severity or "").strip() or st.severity
+    st.company = (request.form.get("company") or st.company or "").strip() or st.company
+    if not st.first_seen_at:
+        st.first_seen_at = datetime.utcnow()
+    st.dismissed_at = None
+    st.snoozed_until = datetime.utcnow() + timedelta(days=int(days))
+
+    try:
+        db.session.commit()
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
+    return jsonify({"ok": True, "snoozed_until": st.snoozed_until.isoformat() if st.snoozed_until else None})
 
 
 @bp.get("/notificaciones")
@@ -727,6 +778,7 @@ def clientes_create():
     branch_list = [b.strip() for b in request.form.getlist("branch_list") if (b or "").strip()]
     telefono = request.form.get("telefono", "").strip()
     provincia = (request.form.get("provincia") or "").strip() or None
+    forma_pago_habitual = (request.form.get("forma_pago_habitual") or "").strip().upper() or None
     # Transporte (sección colapsable)
     transporte_nombre = (request.form.get("transporte_nombre") or "").strip() or None
     transporte_contacto = (request.form.get("transporte_contacto") or "").strip() or None
@@ -754,6 +806,7 @@ def clientes_create():
                     cuit=cuit,
                     transporte_recomendado=transporte_nombre, transporte_contacto=transporte_contacto,
                     provincia=provincia,
+                    forma_pago_habitual=forma_pago_habitual,
                     telefono=telefono or None, mail=mail or None,
                     fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
     db.session.add(client)
@@ -864,6 +917,7 @@ def admin_patch_client_columns():
             "ALTER TABLE client ADD COLUMN IF NOT EXISTS fecha_incorporacion DATE",
             "ALTER TABLE client ADD COLUMN IF NOT EXISTS telefono VARCHAR(50)",
             "ALTER TABLE client ADD COLUMN IF NOT EXISTS mail VARCHAR(255)",
+            "ALTER TABLE client ADD COLUMN IF NOT EXISTS forma_pago_habitual VARCHAR(32)",
         ]
         alter_company_cols = [
             "ALTER TABLE company ADD COLUMN IF NOT EXISTS cuit VARCHAR(32)",
@@ -952,6 +1006,7 @@ def admin_patch_client_columns():
             "ALTER TABLE client ADD COLUMN fecha_incorporacion DATE",
             "ALTER TABLE client ADD COLUMN telefono VARCHAR(50)",
             "ALTER TABLE client ADD COLUMN mail VARCHAR(255)",
+            "ALTER TABLE client ADD COLUMN forma_pago_habitual VARCHAR(32)",
         ]
         alter_company_cols = [
             "ALTER TABLE company ADD COLUMN cuit VARCHAR(32)",
@@ -1272,6 +1327,7 @@ def clientes_update(client_id: int):
         pass
     obj.telefono = request.form.get("telefono") or None
     obj.provincia = (request.form.get("provincia") or None)
+    obj.forma_pago_habitual = ((request.form.get("forma_pago_habitual") or "").strip().upper() or None)
     # Transporte (sección colapsable)
     obj.transporte_recomendado = (request.form.get("transporte_nombre") or None)
     obj.transporte_contacto = (request.form.get("transporte_contacto") or None)
@@ -1420,6 +1476,9 @@ def api_client_companies(client_id: int):
                 "label": l.company.nombre,
                 "mail_pedido": l.company.mail_pedido or "",
                 "mail_pago": l.company.mail_pago or "",
+                "pedido_estandar_recomendado": l.company.pedido_estandar_recomendado or "",
+                "tipo_comprobante_default": (l.company.tipo_comprobante_default or ""),
+                "forma_pago_default": (l.company.forma_pago_default or ""),
                 "status": getattr(l.status, "value", str(l.status))
             })
     # Sort by name
@@ -1436,7 +1495,28 @@ def empresas():
         base = base.filter((Company.marca.ilike(ilike)) | (Company.nombre.ilike(ilike)))
     items = base.order_by(Company.marca.nullslast(), Company.nombre).all()
     clients = Client.query.order_by(Client.apellido, Client.nombre).all()
-    return render_template("empresas.html", active="empresas", items=items, clients=clients, q=q)
+    now_dt = datetime.utcnow()
+    alerts_by_company = {}
+    total_active_alerts = 0
+    try:
+        all_alerts = _compute_alerts_for_all_clients(now_dt)
+    except Exception:
+        all_alerts = []
+    for a in all_alerts:
+        coid = a.get("company_id")
+        if not coid:
+            continue
+        alerts_by_company.setdefault(coid, []).append(a)
+        total_active_alerts += 1
+    return render_template(
+        "empresas.html",
+        active="empresas",
+        items=items,
+        clients=clients,
+        q=q,
+        alerts_by_company=alerts_by_company,
+        total_active_alerts=total_active_alerts,
+    )
 
 
 @bp.get("/empresas/nueva")
@@ -1451,6 +1531,12 @@ def empresas_create():
     marca = (request.form.get("marca", "") or "").strip() or None
     demora = request.form.get("demora", type=int)
     plazo = request.form.get("plazo", type=int)
+    plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
+    pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
+    tipo_comprobante_default = ((request.form.get("tipo_comprobante_default") or "").strip().upper() or None)
+    if tipo_comprobante_default not in (None, "FACTURA", "REMITO"):
+        tipo_comprobante_default = None
+    forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
     mail_pedido_single = (request.form.get("mail_pedido", "") or "").strip()
     mail_pedido = ", ".join(mail_pedido_list) if mail_pedido_list else (mail_pedido_single or None)
@@ -1465,6 +1551,10 @@ def empresas_create():
         marca=marca,
         demora_despacho_promedio_dias=demora or 0,
         plazo_pago_promedio_dias=plazo or 30,
+        plazo_usual=plazo_usual,
+        pedido_estandar_recomendado=pedido_estandar_recomendado,
+        tipo_comprobante_default=tipo_comprobante_default,
+        forma_pago_default=forma_pago_default,
         mail_pedido=mail_pedido,
         mail_pago=mail_pago,
         cuit=cuit,
@@ -1760,6 +1850,13 @@ def empresas_update(company_id: int):
     obj.marca = (request.form.get("marca") or obj.marca)
     obj.demora_despacho_promedio_dias = request.form.get("demora", type=int) or obj.demora_despacho_promedio_dias
     obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
+    obj.plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
+    obj.pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
+    tipo_comprobante_default = ((request.form.get("tipo_comprobante_default") or "").strip().upper() or None)
+    if tipo_comprobante_default not in (None, "FACTURA", "REMITO"):
+        tipo_comprobante_default = None
+    obj.tipo_comprobante_default = tipo_comprobante_default
+    obj.forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
     mail_pedido_single = (request.form.get("mail_pedido") or "").strip()
     obj.mail_pedido = (", ".join(mail_pedido_list) if mail_pedido_list else (mail_pedido_single or None))
@@ -1872,6 +1969,13 @@ def empresas_edit(company_id: int):
     obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
     obj.mail_pedido = (request.form.get("mail_pedido") or None)
     obj.mail_pago = (request.form.get("mail_pago") or None)
+    obj.plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
+    obj.pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
+    tipo_comprobante_default = ((request.form.get("tipo_comprobante_default") or "").strip().upper() or None)
+    if tipo_comprobante_default not in (None, "FACTURA", "REMITO"):
+        tipo_comprobante_default = None
+    obj.tipo_comprobante_default = tipo_comprobante_default
+    obj.forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     db.session.commit()
     return redirect(url_for("main.empresas"))
 
