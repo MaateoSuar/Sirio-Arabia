@@ -14,26 +14,45 @@ from ..extensions import db
 from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, CollectionPayment, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, ClientAlertState
 from sqlalchemy import func, text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import selectinload
 
 bp = Blueprint("main", __name__)
 
-
-def _compute_alerts_for_all_clients(now_dt: datetime):
+def _compute_alerts_for_all_clients(now_dt: datetime, only_count: bool = False):
     alerts = []
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
-    for c in clients:
-        try:
-            state_rows = ClientAlertState.query.filter_by(client_id=c.id).all()
-        except OperationalError:
-            # DB aún no migrada (por ejemplo SQLite sin columnas nuevas)
-            state_rows = []
-        state_map = {(s.order_id, s.kind): s for s in state_rows}
+    count = 0
 
+    try:
+        clients = (
+            Client.query
+            .options(
+                selectinload(Client.orders).selectinload(Order.company),
+                selectinload(Client.orders).selectinload(Order.logistics),
+                selectinload(Client.orders).selectinload(Order.collection),
+            )
+            .order_by(Client.apellido, Client.nombre)
+            .all()
+        )
+    except Exception:
+        clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+
+    client_ids = [c.id for c in clients]
+    state_map = {}
+    if client_ids:
+        try:
+            state_rows = ClientAlertState.query.filter(ClientAlertState.client_id.in_(client_ids)).all()
+            state_map = {(s.client_id, s.order_id, s.kind): s for s in state_rows}
+        except OperationalError:
+            state_map = {}
+        except Exception:
+            state_map = {}
+
+    for c in clients:
         for o in (c.orders or []):
             comp_name = o.company.nombre if o.company else "-"
 
             def _is_muted(kind: str) -> bool:
-                st = state_map.get((o.id, kind))
+                st = state_map.get((c.id, o.id, kind))
                 if not st:
                     return False
                 if st.dismissed_at:
@@ -42,7 +61,6 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                     return True
                 return False
 
-            # Mercadería
             lg = getattr(o, "logistics", None)
             due = None
             if lg and not lg.fecha_entrega_efectiva:
@@ -54,18 +72,20 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                     due = None
             if due and now_dt > due and not _is_muted("MERCADERIA"):
                 overdue_days = (now_dt - due).days
-                alerts.append({
-                    "client_id": c.id,
-                    "client_name": f"{c.apellido} {c.nombre}",
-                    "company_id": o.company_id,
-                    "order_id": o.id,
-                    "kind": "MERCADERIA",
-                    "severity": "warning" if overdue_days <= 2 else "danger",
-                    "company": comp_name,
-                    "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
-                })
+                if only_count:
+                    count += 1
+                else:
+                    alerts.append({
+                        "client_id": c.id,
+                        "client_name": f"{c.apellido} {c.nombre}",
+                        "company_id": o.company_id,
+                        "order_id": o.id,
+                        "kind": "MERCADERIA",
+                        "severity": "warning" if overdue_days <= 2 else "danger",
+                        "company": comp_name,
+                        "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
+                    })
 
-            # Cobranzas
             col = getattr(o, "collection", None)
             if col and not col.fecha_cobro_efectiva:
                 pay_due = col.fecha_pago_estimada
@@ -81,18 +101,21 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                         pay_due = None
                 if pay_due and now_dt > pay_due and not _is_muted("COBRANZA"):
                     overdue_days = (now_dt - pay_due).days
-                    alerts.append({
-                        "client_id": c.id,
-                        "client_name": f"{c.apellido} {c.nombre}",
-                        "company_id": o.company_id,
-                        "order_id": o.id,
-                        "kind": "COBRANZA",
-                        "severity": "warning" if overdue_days <= 2 else "danger",
-                        "company": comp_name,
-                        "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
-                    })
-    return alerts
+                    if only_count:
+                        count += 1
+                    else:
+                        alerts.append({
+                            "client_id": c.id,
+                            "client_name": f"{c.apellido} {c.nombre}",
+                            "company_id": o.company_id,
+                            "order_id": o.id,
+                            "kind": "COBRANZA",
+                            "severity": "warning" if overdue_days <= 2 else "danger",
+                            "company": comp_name,
+                            "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
+                        })
 
+    return count if only_count else alerts
 
 def _refresh_link_statuses_by_last_order(now_dt: datetime, client_ids=None):
     threshold = now_dt - timedelta(days=90)
@@ -134,7 +157,6 @@ def _refresh_link_statuses_by_last_order(now_dt: datetime, client_ids=None):
         except Exception:
             db.session.rollback()
 
-
 @bp.before_app_request
 def auto_refresh_link_statuses_global():
     # Ejecutar la regla en toda la app, pero con throttling para no impactar rendimiento.
@@ -154,7 +176,6 @@ def auto_refresh_link_statuses_global():
             db.session.rollback()
         except Exception:
             pass
-
 
 @bp.before_app_request
 def auto_patch_new_columns():
@@ -260,16 +281,20 @@ def auto_patch_new_columns():
         except Exception:
             pass
 
-
 @bp.app_context_processor
 def inject_notification_count():
     try:
+        last = current_app.config.get("_NOTIF_COUNT_CACHE_AT")
+        val = current_app.config.get("_NOTIF_COUNT_CACHE_VAL")
         now_dt = datetime.utcnow()
-        active_alerts = _compute_alerts_for_all_clients(now_dt)
-        return {"notif_active_count": len(active_alerts)}
+        if last and isinstance(last, datetime) and val is not None and (now_dt - last) < timedelta(seconds=60):
+            return {"notif_active_count": int(val)}
+        active_count = _compute_alerts_for_all_clients(now_dt, only_count=True)
+        current_app.config["_NOTIF_COUNT_CACHE_AT"] = now_dt
+        current_app.config["_NOTIF_COUNT_CACHE_VAL"] = int(active_count or 0)
+        return {"notif_active_count": int(active_count or 0)}
     except Exception:
         return {"notif_active_count": 0}
-
 
 @bp.get("/")
 def index():
@@ -457,26 +482,41 @@ def index():
     extras = {"urgentes": urgentes}
     return render_template("index.html", active="dashboard", kpis=kpis, charts=charts, extras=extras)
 
-
 @bp.get("/clientes")
 def clientes():
-    items = Client.query.order_by(Client.apellido, Client.nombre).all()
+    items = (
+        Client.query
+        .options(
+            selectinload(Client.orders).selectinload(Order.company),
+            selectinload(Client.orders).selectinload(Order.logistics),
+            selectinload(Client.orders).selectinload(Order.collection),
+        )
+        .order_by(Client.apellido, Client.nombre)
+        .all()
+    )
     companies = Company.query.order_by(Company.nombre).all()
 
     # Regla: si pasaron 3 meses sin pedidos, TRABAJA -> TRABAJABA
     now_dt = datetime.utcnow()
     _refresh_link_statuses_by_last_order(now_dt, [c.id for c in items])
 
+    client_ids = [c.id for c in items]
+    state_map_all = {}
+    if client_ids:
+        try:
+            state_rows = ClientAlertState.query.filter(ClientAlertState.client_id.in_(client_ids)).all()
+            state_map_all = {(s.client_id, s.order_id, s.kind): s for s in state_rows}
+        except OperationalError:
+            state_map_all = {}
+        except Exception:
+            state_map_all = {}
+
     alerts_by_client = {}
     total_active_alerts = 0
 
     for c in items:
         # Estados persistidos para filtrar alertas (visto / postergado)
-        try:
-            state_rows = ClientAlertState.query.filter_by(client_id=c.id).all()
-        except OperationalError:
-            state_rows = []
-        state_map = {(s.order_id, s.kind): s for s in state_rows}
+        state_map = state_map_all
 
         client_alerts = []
 
@@ -484,7 +524,7 @@ def clientes():
             comp_name = o.company.nombre if o.company else "-"
 
             def _is_muted(kind: str) -> bool:
-                st = state_map.get((o.id, kind))
+                st = state_map.get((c.id, o.id, kind))
                 if not st:
                     return False
                 if st.dismissed_at:
@@ -2336,14 +2376,25 @@ def api_cobranzas_pedidos_pendientes():
     res = []
     for o in q.all():
         col = o.collection
-        monto_val = None
+        monto_val = 0.0
         try:
+            candidates = []
             if col is not None and getattr(col, "monto", None) is not None:
-                monto_val = float(col.monto)
-            elif getattr(o, "precio_final", None) is not None:
-                monto_val = float(o.precio_final)
-            else:
-                monto_val = 0.0
+                candidates.append((float(col.monto), "collection"))
+            if getattr(o, "precio_final", None) is not None:
+                candidates.append((float(o.precio_final), "order"))
+            lg = getattr(o, "logistics", None)
+            if lg is not None and getattr(lg, "precio", None) is not None:
+                candidates.append((float(lg.precio), "logistics"))
+            # Preferir un monto > 0; si no hay, caer al primero disponible (puede ser 0)
+            picked = None
+            for v, _src in candidates:
+                if v is not None and v > 0:
+                    picked = v
+                    break
+            if picked is None and candidates:
+                picked = candidates[0][0]
+            monto_val = float(picked or 0.0)
         except Exception:
             monto_val = 0.0
         res.append({
@@ -2468,12 +2519,22 @@ def nueva_cobranza_create():
 
     # Update collection summary
     try:
+        candidates = []
         if getattr(coll, "monto", None) is not None:
-            base_monto = float(coll.monto)
-        elif getattr(o, "precio_final", None) is not None:
-            base_monto = float(o.precio_final)
-        else:
-            base_monto = 0.0
+            candidates.append(float(coll.monto))
+        if getattr(o, "precio_final", None) is not None:
+            candidates.append(float(o.precio_final))
+        lg = getattr(o, "logistics", None)
+        if lg is not None and getattr(lg, "precio", None) is not None:
+            candidates.append(float(lg.precio))
+        picked = None
+        for v in candidates:
+            if v is not None and v > 0:
+                picked = v
+                break
+        if picked is None and candidates:
+            picked = candidates[0]
+        base_monto = float(picked or 0.0)
     except Exception:
         base_monto = 0.0
     net_due = base_monto - total_credit
