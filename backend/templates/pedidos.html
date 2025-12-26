@@ -60,14 +60,14 @@
     <form id="pedido-form" class="row g-2 g-md-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
       <div class="col-md-3">
         <label class="form-label">Fecha de compra</label>
-        <input type="date" class="form-control" id="pedido_fecha" name="fecha_compra" value="{{ today }}">
+        <input type="text" class="form-control" id="pedido_fecha" name="fecha_compra" value="{{ today }}" data-datepicker>
       </div>
       <div class="col-md-3">
         <label class="form-label">Cliente</label>
         <select class="form-select" id="pedido_cliente" name="client_id" required onchange="window.__onSelChange && window.__onSelChange()">
           <option value="">Cliente...</option>
           {% for c in clientes %}
-            <option value="{{ c.id }}" data-razon="{{ c.apellido }}" data-nombre="{{ c.nombre }}">{{ c.apellido }}</option>
+            <option value="{{ c.id }}" data-razon="{{ c.apellido }}" data-nombre="{{ c.nombre }}" data-forma-pago="{{ (c.forma_pago_habitual or '') }}">{{ c.apellido }}</option>
           {% endfor %}
         </select>
       </div>
@@ -88,6 +88,9 @@
       </div>
       <div class="col-12">
         <textarea class="form-control" id="pedido_descripcion" name="descripcion" rows="6" placeholder="Descripción del pedido (puedes pegar texto desde WhatsApp)"></textarea>
+      </div>
+      <div class="col-12">
+        <input type="file" name="attachments" id="pedido_attachments" class="form-control" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
       </div>
       <div class="col-12">
         <div class="d-flex justify-content-between align-items-center">
@@ -124,21 +127,22 @@
         <input type="number" step="0.01" class="form-control" id="pedido_precio" name="precio_final" placeholder="Precio final (opcional)">
       </div>
       <div class="col-md-4">
-        <div id="pedido_pago_box" class="border border-primary rounded-3 p-2">
+        <div id="pedido_pago_box" class="border border-secondary rounded-3 p-2">
           <div class="mb-2">
             <label class="form-label m-0">Tipo de comprobante</label>
             <div class="btn-group w-100 mt-1" role="group" aria-label="Tipo de comprobante" id="pedido_tipo_group">
-              <button type="button" class="btn btn-sm btn-primary" data-tipo="FACTURA" id="btn_tipo_factura">Factura</button>
+              <button type="button" class="btn btn-sm btn-outline-primary" data-tipo="FACTURA" id="btn_tipo_factura">Factura</button>
               <button type="button" class="btn btn-sm btn-outline-danger" data-tipo="REMITO" id="btn_tipo_remito">Remito</button>
             </div>
-            <input type="hidden" id="pedido_tipo_comprobante" name="tipo_comprobante" value="FACTURA">
+            <input type="hidden" id="pedido_tipo_comprobante" name="tipo_comprobante" value="">
           </div>
           <label class="form-label">Forma de pago</label>
-          <select class="form-select" id="pedido_forma_pago" name="forma_pago" required></select>
+          <select class="form-select" id="pedido_forma_pago" name="forma_pago"></select>
         </div>
       </div>
-      <div class="col-12">
-        <input type="file" name="attachments" id="pedido_attachments" class="form-control" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
+      <div class="col-md-4">
+        <label class="form-label">Plazo de pago (días)</label>
+        <input type="number" class="form-control" id="pedido_plazo_pago" name="plazo_pago_dias" min="0" placeholder="Plazo">
       </div>
       <div class="col-12 d-flex flex-wrap gap-2">
         <button class="btn btn-outline-success w-100 w-md-auto" type="button" id="save-pending-btn">Dejar pendiente</button>
@@ -157,6 +161,7 @@
     const descInput = document.getElementById('pedido_descripcion');
     const precioInput = document.getElementById('pedido_precio');
     const formaPagoSel = document.getElementById('pedido_forma_pago');
+    const plazoPagoInput = document.getElementById('pedido_plazo_pago');
     const fechaInput = document.getElementById('pedido_fecha');
     const branchSel = document.getElementById('pedido_branch');
     const branchCol = document.getElementById('pedido_branch_col');
@@ -186,20 +191,20 @@
     // Opciones de forma de pago según tipo de comprobante
     const paymentOptions = {
       FACTURA: [
-        { value: '', label: 'Seleccione forma de pago' },
+        { value: '', label: '-' },
         { value: 'EFECTIVO', label: 'Efectivo' },
         { value: 'TRANSFERENCIA', label: 'Transferencia' },
-        { value: 'CHEQUE', label: 'E-cheque' },
-        { value: 'CHEQUE', label: 'Cheque terceros físico' },
-        { value: 'NO_SE_SABE', label: 'No se sabe' },
+        { value: 'CHEQUE', label: 'E-cheq' },
+        { value: 'CHEQUE', label: 'Cheque Físico Terceros' },
+        { value: 'CHEQUE', label: 'Cheque Físico Propio' },
       ],
       REMITO: [
-        { value: '', label: 'Seleccione forma de pago' },
+        { value: '', label: '-' },
         { value: 'EFECTIVO', label: 'Efectivo' },
         { value: 'TRANSFERENCIA', label: 'Transferencia' },
-        { value: 'CHEQUE', label: 'E-cheque' },
-        { value: 'CHEQUE', label: 'Cheque de terceros' },
-        { value: 'NO_SE_SABE', label: 'No se sabe' },
+        { value: 'CHEQUE', label: 'E-cheq' },
+        { value: 'CHEQUE', label: 'Cheque Físico Terceros' },
+        { value: 'CHEQUE', label: 'Cheque Físico Propio' },
       ],
     };
 
@@ -214,12 +219,9 @@
         opt.textContent = o.label;
         formaPagoSel.appendChild(opt);
       });
-      // Default: EFECTIVO, salvo que ya haya un valor válido seleccionado
       const hasCurrent = opts.some(o => o.value && o.value === current);
       if (hasCurrent) {
         formaPagoSel.value = current;
-      } else {
-        formaPagoSel.value = 'EFECTIVO';
       }
     }
 
@@ -246,6 +248,7 @@
         descripcion: descInput?.value || '',
         precio_final: precioInput?.value || '',
         forma_pago: formaPagoSel?.value || '',
+        plazo_pago_dias: plazoPagoInput?.value || '',
         fecha_compra: fechaInput?.value || ''
       };
     }
@@ -340,6 +343,7 @@
         if (descInput) descInput.value = d.descripcion || '';
         if (precioInput) precioInput.value = d.precio_final || '';
         if (formaPagoSel) formaPagoSel.value = d.forma_pago || '';
+        if (plazoPagoInput) plazoPagoInput.value = d.plazo_pago_dias || '';
         if (branchSel){
           // asegurar opción de sucursal si viene un ID que aún no está cargado
           const id = String(d.branch_id || '');
@@ -375,6 +379,7 @@
         if (descInput) descInput.value = '';
         if (precioInput) precioInput.value = '';
         if (formaPagoSel) formaPagoSel.value = '';
+        if (plazoPagoInput) plazoPagoInput.value = '';
         if (fechaInput) {
           // mantener fecha actual visible; si se quiere, se puede resetear a today (ya viene en value por backend)
           // fechaInput.value = fechaInput.getAttribute('value') || '';
@@ -391,24 +396,7 @@
       }catch(e){}
     }
 
-    // Helpers de habilitación
-    function setFormEnabled(enabled){
-      const previewArea = document.getElementById('pedido_preview');
-      const attach = document.getElementById('pedido_attachments');
-      const targets = [notaInput, descInput, precioInput, formaPagoSel, fechaInput, branchSel, attach, previewArea];
-      targets.forEach(el=>{
-        if (!el) return;
-        if (enabled) { el.disabled = false; el.removeAttribute('disabled'); }
-        else { el.disabled = true; el.setAttribute('disabled','disabled'); }
-      });
-      // botones secundarios
-      [previewBtn, copyPrevBtn, document.getElementById('gmail-draft-btn')].forEach(b=>{ if (!b) return; if (enabled){ b.disabled=false; b.removeAttribute('disabled'); } else { b.disabled=true; b.setAttribute('disabled','disabled'); } });
-    }
-    function updateEnabledBySelection(){
-      const hasBoth = Boolean(clienteSel?.value) && Boolean(empresaSel?.value);
-      setFormEnabled(hasBoth);
-      if (hasBoth && branchSel){ branchSel.disabled = false; branchSel.removeAttribute('disabled'); }
-    }
+    function updateEnabledBySelection(){ return; }
 
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
     empresaSel?.addEventListener('change', ()=>{
@@ -438,6 +426,7 @@
       try {
         const defTipo = opt ? (opt.getAttribute('data-tipo-default') || '') : '';
         const defPago = opt ? (opt.getAttribute('data-pago-default') || '') : '';
+        const defPlazo = opt ? (opt.getAttribute('data-plazo') || '') : '';
         // setTipo está definido abajo en el script
         if (defTipo && typeof setTipo === 'function' && !document.body.dataset.tipoTouched) {
           setTipo(defTipo);
@@ -449,6 +438,9 @@
             formaPagoSel.value = defPago;
             formaPagoSel.dispatchEvent(new Event('change'));
           }
+        }
+        if (plazoPagoInput && !plazoPagoInput.dataset.touched && String(defPlazo || '').trim() !== '') {
+          plazoPagoInput.value = String(defPlazo);
         }
       } catch(e) {}
 
@@ -539,8 +531,9 @@
           opt.setAttribute('data-mail', e.mail_pedido || '');
           opt.setAttribute('data-mail-pago', e.mail_pago || '');
           opt.setAttribute('data-pedido-std', e.pedido_estandar_recomendado || '');
-          opt.setAttribute('data-tipo-default', (e.tipo_comprobante_default || '').toString());
+          opt.setAttribute('data-tipo-default', (e.comprobante_tipo || '').toString());
           opt.setAttribute('data-pago-default', (e.forma_pago_default || '').toString());
+          opt.setAttribute('data-plazo', (e.plazo_pago_promedio_dias || '').toString());
           empresaSel.appendChild(opt);
         }
       }catch(e){/* noop */}
@@ -560,15 +553,27 @@
       updateEnabledBySelection();
       // Intentar cargar borrador si ya hay empresa seleccionada
       tryLoadDraftForSelection();
+
+      // Default forma de pago del cliente (si existe) o EFECTIVO
+      try {
+        const opt = clienteSel.options[clienteSel.selectedIndex];
+        const fp = opt ? ((opt.getAttribute('data-forma-pago') || '').toString().trim().toUpperCase()) : '';
+        populateFormaPago('FACTURA');
+        if (formaPagoSel && !formaPagoSel.dataset.touched) {
+          formaPagoSel.value = fp || 'EFECTIVO';
+        }
+      } catch(e) {}
     });
 
     // Validación antes de enviar: evitar salir de la página con Bad Request
     form?.addEventListener('submit', function(e){
       const cid = (clienteSel && clienteSel.value) || '';
       const eid = (empresaSel && empresaSel.value) || '';
+      const tipo = (document.getElementById('pedido_tipo_comprobante') && document.getElementById('pedido_tipo_comprobante').value) || '';
       let msg = '';
       if (!cid) msg = 'Debe seleccionar un cliente registrado.';
       else if (!eid) msg = 'Debe seleccionar una empresa vinculada al cliente.';
+      else if (!tipo) msg = 'Debe seleccionar si es Factura o Remito.';
       if (msg) {
         e.preventDefault();
         if (alertBox) {
@@ -627,6 +632,13 @@
     if (formaPagoSel) {
       formaPagoSel.addEventListener('change', function(){
         formaPagoSel.dataset.touched = '1';
+      });
+    }
+
+    // Marcar cuando el usuario tocó el plazo de pago
+    if (plazoPagoInput) {
+      plazoPagoInput.addEventListener('input', function(){
+        plazoPagoInput.dataset.touched = '1';
       });
     }
 
@@ -715,9 +727,11 @@
         if (tipo === 'FACTURA'){
           pagoBox.classList.add('border-primary');
           pagoBox.classList.remove('border-danger');
+          pagoBox.classList.remove('border-secondary');
         } else {
           pagoBox.classList.add('border-danger');
           pagoBox.classList.remove('border-primary');
+          pagoBox.classList.remove('border-secondary');
         }
       }
     }
@@ -727,8 +741,8 @@
     if (btnRemito){
       btnRemito.addEventListener('click', function(){ document.body.dataset.tipoTouched = '1'; setTipo('REMITO'); });
     }
-    // Inicializar en FACTURA por defecto
-    setTipo('FACTURA');
+    // Inicial: sin tipo seleccionado; opciones de forma de pago disponibles igual
+    populateFormaPago('FACTURA');
     // Si al cargar la página ya hay selección, intentar cargar borrador
     tryLoadDraftForSelection();
 
@@ -742,16 +756,27 @@
         const items = await res.json();
         if(!Array.isArray(items) || items.length===0){ prevWrap.innerHTML = '<div class="text-muted">Sin pedidos anteriores</div>'; return; }
         const fr = document.createDocumentFragment();
-        items.forEach((o, idx)=>{
-          const a = document.createElement('div');
-          a.className = 'list-group-item d-flex justify-content-between align-items-start gap-2';
-          const left = document.createElement('div');
-          left.className = 'me-auto';
-          const dt = o.created_at ? new Date(o.created_at) : null;
-          const dtTxt = dt ? dt.toLocaleDateString() : '';
+        items.forEach((o)=>{
+          const row = document.createElement('div');
+          row.className = 'list-group-item';
+          const createdDate = (o.created_date || '').trim();
+          const dtTxt = createdDate ? createdDate.split('-').reverse().join('/') : '';
           const prev = (o.descripcion||'').split('\n').find(Boolean) || (o.nota||'');
-          left.innerHTML = `<div class="fw-semibold">${dtTxt}</div><div class="text-muted">${prev}</div>`;
-          const btns = document.createElement('div');
+          const header = document.createElement('button');
+          header.type = 'button';
+          header.className = 'btn btn-link p-0 text-decoration-none';
+          header.style.fontWeight = '600';
+          header.textContent = dtTxt || 'Pedido';
+          const preview = document.createElement('div');
+          preview.className = 'text-muted';
+          preview.textContent = prev || '';
+          const detail = document.createElement('div');
+          detail.className = 'mt-2 d-none';
+          const pre = document.createElement('pre');
+          pre.className = 'mb-2';
+          pre.style.whiteSpace = 'pre-wrap';
+          pre.style.fontFamily = 'inherit';
+          pre.textContent = ((o.nota||'') ? (o.nota + "\n\n") : '') + (o.descripcion||'');
           const copyBtn = document.createElement('button');
           copyBtn.type = 'button';
           copyBtn.className = 'btn btn-sm btn-outline-primary';
@@ -759,12 +784,17 @@
           copyBtn.addEventListener('click', ()=>{
             notaInput.value = o.nota || '';
             descInput.value = o.descripcion || '';
-            previewTa.value = buildPreviewText();
+            if (previewTa) previewTa.value = buildPreviewText();
           });
-          btns.appendChild(copyBtn);
-          a.appendChild(left);
-          a.appendChild(btns);
-          fr.appendChild(a);
+          detail.appendChild(pre);
+          detail.appendChild(copyBtn);
+          header.addEventListener('click', ()=>{
+            detail.classList.toggle('d-none');
+          });
+          row.appendChild(header);
+          row.appendChild(preview);
+          row.appendChild(detail);
+          fr.appendChild(row);
         });
         prevWrap.appendChild(fr);
       }catch(e){ prevWrap.innerHTML = '<div class="text-danger">Error al cargar</div>'; }
@@ -832,6 +862,37 @@
         if (em){ toConfirmed.delete(em); renderRecipients(); }
       }
     });
+
+    // Datepicker estético (flatpickr)
+    (function(){
+      function mount(){
+        try{
+          var nodes = document.querySelectorAll('input[data-datepicker]');
+          if (!nodes.length) return;
+          nodes.forEach(function(el){
+            if (el._flatpickr) return;
+            flatpickr(el, {
+              altInput: true,
+              altFormat: 'd/m/Y',
+              dateFormat: 'Y-m-d',
+              allowInput: true
+            });
+          });
+        }catch(e){}
+      }
+      if (typeof window.flatpickr === 'function') {
+        mount();
+      } else {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+        s.onload = mount;
+        document.head.appendChild(s);
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+        document.head.appendChild(l);
+      }
+    })();
   })();
 </script>
 {% endblock %}

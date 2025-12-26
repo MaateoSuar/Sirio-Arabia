@@ -11,7 +11,7 @@ except Exception:
 import os
 import requests
 from ..extensions import db
-from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, ClientAlertState
+from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, CollectionPayment, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, ClientAlertState
 from sqlalchemy import func, text
 from sqlalchemy.exc import OperationalError
 
@@ -71,7 +71,12 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                 pay_due = col.fecha_pago_estimada
                 if not pay_due and o.company and o.company.plazo_pago_promedio_dias is not None:
                     try:
-                        pay_due = o.created_at + timedelta(days=int(o.company.plazo_pago_promedio_dias or 0))
+                        plazo_days = None
+                        if getattr(o, "plazo_pago_dias", None) is not None:
+                            plazo_days = int(o.plazo_pago_dias or 0)
+                        else:
+                            plazo_days = int(o.company.plazo_pago_promedio_dias or 0)
+                        pay_due = o.created_at + timedelta(days=plazo_days)
                     except Exception:
                         pay_due = None
                 if pay_due and now_dt > pay_due and not _is_muted("COBRANZA"):
@@ -186,8 +191,21 @@ def auto_patch_new_columns():
                 "ALTER TABLE client_document ADD COLUMN IF NOT EXISTS category VARCHAR(32)",
                 "ALTER TABLE company ADD COLUMN IF NOT EXISTS pedido_estandar_recomendado TEXT",
                 "ALTER TABLE company ADD COLUMN IF NOT EXISTS plazo_usual VARCHAR(120)",
-                "ALTER TABLE company ADD COLUMN IF NOT EXISTS tipo_comprobante_default VARCHAR(16)",
                 "ALTER TABLE company ADD COLUMN IF NOT EXISTS forma_pago_default VARCHAR(32)",
+                "ALTER TABLE \"order\" ADD COLUMN IF NOT EXISTS plazo_pago_dias INTEGER",
+                """
+                CREATE TABLE IF NOT EXISTS collection_payment (
+                    id SERIAL PRIMARY KEY,
+                    order_id INTEGER NOT NULL,
+                    kind VARCHAR(16) NOT NULL,
+                    method VARCHAR(32),
+                    amount NUMERIC(12,2),
+                    due_date TIMESTAMP,
+                    attachment_url VARCHAR(500),
+                    notes TEXT,
+                    created_at TIMESTAMP
+                )
+                """,
             ]
         else:
             stmts = [
@@ -213,8 +231,21 @@ def auto_patch_new_columns():
                 "ALTER TABLE client_document ADD COLUMN category VARCHAR(32)",
                 "ALTER TABLE company ADD COLUMN pedido_estandar_recomendado TEXT",
                 "ALTER TABLE company ADD COLUMN plazo_usual VARCHAR(120)",
-                "ALTER TABLE company ADD COLUMN tipo_comprobante_default VARCHAR(16)",
                 "ALTER TABLE company ADD COLUMN forma_pago_default VARCHAR(32)",
+                "ALTER TABLE \"order\" ADD COLUMN plazo_pago_dias INTEGER",
+                """
+                CREATE TABLE IF NOT EXISTS collection_payment (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER NOT NULL,
+                    kind VARCHAR(16) NOT NULL,
+                    method VARCHAR(32),
+                    amount REAL,
+                    due_date DATETIME,
+                    attachment_url VARCHAR(500),
+                    notes TEXT,
+                    created_at DATETIME
+                )
+                """,
             ]
         for sql in stmts:
             try:
@@ -1477,8 +1508,9 @@ def api_client_companies(client_id: int):
                 "mail_pedido": l.company.mail_pedido or "",
                 "mail_pago": l.company.mail_pago or "",
                 "pedido_estandar_recomendado": l.company.pedido_estandar_recomendado or "",
-                "tipo_comprobante_default": (l.company.tipo_comprobante_default or ""),
+                "comprobante_tipo": (getattr(l, "comprobante_tipo", None) or "FACTURA"),
                 "forma_pago_default": (l.company.forma_pago_default or ""),
+                "plazo_pago_promedio_dias": l.company.plazo_pago_promedio_dias,
                 "status": getattr(l.status, "value", str(l.status))
             })
     # Sort by name
@@ -1533,9 +1565,6 @@ def empresas_create():
     plazo = request.form.get("plazo", type=int)
     plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
     pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
-    tipo_comprobante_default = ((request.form.get("tipo_comprobante_default") or "").strip().upper() or None)
-    if tipo_comprobante_default not in (None, "FACTURA", "REMITO"):
-        tipo_comprobante_default = None
     forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
     mail_pedido_single = (request.form.get("mail_pedido", "") or "").strip()
@@ -1553,7 +1582,6 @@ def empresas_create():
         plazo_pago_promedio_dias=plazo or 30,
         plazo_usual=plazo_usual,
         pedido_estandar_recomendado=pedido_estandar_recomendado,
-        tipo_comprobante_default=tipo_comprobante_default,
         forma_pago_default=forma_pago_default,
         mail_pedido=mail_pedido,
         mail_pago=mail_pago,
@@ -1852,10 +1880,6 @@ def empresas_update(company_id: int):
     obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
     obj.plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
     obj.pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
-    tipo_comprobante_default = ((request.form.get("tipo_comprobante_default") or "").strip().upper() or None)
-    if tipo_comprobante_default not in (None, "FACTURA", "REMITO"):
-        tipo_comprobante_default = None
-    obj.tipo_comprobante_default = tipo_comprobante_default
     obj.forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
     mail_pedido_single = (request.form.get("mail_pedido") or "").strip()
@@ -1971,10 +1995,6 @@ def empresas_edit(company_id: int):
     obj.mail_pago = (request.form.get("mail_pago") or None)
     obj.plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
     obj.pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
-    tipo_comprobante_default = ((request.form.get("tipo_comprobante_default") or "").strip().upper() or None)
-    if tipo_comprobante_default not in (None, "FACTURA", "REMITO"):
-        tipo_comprobante_default = None
-    obj.tipo_comprobante_default = tipo_comprobante_default
     obj.forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     db.session.commit()
     return redirect(url_for("main.empresas"))
@@ -2009,19 +2029,34 @@ def pedidos_create():
     fecha_compra_raw = (request.form.get("fecha_compra") or "").strip()
     fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
     # tipo de comprobante (FACTURA / REMITO)
-    tipo_comprobante = (request.form.get("tipo_comprobante") or "FACTURA").strip().upper() or "FACTURA"
+    tipo_comprobante = (request.form.get("tipo_comprobante") or "").strip().upper() or None
     precio_final = request.form.get("precio_final", type=float)
-    forma_pago = request.form.get("forma_pago") or None
+    forma_pago = (request.form.get("forma_pago") or "").strip().upper() or None
+    plazo_pago_dias = request.form.get("plazo_pago_dias", type=int)
 
     if not client_id:
         abort(400, "Debe seleccionar un cliente")
     if not company_id:
         abort(400, "Debe seleccionar una empresa vinculada al cliente")
-    if not forma_pago:
-        abort(400, "La forma de pago es obligatoria")
+    if tipo_comprobante not in ("FACTURA", "REMITO"):
+        abort(400, "Debe seleccionar si es Factura o Remito")
 
     client = Client.query.get_or_404(client_id)
     company = Company.query.get_or_404(company_id)
+
+    # Plazo de pago del pedido: default empresa pero editable
+    if plazo_pago_dias is None:
+        try:
+            plazo_pago_dias = int(company.plazo_pago_promedio_dias or 0)
+        except Exception:
+            plazo_pago_dias = None
+
+    forma_pago_enum = None
+    if forma_pago:
+        try:
+            forma_pago_enum = PaymentMethod(forma_pago)
+        except Exception:
+            forma_pago_enum = None
 
     # Si no se envió branch_id, tomar la primera sucursal del cliente como default
     if not branch_id:
@@ -2033,7 +2068,8 @@ def pedidos_create():
                 sucursal = first_branch.nombre
 
     order = Order(client=client, company=company, sucursal=sucursal, branch_id=branch_id, nota=nota, descripcion=descripcion,
-                  precio_final=precio_final, forma_pago=PaymentMethod(forma_pago), tipo_comprobante=tipo_comprobante,
+                  precio_final=precio_final, forma_pago=forma_pago_enum, tipo_comprobante=tipo_comprobante,
+                  plazo_pago_dias=plazo_pago_dias,
                   demora_despacho_promedio_dias=company.demora_despacho_promedio_dias,
                   mail_pedido=company.mail_pedido)
     db.session.add(order)
@@ -2137,11 +2173,21 @@ def status_mark_entregado(order_id: int):
             coll = Collection(order_id=order_id)
             db.session.add(coll)
         coll.fecha_entrega_efectiva = logistics.fecha_entrega_efectiva
-        coll.fecha_pago_estimada = logistics.fecha_entrega_efectiva + timedelta(days=30)
+        try:
+            plazo_days = None
+            if getattr(logistics.order, "plazo_pago_dias", None) is not None:
+                plazo_days = int(logistics.order.plazo_pago_dias or 0)
+            elif logistics.order.company and logistics.order.company.plazo_pago_promedio_dias is not None:
+                plazo_days = int(logistics.order.company.plazo_pago_promedio_dias or 0)
+            else:
+                plazo_days = 30
+        except Exception:
+            plazo_days = 30
+        coll.fecha_pago_estimada = logistics.fecha_entrega_efectiva + timedelta(days=plazo_days)
         coll.monto = logistics.precio
         coll.forma_pago = logistics.forma_pago
         db.session.commit()
-    return redirect(url_for("main.cobranzas"))
+    return redirect(url_for("main.status"))
 
 
 @bp.post("/status/<int:order_id>/update")
@@ -2190,7 +2236,17 @@ def status_update(order_id: int):
             try:
                 coll = Collection(order_id=order_id)
                 coll.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw)
-                coll.fecha_pago_estimada = coll.fecha_entrega_efectiva + timedelta(days=30)
+                try:
+                    plazo_days = None
+                    if getattr(logistics.order, "plazo_pago_dias", None) is not None:
+                        plazo_days = int(logistics.order.plazo_pago_dias or 0)
+                    elif logistics.order.company and logistics.order.company.plazo_pago_promedio_dias is not None:
+                        plazo_days = int(logistics.order.company.plazo_pago_promedio_dias or 0)
+                    else:
+                        plazo_days = 30
+                except Exception:
+                    plazo_days = 30
+                coll.fecha_pago_estimada = coll.fecha_entrega_efectiva + timedelta(days=plazo_days)
                 coll.monto = logistics.precio
                 coll.forma_pago = logistics.forma_pago
                 db.session.add(coll)
@@ -2209,6 +2265,11 @@ def status_update(order_id: int):
 
 @bp.get("/cobranzas")
 def cobranzas():
+    return redirect(url_for("main.deudas_pendientes"))
+
+
+@bp.get("/deudas")
+def deudas_pendientes():
     q = Collection.query.join(Order)
     estados = request.args.getlist("status")
     tipos = request.args.getlist("tipo")  # FACTURA / REMITO
@@ -2240,7 +2301,193 @@ def cobranzas():
             pass
     # Mostrar primero el último agregado (proxy: id descendente)
     items = q.order_by(Collection.id.desc()).all()
-    return render_template("cobranzas.html", active="cobranzas", items=items)
+    return render_template(
+        "cobranzas.html",
+        active="deudas",
+        items=items,
+        now_date=date.today(),
+    )
+
+
+@bp.get("/cobranzas/nueva")
+def nueva_cobranza():
+    return render_template(
+        "nueva_cobranza.html",
+        active="deudas",
+        today=date.today().isoformat(),
+        clientes=Client.query.order_by(Client.apellido, Client.nombre).all(),
+    )
+
+
+@bp.get("/api/cobranzas/pedidos_pendientes")
+def api_cobranzas_pedidos_pendientes():
+    client_id = request.args.get("client_id", type=int)
+    company_id = request.args.get("company_id", type=int)
+    if not client_id or not company_id:
+        return jsonify([])
+    q = (
+        Order.query
+        .filter(Order.client_id == client_id)
+        .filter(Order.company_id == company_id)
+        .join(Collection)
+        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        .order_by(Order.created_at.desc())
+    )
+    res = []
+    for o in q.all():
+        col = o.collection
+        monto_val = None
+        try:
+            if col is not None and getattr(col, "monto", None) is not None:
+                monto_val = float(col.monto)
+            elif getattr(o, "precio_final", None) is not None:
+                monto_val = float(o.precio_final)
+            else:
+                monto_val = 0.0
+        except Exception:
+            monto_val = 0.0
+        res.append({
+            "order_id": o.id,
+            "created_at": (o.created_at.date().isoformat() if o.created_at else None),
+            "fecha_entrega_efectiva": (col.fecha_entrega_efectiva.date().isoformat() if col and col.fecha_entrega_efectiva else None),
+            "fecha_pago_estimada": (col.fecha_pago_estimada.date().isoformat() if col and col.fecha_pago_estimada else None),
+            "monto": monto_val,
+            "tipo_comprobante": o.tipo_comprobante,
+            "nota": o.nota,
+            "descripcion": o.descripcion,
+        })
+    return jsonify(res)
+
+
+@bp.post("/cobranzas/nueva")
+def nueva_cobranza_create():
+    client_id = request.form.get("client_id", type=int)
+    company_id = request.form.get("company_id", type=int)
+    order_id = request.form.get("order_id", type=int)
+    if not client_id or not company_id or not order_id:
+        return redirect(url_for("main.nueva_cobranza"))
+
+    o = Order.query.get_or_404(order_id)
+    if o.client_id != client_id or o.company_id != company_id:
+        abort(400)
+    coll = Collection.query.filter_by(order_id=order_id).first()
+    if not coll:
+        coll = Collection(order_id=order_id)
+        db.session.add(coll)
+
+    # Payload: rows serialized as JSON-ish in repeated form fields
+    kinds = request.form.getlist("row_kind")
+    methods = request.form.getlist("row_method")
+    amounts = request.form.getlist("row_amount")
+    dues = request.form.getlist("row_due_date")
+    notes = request.form.getlist("row_notes")
+
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    upload_preset = os.getenv("CLOUDINARY_UPLOAD_PRESET")
+    files = request.files.getlist("row_attachment")
+
+    # Clear existing draft rows for this order (to avoid duplicates on resubmit)
+    try:
+        CollectionPayment.query.filter_by(order_id=order_id).delete()
+    except Exception:
+        db.session.rollback()
+
+    total_paid = 0.0
+    total_credit = 0.0
+    max_due = None
+
+    row_count = max(len(kinds), len(methods), len(amounts), len(dues), len(notes), len(files))
+    for i in range(row_count):
+        kind = (kinds[i] if i < len(kinds) else "").strip().upper() or "PAYMENT"
+        method = (methods[i] if i < len(methods) else "").strip() or None
+        raw_amount = (amounts[i] if i < len(amounts) else "").strip()
+        raw_due = (dues[i] if i < len(dues) else "").strip()
+        row_note = (notes[i] if i < len(notes) else "").strip() or None
+        f = files[i] if i < len(files) else None
+
+        def _parse_amount(s: str) -> float:
+            s = (s or "").strip()
+            if not s:
+                return 0.0
+            s = s.replace(" ", "")
+            # Soportar formatos: 1234.56 / 1234,56 / 1.234,56
+            if "," in s and "." in s:
+                # asume '.' miles y ',' decimal
+                s = s.replace(".", "").replace(",", ".")
+            elif "," in s:
+                s = s.replace(",", ".")
+            return float(s)
+
+        try:
+            amount_val = _parse_amount(raw_amount)
+        except Exception:
+            amount_val = 0.0
+        if not amount_val and not method and not raw_due and not row_note and (not f or not getattr(f, "filename", "")):
+            continue
+
+        due_dt = None
+        if raw_due:
+            try:
+                due_dt = datetime.fromisoformat(raw_due)
+            except Exception:
+                due_dt = None
+
+        attach_url = None
+        if f and getattr(f, "filename", "") and cloud_name and upload_preset:
+            try:
+                r = requests.post(
+                    f"https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload",
+                    data={"upload_preset": upload_preset, "resource_type": "auto"},
+                    files={"file": (f.filename, f.stream, f.mimetype)},
+                    timeout=30,
+                )
+                if r.ok:
+                    attach_url = r.json().get("secure_url") or r.json().get("url")
+            except Exception:
+                attach_url = None
+
+        db.session.add(
+            CollectionPayment(
+                order_id=order_id,
+                kind=kind,
+                method=method,
+                amount=amount_val,
+                due_date=due_dt,
+                attachment_url=attach_url,
+                notes=row_note,
+            )
+        )
+
+        if kind == "CREDIT_NOTE":
+            total_credit += abs(amount_val)
+        else:
+            total_paid += abs(amount_val)
+
+        if due_dt and (max_due is None or due_dt > max_due):
+            max_due = due_dt
+
+    # Update collection summary
+    try:
+        if getattr(coll, "monto", None) is not None:
+            base_monto = float(coll.monto)
+        elif getattr(o, "precio_final", None) is not None:
+            base_monto = float(o.precio_final)
+        else:
+            base_monto = 0.0
+    except Exception:
+        base_monto = 0.0
+    net_due = base_monto - total_credit
+    # Marcar cobrado si cubre el neto
+    if net_due <= 0:
+        coll.fecha_cobro_efectiva = datetime.utcnow()
+    elif total_paid >= net_due and net_due > 0:
+        coll.fecha_cobro_efectiva = datetime.utcnow()
+    # Vencimiento estimado: tomar el más lejano ingresado (p.ej. cheque)
+    if max_due:
+        coll.fecha_pago_estimada = max_due
+
+    db.session.commit()
+    return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.post("/cobranzas/<int:order_id>/cobrar")
@@ -2248,7 +2495,7 @@ def cobranzas_mark_cobrado(order_id: int):
     coll = Collection.query.filter_by(order_id=order_id).first_or_404()
     coll.fecha_cobro_efectiva = datetime.utcnow()
     db.session.commit()
-    return redirect(url_for("main.cobranzas"))
+    return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.post("/cobranzas/<int:order_id>/update")
@@ -2296,7 +2543,7 @@ def cobranzas_update(order_id: int):
         if forma_pago_raw is not None:
             order.forma_pago = forma_pago
     db.session.commit()
-    return redirect(url_for("main.cobranzas"))
+    return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.get("/historial")
@@ -2446,6 +2693,7 @@ def api_prev_orders():
         items.append({
             "id": o.id,
             "created_at": o.created_at.isoformat() if o.created_at else None,
+            "created_date": o.created_at.date().isoformat() if o.created_at else None,
             "nota": o.nota or "",
             "descripcion": o.descripcion or "",
             "precio_final": float(o.precio_final or 0),

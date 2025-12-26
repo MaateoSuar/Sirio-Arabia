@@ -1,7 +1,12 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h1 class="h4 mb-0">Cobranzas</h1>
+  <div>
+    <h1 class="h4 mb-0">Deudas pendientes</h1>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-sm btn-primary" href="{{ url_for('main.nueva_cobranza') }}">Nueva cobranza</a>
+  </div>
   <style>
     .cob-filter .btn { 
       border-width: 2px; 
@@ -75,7 +80,8 @@
             <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
             <th>Monto</th>
             <th>Forma de pago</th>
-            <th class="js-sort-date" data-sort-type="date" style="cursor:pointer;">Pago estimado</th>
+            <th class="js-sort-date" data-sort-type="date" style="cursor:pointer;">Vencimiento</th>
+            <th>Días</th>
             <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Cobro efectivo</th>
             <th>Status</th>
             <th class="text-end w-actions">Acciones</th>
@@ -84,7 +90,7 @@
         <tbody>
         {% for c in items %}
           <tr>
-            <td>{{ c.order.client.apellido }} {{ c.order.client.nombre }}</td>
+            <td>{{ c.order.client.apellido }}</td>
             <td>{{ c.order.company.nombre }}</td>
             <td class="d-none d-md-table-cell">
               <input name="fecha_entrega_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-entrega"
@@ -108,7 +114,19 @@
                 </select>
             </td>
             <td>
-                <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Pago estimado" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}" form="upd{{ c.order.id }}">
+                <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Vencimiento" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}" form="upd{{ c.order.id }}">
+            </td>
+            <td>
+              {% if c.fecha_pago_estimada %}
+                {% set dd = (c.fecha_pago_estimada.date() - (now_date if now_date else c.fecha_pago_estimada.date())).days %}
+                {% if dd >= 0 %}
+                  <span class="badge bg-success">Faltan {{ dd }} día(s)</span>
+                {% else %}
+                  <span class="badge bg-danger">Atraso {{ (dd * -1) }} día(s)</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
             </td>
             <td class="d-none d-md-table-cell">
               <input name="fecha_cobro_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-cobro"
@@ -125,6 +143,7 @@
             </td>
             <td class="text-end">
               <div class="d-flex justify-content-end flex-wrap gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ c.order.id }}">Editar</button>
                 {% if not c.fecha_cobro_efectiva %}
                   </form>
                   <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#markPaid{{ c.order.id }}">Cobrado</button>
@@ -179,10 +198,39 @@
                 </div>
               </div>
               {% endif %}
+
+              <div class="modal fade" id="editOrder{{ c.order.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Editar pedido</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                      <div class="row g-2">
+                        <div class="col-12">
+                          <label class="form-label">Nota</label>
+                          <input type="text" class="form-control" name="nota" form="editOrderForm{{ c.order.id }}" value="{{ c.order.nota or '' }}">
+                        </div>
+                        <div class="col-12">
+                          <label class="form-label">Descripción</label>
+                          <textarea class="form-control" rows="6" name="descripcion" form="editOrderForm{{ c.order.id }}">{{ c.order.descripcion or '' }}</textarea>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+                      <form id="editOrderForm{{ c.order.id }}" method="post" action="{{ url_for('main.pedidos_edit', order_id=c.order.id) }}">
+                        <button type="submit" class="btn btn-primary">Guardar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">Sin cobranzas</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">Sin deudas</td></tr>
         {% endfor %}
         </tbody>
       </table>

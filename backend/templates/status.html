@@ -158,15 +158,14 @@
             <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega estimada</th>
             <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
             <th>Monto</th>
-            <th>Forma pago</th>
             <th>Status</th>
             <th class="text-end w-actions">Acciones</th>
           </tr>
         </thead>
         <tbody id="status-tbody">
         {% for s in items %}
-          <tr data-cliente="{{ (s.order.client.apellido ~ ' ' ~ (s.order.client.nombre or ''))|lower }}" data-empresa="{{ (s.order.company.nombre or '')|lower }}">
-            <td class="col-client">{{ s.order.client.apellido }} {{ s.order.client.nombre }}</td>
+          <tr data-cliente="{{ (s.order.client.apellido or '')|lower }}" data-empresa="{{ (s.order.company.nombre or '')|lower }}" data-demora="{{ (s.order.demora_despacho_promedio_dias or 0) }}">
+            <td class="col-client">{{ s.order.client.apellido }}</td>
             <td class="col-company">{{ s.order.company.nombre }}</td>
             <td class="d-none d-md-table-cell">
               <input name="fecha_compra" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-compra"
@@ -188,17 +187,6 @@
                 <input type="hidden" name="precio" id="priceHid{{ s.order.id }}" form="upd{{ s.order.id }}" value="">
               </div>
             </td>
-            <td class="col-forma">
-              <form id="upd{{ s.order.id }}" class="d-inline-flex align-items-center gap-2 flex-nowrap" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}">
-                <select name="forma_pago" class="form-select form-select-sm js-forma">
-                  <option value="">-</option>
-                  <option value="EFECTIVO" {{ 'selected' if s.forma_pago and s.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
-                  <option value="CHEQUE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
-                  <option value="TRANSFERENCIA" {{ 'selected' if s.forma_pago and s.forma_pago.value=='TRANSFERENCIA' else '' }}>Transferencia</option>
-                  <option value="NO_SE_SABE" {{ 'selected' if s.forma_pago and s.forma_pago.value=='NO_SE_SABE' else '' }}>No se sabe</option>
-                </select>
-              </form>
-            </td>
             <td>
               {% if s.status == 'ENTREGADO' %}
                 <span class="badge bg-success">ENTREGADO</span>
@@ -210,9 +198,13 @@
             </td>
             <td class="text-end">
               <div class="d-flex justify-content-end flex-wrap gap-2">
+                <form id="upd{{ s.order.id }}" class="d-none" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}"></form>
                 {% if not s.fecha_entrega_efectiva %}
-                  <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#deliverOrder{{ s.order.id }}">Entregar</button>
+                  <form method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}">
+                    <button type="submit" class="btn btn-sm btn-success" title="Marcar entregado">✅</button>
+                  </form>
                 {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ s.order.id }}">Editar</button>
                 <div class="btn-group btn-group-sm" role="group">
                   <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ s.order.id }}" title="Eliminar">
                     <i class="bi bi-trash"></i>
@@ -220,27 +212,34 @@
                 </div>
               </div>
 
-              {% if not s.fecha_entrega_efectiva %}
-              <div class="modal fade" id="deliverOrder{{ s.order.id }}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog">
+              <div class="modal fade" id="editOrder{{ s.order.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
                   <div class="modal-content">
-                    <div class="modal-header bg-primary text-white">
-                      <h5 class="modal-title">Confirmar entrega</h5>
-                      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <div class="modal-header">
+                      <h5 class="modal-title">Editar pedido</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <div class="modal-body text-center">
-                      ¿Confirmas marcar este pedido como ENTREGADO?
+                    <div class="modal-body">
+                      <div class="row g-2">
+                        <div class="col-12">
+                          <label class="form-label">Nota</label>
+                          <input type="text" class="form-control" name="nota" form="editOrderForm{{ s.order.id }}" value="{{ s.order.nota or '' }}">
+                        </div>
+                        <div class="col-12">
+                          <label class="form-label">Descripción</label>
+                          <textarea class="form-control" rows="6" name="descripcion" form="editOrderForm{{ s.order.id }}">{{ s.order.descripcion or '' }}</textarea>
+                        </div>
+                      </div>
                     </div>
                     <div class="modal-footer">
-                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-                      <form method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}">
-                        <button class="btn btn-success">Confirmar</button>
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+                      <form id="editOrderForm{{ s.order.id }}" method="post" action="{{ url_for('main.pedidos_edit', order_id=s.order.id) }}">
+                        <button type="submit" class="btn btn-primary">Guardar</button>
                       </form>
                     </div>
                   </div>
                 </div>
               </div>
-              {% endif %}
 
               <div class="modal fade" id="delOrder{{ s.order.id }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog">
@@ -264,7 +263,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">Sin pedidos en seguimiento</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">Sin pedidos en seguimiento</td></tr>
         {% endfor %}
         </tbody>
         </table>
@@ -442,6 +441,33 @@
         });
       } catch(e) {}
 
+      // Default entrega estimada: fecha_compra + demora (solo si está vacío)
+      try {
+        document.querySelectorAll('#status-tbody tr').forEach(function(tr){
+          var est = tr.querySelector('input.js-estimada');
+          var compra = tr.querySelector('input.js-compra');
+          if (!est || !compra) return;
+          var estVal = (est.value || '').trim();
+          if (estVal) return;
+          var compraVal = (compra.value || '').trim();
+          if (!compraVal) return;
+          var demora = parseInt(tr.getAttribute('data-demora') || '0', 10);
+          if (isNaN(demora) || demora < 0) demora = 0;
+          var base = new Date(compraVal + 'T00:00:00');
+          if (isNaN(base.getTime())) return;
+          base.setDate(base.getDate() + demora);
+          var y = base.getFullYear();
+          var m = String(base.getMonth() + 1).padStart(2, '0');
+          var d = String(base.getDate()).padStart(2, '0');
+          var iso = y + '-' + m + '-' + d;
+          if (est._flatpickr) {
+            try { est._flatpickr.setDate(iso, false, 'Y-m-d'); } catch(e) {}
+          } else {
+            est.value = iso;
+          }
+        });
+      } catch(e) {}
+
       // currency inputs: update hidden raw on input; format visible only on blur
       document.querySelectorAll('.js-currency').forEach(function(el){
         var hidId = el.getAttribute('data-hidden');
@@ -454,22 +480,6 @@
         var initial = el.getAttribute('data-raw') || el.value;
         el.value = fmtThousands(integerPart(initial));
         syncRaw();
-      });
-
-      // Al cambiar forma de pago, enviar el form sincronizando primero el precio oculto
-      document.querySelectorAll('form select.js-forma').forEach(function(sel){
-        sel.addEventListener('change', function(){
-          var form = sel.closest('form');
-          if (!form) return;
-          var cur = form.querySelector('.js-currency');
-          if (cur) {
-            var hidId = cur.getAttribute('data-hidden');
-            var hid = hidId ? document.getElementById(hidId) : null;
-            var raw = integerPart(cur.value || cur.getAttribute('data-raw') || '');
-            if (hid) hid.value = raw;
-          }
-          (form.requestSubmit ? form.requestSubmit() : form.submit());
-        });
       });
 
       // autosubmit al cambiar fechas

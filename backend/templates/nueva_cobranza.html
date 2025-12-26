@@ -1,0 +1,345 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h4 mb-0">Nueva cobranza</h1>
+    <div class="text-muted small">Registrá pagos y/o notas de crédito para un pedido pendiente.</div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form id="cobForm" method="post" action="{{ url_for('main.nueva_cobranza_create') }}" enctype="multipart/form-data">
+      <div class="row g-3">
+        <div class="col-12 col-lg-4">
+          <label class="form-label">Cliente</label>
+          <select class="form-select" name="client_id" id="clientSelect" required>
+            <option value="">Seleccionar...</option>
+            {% for c in clientes %}
+              <option value="{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-12 col-lg-4">
+          <label class="form-label">Empresa</label>
+          <select class="form-select" name="company_id" id="companySelect" required disabled>
+            <option value="">Seleccionar...</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-lg-4">
+          <label class="form-label">Pedido</label>
+          <select class="form-select" name="order_id" id="orderSelect" required disabled>
+            <option value="">Seleccionar...</option>
+          </select>
+        </div>
+      </div>
+
+      <hr class="my-4">
+
+      <div class="row g-3">
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Fecha pedido</label>
+          <input class="form-control" id="orderCreatedAt" type="text" readonly>
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Entrega efectiva</label>
+          <input class="form-control" id="orderEntrega" type="text" readonly>
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Vencimiento</label>
+          <input class="form-control" id="orderVenc" type="text" readonly>
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Monto</label>
+          <input class="form-control" id="orderMonto" type="text" readonly>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Nota / descripción</label>
+          <textarea class="form-control" id="orderDesc" rows="4" readonly></textarea>
+        </div>
+      </div>
+
+      <hr class="my-4">
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h2 class="h6 mb-0">Movimientos</h2>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRow">Agregar</button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle" id="rowsTable">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width: 160px;">Tipo</th>
+              <th style="min-width: 180px;">Medio</th>
+              <th style="min-width: 140px;">Monto</th>
+              <th style="min-width: 170px;">Vencimiento (cheques)</th>
+              <th>Notas</th>
+              <th style="min-width: 220px;">Adjunto</th>
+              <th class="text-end" style="min-width: 80px;">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="rowsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <a class="btn btn-light" href="{{ url_for('main.deudas_pendientes') }}">Cancelar</a>
+        <button class="btn btn-primary" type="submit">Guardar cobranza</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  function ensureFlatpickrLoaded(cb){
+    try {
+      if (window.flatpickr) {
+        cb && cb();
+        return;
+      }
+      var cssId = 'flatpickr-css';
+      if (!document.getElementById(cssId)) {
+        var link = document.createElement('link');
+        link.id = cssId;
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+        document.head.appendChild(link);
+      }
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+      script.onload = function(){ cb && cb(); };
+      document.head.appendChild(script);
+    } catch(e) {
+      cb && cb();
+    }
+  }
+
+  function initDatepicker(inp){
+    try {
+      if (!inp) return;
+      if (!window.flatpickr) return;
+      if (inp._flatpickr) return;
+      window.flatpickr(inp, {
+        dateFormat: 'Y-m-d',
+        altInput: true,
+        altFormat: 'd-m-Y',
+        allowInput: true
+      });
+    } catch(e) {}
+  }
+
+  function setDateValue(inp, iso){
+    try {
+      if (!inp) return;
+      if (inp._flatpickr) {
+        inp._flatpickr.setDate(iso || '', true, 'Y-m-d');
+      } else {
+        inp.value = iso || '';
+      }
+    } catch(e) {
+      try { inp.value = iso || ''; } catch(_) {}
+    }
+  }
+
+  function fmtMoney(x){
+    try {
+      const n = Number(x || 0);
+      return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } catch(e){
+      return String(x || '');
+    }
+  }
+
+  const clientSel = document.getElementById('clientSelect');
+  const companySel = document.getElementById('companySelect');
+  const orderSel = document.getElementById('orderSelect');
+
+  const orderCreatedAt = document.getElementById('orderCreatedAt');
+  const orderEntrega = document.getElementById('orderEntrega');
+  const orderVenc = document.getElementById('orderVenc');
+  const orderMonto = document.getElementById('orderMonto');
+  const orderDesc = document.getElementById('orderDesc');
+
+  const rowsBody = document.getElementById('rowsBody');
+  const btnAddRow = document.getElementById('btnAddRow');
+
+  let pendingOrders = [];
+
+  function clearOrderInfo(){
+    orderCreatedAt.value = '';
+    orderEntrega.value = '';
+    orderVenc.value = '';
+    orderMonto.value = '';
+    orderDesc.value = '';
+  }
+
+  function resetMovements(prefill){
+    try {
+      rowsBody.innerHTML = '';
+      rowsBody.appendChild(newRow(prefill || null));
+    } catch(e) {}
+  }
+
+  function setCompanies(clientId){
+    companySel.innerHTML = '<option value="">Seleccionar...</option>';
+    orderSel.innerHTML = '<option value="">Seleccionar...</option>';
+    companySel.disabled = true;
+    orderSel.disabled = true;
+    clearOrderInfo();
+    pendingOrders = [];
+    resetMovements(null);
+
+    if (!clientId) return;
+    fetch(`/api/clientes/${clientId}/empresas`)
+      .then(r => r.json())
+      .then(rows => {
+        (rows || []).forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.label || c.nombre || '';
+          companySel.appendChild(opt);
+        });
+        companySel.disabled = false;
+      })
+      .catch(() => {
+        companySel.disabled = false;
+      });
+  }
+
+  function setPendingOrders(clientId, companyId){
+    orderSel.innerHTML = '<option value="">Seleccionar...</option>';
+    orderSel.disabled = true;
+    clearOrderInfo();
+    pendingOrders = [];
+    resetMovements(null);
+    if (!clientId || !companyId) return;
+
+    fetch(`/api/cobranzas/pedidos_pendientes?client_id=${encodeURIComponent(clientId)}&company_id=${encodeURIComponent(companyId)}`)
+      .then(r => r.json())
+      .then(rows => {
+        pendingOrders = rows || [];
+        pendingOrders.forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o.order_id;
+          const label = `#${o.order_id} - ${o.tipo_comprobante || '-'} - ${fmtMoney(o.monto)} - Venc: ${o.fecha_pago_estimada || '-'}`;
+          opt.textContent = label;
+          orderSel.appendChild(opt);
+        });
+        orderSel.disabled = false;
+      })
+      .catch(() => {
+        orderSel.disabled = false;
+      });
+  }
+
+  function fillOrderInfo(orderId){
+    const o = (pendingOrders || []).find(x => String(x.order_id) === String(orderId));
+    if (!o){
+      clearOrderInfo();
+      resetMovements(null);
+      return;
+    }
+    orderCreatedAt.value = o.created_at || '';
+    orderEntrega.value = o.fecha_entrega_efectiva || '';
+    orderVenc.value = o.fecha_pago_estimada || '';
+    orderMonto.value = fmtMoney(o.monto);
+    const desc = [o.nota, o.descripcion].filter(Boolean).join('\n\n');
+    orderDesc.value = desc;
+
+    // Resetear movimientos y precargar con datos del pedido.
+    resetMovements({
+      amount: o.monto,
+      due_date: o.fecha_pago_estimada || ''
+    });
+  }
+
+  function newRow(prefill){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <select class="form-select form-select-sm" name="row_kind">
+          <option value="PAYMENT">Pago</option>
+          <option value="CREDIT_NOTE">Nota de crédito</option>
+        </select>
+      </td>
+      <td>
+        <select class="form-select form-select-sm" name="row_method">
+          <option value="">-</option>
+          <option value="EFECTIVO">Efectivo</option>
+          <option value="TRANSFERENCIA">Transferencia</option>
+          <option value="E-CHEQ">E-Cheq</option>
+          <option value="CHEQUE_TERCEROS">Cheque (terceros)</option>
+          <option value="CHEQUE_PROPIO">Cheque (propio)</option>
+          <option value="OTRO">Otro</option>
+        </select>
+      </td>
+      <td>
+        <input class="form-control form-control-sm" name="row_amount" inputmode="decimal" placeholder="0.00">
+      </td>
+      <td>
+        <input class="form-control form-control-sm" name="row_due_date" type="text" data-datepicker placeholder="DD-MM-AAAA">
+      </td>
+      <td>
+        <input class="form-control form-control-sm" name="row_notes" placeholder="Observaciones">
+      </td>
+      <td>
+        <input class="form-control form-control-sm" type="file" name="row_attachment">
+      </td>
+      <td class="text-end">
+        <button type="button" class="btn btn-sm btn-outline-danger js-del">Quitar</button>
+      </td>
+    `;
+    tr.querySelector('.js-del').addEventListener('click', () => tr.remove());
+
+    // Prefill
+    try {
+      if (prefill && prefill.amount != null) {
+        const mv = Number(prefill.amount || 0);
+        const a = tr.querySelector('input[name="row_amount"]');
+        if (a) a.value = (isFinite(mv) ? mv.toFixed(2) : '');
+      }
+    } catch(e) {}
+
+    ensureFlatpickrLoaded(function(){
+      try {
+        const inp = tr.querySelector('[data-datepicker]');
+        initDatepicker(inp);
+        if (prefill && prefill.due_date) {
+          setDateValue(inp, prefill.due_date);
+        }
+      } catch(e) {}
+    });
+    return tr;
+  }
+
+  btnAddRow.addEventListener('click', () => {
+    rowsBody.appendChild(newRow());
+  });
+
+  clientSel.addEventListener('change', () => {
+    setCompanies(clientSel.value);
+  });
+
+  companySel.addEventListener('change', () => {
+    setPendingOrders(clientSel.value, companySel.value);
+  });
+
+  orderSel.addEventListener('change', () => {
+    fillOrderInfo(orderSel.value);
+  });
+
+  // Default: one row
+  rowsBody.appendChild(newRow(null));
+
+  ensureFlatpickrLoaded(function(){
+    try {
+      document.querySelectorAll('[data-datepicker]').forEach(initDatepicker);
+    } catch(e) {}
+  });
+})();
+</script>
+{% endblock %}

@@ -113,7 +113,6 @@ class Company(db.Model):
     mail_pago = db.Column(db.String(255))
     pedido_estandar_recomendado = db.Column(db.Text)
     plazo_usual = db.Column(db.String(120))
-    tipo_comprobante_default = db.Column(db.String(16))
     forma_pago_default = db.Column(db.String(32))
     # Información complementaria
     cuit = db.Column(db.String(32))
@@ -157,6 +156,9 @@ class Order(db.Model):
 
     # Tipo de comprobante asociado al pedido (por ejemplo FACTURA o REMITO)
     tipo_comprobante = db.Column(db.String(16))
+
+    # Plazo de pago específico del pedido (días). Si es None, usar el de la empresa.
+    plazo_pago_dias = db.Column(db.Integer)
 
     # Snapshots from company at order time
     demora_despacho_promedio_dias = db.Column(db.Integer)
@@ -207,6 +209,21 @@ class Collection(db.Model):
         if self.fecha_pago_estimada and datetime.utcnow() > self.fecha_pago_estimada:
             return "ATRASADO"
         return "EN CAMINO"
+
+
+class CollectionPayment(db.Model):
+    __tablename__ = "collection_payment"
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)  # PAYMENT / CREDIT_NOTE
+    method = db.Column(db.String(32))
+    amount = db.Column(db.Numeric(12, 2))
+    due_date = db.Column(db.DateTime)
+    attachment_url = db.Column(db.String(500))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    order = db.relationship("Order", backref=db.backref("collection_payments", cascade="all, delete-orphan"))
 
 
 class OrderAttachment(db.Model):
