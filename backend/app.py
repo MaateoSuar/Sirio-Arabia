@@ -27,9 +27,11 @@ def create_app():
         if os.getenv("AUTO_MIGRATE") == "1":
             try:
                 advisory_lock_taken = False
+                lock_conn = None
                 try:
                     if db.engine.dialect.name == "postgresql":
-                        got_lock = db.session.execute(text("SELECT pg_try_advisory_lock(2147483647)"))
+                        lock_conn = db.engine.connect()
+                        got_lock = lock_conn.execute(text("SELECT pg_try_advisory_lock(2147483647)"))
                         advisory_lock_taken = bool(got_lock.scalar())
 
                     if advisory_lock_taken:
@@ -64,13 +66,15 @@ def create_app():
                 finally:
                     if advisory_lock_taken:
                         try:
-                            db.session.execute(text("SELECT pg_advisory_unlock(2147483647)"))
-                            db.session.commit()
+                            if lock_conn is not None:
+                                lock_conn.execute(text("SELECT pg_advisory_unlock(2147483647)"))
                         except Exception:
-                            try:
-                                db.session.rollback()
-                            except Exception:
-                                pass
+                            pass
+                    if lock_conn is not None:
+                        try:
+                            lock_conn.close()
+                        except Exception:
+                            pass
                 did_upgrade = True
             except Exception:
                 # Rely on logs in platform to inspect failure
