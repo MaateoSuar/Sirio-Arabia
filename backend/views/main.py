@@ -294,9 +294,40 @@ def auto_patch_new_columns():
 @bp.app_context_processor
 def inject_notification_count():
     try:
+        # IMPORTANTE: esto corre en CADA request para renderizar el navbar.
+        # Evitar lógica pesada (loops de clientes/pedidos) que degrada toda la app.
         now_dt = datetime.utcnow()
-        active_alerts = _compute_alerts_for_all_clients(now_dt)
-        return {"notif_active_count": len(active_alerts)}
+        last = current_app.config.get("_LAST_NOTIF_COUNT_AT")
+        cached = current_app.config.get("_LAST_NOTIF_COUNT_VAL")
+        if last and isinstance(last, datetime) and cached is not None and (now_dt - last) < timedelta(seconds=60):
+            return {"notif_active_count": int(cached)}
+
+        # Conteo rápido: alertas = entregas vencidas + cobranzas vencidas (sin detalle y sin estados muteados).
+        notif_count = 0
+        try:
+            notif_count += (
+                db.session.query(func.count(LogisticsStatus.id))
+                .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+                .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
+                .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+                .scalar()
+            ) or 0
+        except Exception:
+            pass
+        try:
+            notif_count += (
+                db.session.query(func.count(Collection.id))
+                .filter(Collection.fecha_cobro_efectiva.is_(None))
+                .filter(Collection.fecha_pago_estimada.isnot(None))
+                .filter(Collection.fecha_pago_estimada < now_dt)
+                .scalar()
+            ) or 0
+        except Exception:
+            pass
+
+        current_app.config["_LAST_NOTIF_COUNT_AT"] = now_dt
+        current_app.config["_LAST_NOTIF_COUNT_VAL"] = int(notif_count)
+        return {"notif_active_count": int(notif_count)}
     except Exception:
         return {"notif_active_count": 0}
 
