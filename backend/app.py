@@ -25,11 +25,18 @@ def create_app():
         did_upgrade = False
         if os.getenv("AUTO_MIGRATE") == "1":
             try:
-                upgrade()
+                # If there are multiple heads (divergent migrations), apply them all.
+                upgrade(revision="heads")
                 did_upgrade = True
             except Exception:
                 # Rely on logs in platform to inspect failure
                 did_upgrade = False
+                # On Postgres, don't continue booting with a potentially incompatible schema.
+                try:
+                    if db.engine.dialect.name != "sqlite":
+                        raise
+                except Exception:
+                    raise
         # If migrations are not enabled or failed, fall back to create_all
         if not did_upgrade:
             try:
