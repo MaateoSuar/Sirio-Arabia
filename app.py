@@ -1,7 +1,6 @@
-from backend.app import create_app
 import os
 
-app = create_app()
+from backend.app import app
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)

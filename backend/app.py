@@ -2,6 +2,8 @@ from flask import Flask
 from dotenv import load_dotenv
 import os
 import time
+import traceback
+import sys
 
 from .extensions import db, migrate, login_manager
 from .config import Config
@@ -36,9 +38,10 @@ def create_app():
 
                     if advisory_lock_taken:
                         try:
-                            upgrade()
+                            upgrade(revision=os.getenv("ALEMBIC_TARGET_REVISION", "c8b1f0d2a1e3"))
                         except Exception:
-                            upgrade(revision="heads")
+                            traceback.print_exc(file=sys.stderr)
+                            raise
                     else:
                         if db.engine.dialect.name == "postgresql":
                             deadline = time.time() + float(os.getenv("AUTO_MIGRATE_WAIT_SECONDS", "60"))

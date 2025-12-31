@@ -7,6 +7,7 @@ Create Date: 2025-12-10 13:36:29.282299
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -24,10 +25,16 @@ def upgrade():
                nullable=False,
                existing_server_default=sa.text("'FACTURA'"))
 
+    bind = op.get_bind()
+    existing_cols = {col['name'] for col in inspect(bind).get_columns('company')}
+
     with op.batch_alter_table('company', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('cuit', sa.String(length=32), nullable=True))
-        batch_op.add_column(sa.Column('notas', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('cuenta_bancaria_notas', sa.Text(), nullable=True))
+        if 'cuit' not in existing_cols:
+            batch_op.add_column(sa.Column('cuit', sa.String(length=32), nullable=True))
+        if 'notas' not in existing_cols:
+            batch_op.add_column(sa.Column('notas', sa.Text(), nullable=True))
+        if 'cuenta_bancaria_notas' not in existing_cols:
+            batch_op.add_column(sa.Column('cuenta_bancaria_notas', sa.Text(), nullable=True))
 
     # ### end Alembic commands ###
 
