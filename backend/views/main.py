@@ -54,6 +54,16 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                     due = None
             if due and now_dt > due and not _is_muted("MERCADERIA"):
                 overdue_days = (now_dt - due).days
+                def _fmt_date(dt):
+                    try:
+                        return dt.strftime("%Y-%m-%d") if dt else ""
+                    except Exception:
+                        return ""
+                def _fmt_money(v):
+                    try:
+                        return str(float(v)) if v is not None else ""
+                    except Exception:
+                        return ""
                 alerts.append({
                     "client_id": c.id,
                     "client_name": f"{c.apellido} {c.nombre}",
@@ -63,6 +73,11 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                     "severity": "warning" if overdue_days <= 2 else "danger",
                     "company": comp_name,
                     "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
+                    "st_has_logistics": True if lg else False,
+                    "st_fecha_compra": _fmt_date(getattr(lg, "fecha_compra", None)) if lg else "",
+                    "st_entrega_estimada": _fmt_date(getattr(lg, "fecha_entrega_estimada", None)) if lg else "",
+                    "st_entrega_efectiva": _fmt_date(getattr(lg, "fecha_entrega_efectiva", None)) if lg else "",
+                    "st_precio": _fmt_money(getattr(lg, "precio", None)) if lg else "",
                 })
 
             # Cobranzas
@@ -81,6 +96,16 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                         pay_due = None
                 if pay_due and now_dt > pay_due and not _is_muted("COBRANZA"):
                     overdue_days = (now_dt - pay_due).days
+                    def _fmt_date(dt):
+                        try:
+                            return dt.strftime("%Y-%m-%d") if dt else ""
+                        except Exception:
+                            return ""
+                    def _fmt_money(v):
+                        try:
+                            return str(float(v)) if v is not None else ""
+                        except Exception:
+                            return ""
                     alerts.append({
                         "client_id": c.id,
                         "client_name": f"{c.apellido} {c.nombre}",
@@ -90,6 +115,11 @@ def _compute_alerts_for_all_clients(now_dt: datetime):
                         "severity": "warning" if overdue_days <= 2 else "danger",
                         "company": comp_name,
                         "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
+                        "cob_entrega_efectiva": _fmt_date(getattr(col, "fecha_entrega_efectiva", None)),
+                        "cob_monto": _fmt_money(getattr(col, "monto", None)),
+                        "cob_forma_pago": (getattr(getattr(col, "forma_pago", None), "value", "") or ""),
+                        "cob_pago_estimado": _fmt_date(getattr(col, "fecha_pago_estimada", None)),
+                        "cob_cobro_efectivo": _fmt_date(getattr(col, "fecha_cobro_efectiva", None)),
                     })
     return alerts
 
@@ -505,12 +535,27 @@ def clientes():
                 if due and now_dt > due:
                     overdue_days = (now_dt - due).days
                     if not _is_muted("MERCADERIA"):
+                        def _fmt_date(dt):
+                            try:
+                                return dt.strftime("%Y-%m-%d") if dt else ""
+                            except Exception:
+                                return ""
+                        def _fmt_money(v):
+                            try:
+                                return str(float(v)) if v is not None else ""
+                            except Exception:
+                                return ""
                         client_alerts.append({
                         "kind": "MERCADERIA",
                         "severity": "warning" if overdue_days <= 2 else "danger",
                         "order_id": o.id,
                         "company": comp_name,
                         "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
+                        "st_has_logistics": True,
+                        "st_fecha_compra": _fmt_date(getattr(lg, "fecha_compra", None)),
+                        "st_entrega_estimada": _fmt_date(getattr(lg, "fecha_entrega_estimada", None)),
+                        "st_entrega_efectiva": _fmt_date(getattr(lg, "fecha_entrega_efectiva", None)),
+                        "st_precio": _fmt_money(getattr(lg, "precio", None)),
                         })
             elif not lg:
                 # Si no hay registro de logística, usar snapshot de demora para recordatorio
@@ -528,6 +573,11 @@ def clientes():
                             "order_id": o.id,
                             "company": comp_name,
                             "message": f"Revisar despacho ({comp_name}). Pasaron {overdue_days} día(s) sobre la demora estimada.",
+                            "st_has_logistics": False,
+                            "st_fecha_compra": "",
+                            "st_entrega_estimada": "",
+                            "st_entrega_efectiva": "",
+                            "st_precio": "",
                             })
 
             # Pagos / cobranzas (atrasos)
@@ -542,12 +592,27 @@ def clientes():
                 if pay_due and now_dt > pay_due:
                     overdue_days = (now_dt - pay_due).days
                     if not _is_muted("COBRANZA"):
+                        def _fmt_date(dt):
+                            try:
+                                return dt.strftime("%Y-%m-%d") if dt else ""
+                            except Exception:
+                                return ""
+                        def _fmt_money(v):
+                            try:
+                                return str(float(v)) if v is not None else ""
+                            except Exception:
+                                return ""
                         client_alerts.append({
                         "kind": "COBRANZA",
                         "severity": "warning" if overdue_days <= 2 else "danger",
                         "order_id": o.id,
                         "company": comp_name,
                         "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
+                        "cob_entrega_efectiva": _fmt_date(getattr(col, "fecha_entrega_efectiva", None)),
+                        "cob_monto": _fmt_money(getattr(col, "monto", None)),
+                        "cob_forma_pago": (getattr(getattr(col, "forma_pago", None), "value", "") or ""),
+                        "cob_pago_estimado": _fmt_date(getattr(col, "fecha_pago_estimada", None)),
+                        "cob_cobro_efectivo": _fmt_date(getattr(col, "fecha_cobro_efectiva", None)),
                         })
 
         alerts_by_client[c.id] = client_alerts
@@ -1510,6 +1575,7 @@ def api_client_companies(client_id: int):
                 "pedido_estandar_recomendado": l.company.pedido_estandar_recomendado or "",
                 "comprobante_tipo": (getattr(l, "comprobante_tipo", None) or "FACTURA"),
                 "forma_pago_default": (l.company.forma_pago_default or ""),
+                "plazo_pago_dias": getattr(l, "plazo_pago_dias", None),
                 "plazo_pago_promedio_dias": l.company.plazo_pago_promedio_dias,
                 "status": getattr(l.status, "value", str(l.status))
             })
@@ -2078,10 +2144,19 @@ def pedidos_create():
     # Regla: al crear pedido, si la relación estaba A_INCORPORAR pasa a TRABAJA
     try:
         link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=company.id).first()
-        if link and link.status == RelationStatus.A_INCORPORAR:
+        if not link:
+            link = ClientCompanyLink(
+                client_id=client.id,
+                company_id=company.id,
+                status=RelationStatus.TRABAJA,
+                comprobante_tipo="FACTURA",
+            )
+            db.session.add(link)
+        if link.status == RelationStatus.A_INCORPORAR:
             link.status = RelationStatus.TRABAJA
+        link.plazo_pago_dias = plazo_pago_dias
     except Exception:
-        pass
+        db.session.rollback()
 
     # Create logistics record
     # fecha_compra: usar la provista (YYYY-MM-DD) o fallback a ahora
@@ -2166,7 +2241,17 @@ def status():
 def status_mark_entregado(order_id: int):
     logistics = LogisticsStatus.query.filter_by(order_id=order_id).first_or_404()
     if not logistics.fecha_entrega_efectiva:
-        logistics.fecha_entrega_efectiva = datetime.utcnow()
+        # Preferir la fecha estimada (o la enviada por el form) como efectiva; fallback a hoy
+        picked = None
+        try:
+            raw = (request.form.get("fecha") or "").strip()
+            if raw:
+                picked = datetime.fromisoformat(raw)
+        except Exception:
+            picked = None
+        if picked is None:
+            picked = getattr(logistics, "fecha_entrega_estimada", None)
+        logistics.fecha_entrega_efectiva = picked or datetime.utcnow()
         # Create or update collection
         coll = Collection.query.filter_by(order_id=order_id).first()
         if not coll:
@@ -2187,6 +2272,8 @@ def status_mark_entregado(order_id: int):
         coll.monto = logistics.precio
         coll.forma_pago = logistics.forma_pago
         db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
     return redirect(url_for("main.status"))
 
 
@@ -2260,6 +2347,8 @@ def status_update(order_id: int):
         if forma_pago_raw is not None:
             order.forma_pago = forma_pago
     db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
     return redirect(url_for("main.status"))
 
 
@@ -2313,7 +2402,7 @@ def deudas_pendientes():
 def nueva_cobranza():
     return render_template(
         "nueva_cobranza.html",
-        active="deudas",
+        active="nueva_cobranza",
         today=date.today().isoformat(),
         clientes=Client.query.order_by(Client.apellido, Client.nombre).all(),
     )
@@ -2375,18 +2464,32 @@ def nueva_cobranza_create():
     client_id = request.form.get("client_id", type=int)
     company_id = request.form.get("company_id", type=int)
     order_id = request.form.get("order_id", type=int)
-    if not client_id or not company_id or not order_id:
+    if not client_id or not company_id:
         return redirect(url_for("main.nueva_cobranza"))
 
-    o = Order.query.get_or_404(order_id)
-    if o.client_id != client_id or o.company_id != company_id:
-        abort(400)
+    o = None
+    if order_id:
+        o = Order.query.get_or_404(order_id)
+        if o.client_id != client_id or o.company_id != company_id:
+            abort(400)
+    else:
+        # Permitir registrar cobranza aunque no se seleccione un pedido:
+        # crear un pedido mínimo para poder asociar Collection (order_id es obligatorio).
+        client = Client.query.get_or_404(client_id)
+        company = Company.query.get_or_404(company_id)
+        o = Order(
+            client=client,
+            company=company,
+            tipo_comprobante="FACTURA",
+        )
+        db.session.add(o)
+        db.session.flush()
+        order_id = o.id
     coll = Collection.query.filter_by(order_id=order_id).first()
     if not coll:
         coll = Collection(order_id=order_id)
         db.session.add(coll)
 
-    # Payload: rows serialized as JSON-ish in repeated form fields
     kinds = request.form.getlist("row_kind")
     methods = request.form.getlist("row_method")
     amounts = request.form.getlist("row_amount")
@@ -2396,6 +2499,33 @@ def nueva_cobranza_create():
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
     upload_preset = os.getenv("CLOUDINARY_UPLOAD_PRESET")
     files = request.files.getlist("row_attachment")
+
+    # Si llegaron archivos y no está configurado Cloudinary, no fallar silenciosamente
+    try:
+        any_upload = False
+        try:
+            any_upload = any(f and getattr(f, "filename", "") for f in (files or []))
+        except Exception:
+            any_upload = False
+        if not any_upload:
+            # también considerar la variante de inputs fijos pm_*_attachment
+            try:
+                for k in (
+                    "pm_transferencia_attachment",
+                    "pm_echeq_attachment",
+                    "pm_cheque_terceros_attachment",
+                    "pm_cheque_propio_attachment",
+                ):
+                    f2 = request.files.get(k)
+                    if f2 and getattr(f2, "filename", ""):
+                        any_upload = True
+                        break
+            except Exception:
+                pass
+        if any_upload and (not cloud_name or not upload_preset):
+            abort(500, "Falta configurar Cloudinary (CLOUDINARY_CLOUD_NAME y CLOUDINARY_UPLOAD_PRESET) para subir adjuntos.")
+    except Exception:
+        pass
 
     # Clear existing draft rows for this order (to avoid duplicates on resubmit)
     try:
@@ -2407,75 +2537,132 @@ def nueva_cobranza_create():
     total_credit = 0.0
     max_due = None
 
-    row_count = max(len(kinds), len(methods), len(amounts), len(dues), len(notes), len(files))
-    for i in range(row_count):
-        kind = (kinds[i] if i < len(kinds) else "").strip().upper() or "PAYMENT"
-        method = (methods[i] if i < len(methods) else "").strip() or None
-        raw_amount = (amounts[i] if i < len(amounts) else "").strip()
-        raw_due = (dues[i] if i < len(dues) else "").strip()
-        row_note = (notes[i] if i < len(notes) else "").strip() or None
-        f = files[i] if i < len(files) else None
+    def _parse_amount(s: str) -> float:
+        s = (s or "").strip()
+        if not s:
+            return 0.0
+        s = s.replace(" ", "")
+        # Soportar formatos: 1234.56 / 1234,56 / 1.234,56
+        if "," in s and "." in s:
+            # asume '.' miles y ',' decimal
+            s = s.replace(".", "").replace(",", ".")
+        elif "," in s:
+            s = s.replace(",", ".")
+        return float(s)
 
-        def _parse_amount(s: str) -> float:
-            s = (s or "").strip()
-            if not s:
-                return 0.0
-            s = s.replace(" ", "")
-            # Soportar formatos: 1234.56 / 1234,56 / 1.234,56
-            if "," in s and "." in s:
-                # asume '.' miles y ',' decimal
-                s = s.replace(".", "").replace(",", ".")
-            elif "," in s:
-                s = s.replace(",", ".")
-            return float(s)
-
+    def _upload_file_to_cloudinary(f):
+        if not f or not getattr(f, "filename", ""):
+            return None
+        if not cloud_name or not upload_preset:
+            return None
         try:
-            amount_val = _parse_amount(raw_amount)
-        except Exception:
-            amount_val = 0.0
-        if not amount_val and not method and not raw_due and not row_note and (not f or not getattr(f, "filename", "")):
-            continue
-
-        due_dt = None
-        if raw_due:
-            try:
-                due_dt = datetime.fromisoformat(raw_due)
-            except Exception:
-                due_dt = None
-
-        attach_url = None
-        if f and getattr(f, "filename", "") and cloud_name and upload_preset:
-            try:
-                r = requests.post(
-                    f"https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload",
-                    data={"upload_preset": upload_preset, "resource_type": "auto"},
-                    files={"file": (f.filename, f.stream, f.mimetype)},
-                    timeout=30,
-                )
-                if r.ok:
-                    attach_url = r.json().get("secure_url") or r.json().get("url")
-            except Exception:
-                attach_url = None
-
-        db.session.add(
-            CollectionPayment(
-                order_id=order_id,
-                kind=kind,
-                method=method,
-                amount=amount_val,
-                due_date=due_dt,
-                attachment_url=attach_url,
-                notes=row_note,
+            r = requests.post(
+                f"https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload",
+                data={"upload_preset": upload_preset, "resource_type": "auto"},
+                files={"file": (f.filename, f.stream, f.mimetype)},
+                timeout=30,
             )
-        )
+            if r.ok:
+                return r.json().get("secure_url") or r.json().get("url")
+        except Exception:
+            return None
+        return None
 
-        if kind == "CREDIT_NOTE":
-            total_credit += abs(amount_val)
-        else:
+    if any([kinds, methods, amounts, dues, notes, files]):
+        row_count = max(len(kinds), len(methods), len(amounts), len(dues), len(notes), len(files))
+        for i in range(row_count):
+            kind = (kinds[i] if i < len(kinds) else "").strip().upper() or "PAYMENT"
+            method = (methods[i] if i < len(methods) else "").strip() or None
+            raw_amount = (amounts[i] if i < len(amounts) else "").strip()
+            raw_due = (dues[i] if i < len(dues) else "").strip()
+            row_note = (notes[i] if i < len(notes) else "").strip() or None
+            f = files[i] if i < len(files) else None
+
+            try:
+                amount_val = _parse_amount(raw_amount)
+            except Exception:
+                amount_val = 0.0
+            if not amount_val and not method and not raw_due and not row_note and (not f or not getattr(f, "filename", "")):
+                continue
+
+            due_dt = None
+            if raw_due:
+                try:
+                    due_dt = datetime.fromisoformat(raw_due)
+                except Exception:
+                    due_dt = None
+
+            attach_url = _upload_file_to_cloudinary(f)
+            if getattr(f, "filename", "") and (not attach_url):
+                abort(500, "No se pudo subir el adjunto a Cloudinary. Verificá configuración y conexión.")
+
+            db.session.add(
+                CollectionPayment(
+                    order_id=order_id,
+                    kind=kind,
+                    method=method,
+                    amount=amount_val,
+                    due_date=due_dt,
+                    attachment_url=attach_url,
+                    notes=row_note,
+                )
+            )
+
+            if kind == "CREDIT_NOTE":
+                total_credit += abs(amount_val)
+            else:
+                total_paid += abs(amount_val)
+
+            if due_dt and (max_due is None or due_dt > max_due):
+                max_due = due_dt
+    else:
+        payment_defs = [
+            ("pm_efectivo", "EFECTIVO", False),
+            ("pm_transferencia", "TRANSFERENCIA", True),
+            ("pm_echeq", "E-CHEQ", True),
+            ("pm_cheque_terceros", "CHEQUE_TERCEROS", False),
+            ("pm_cheque_propio", "CHEQUE_PROPIO", False),
+        ]
+        for prefix, method, needs_attach in payment_defs:
+            raw_amount = (request.form.get(f"{prefix}_amount") or "").strip()
+            raw_date = (request.form.get(f"{prefix}_date") or "").strip()
+            row_note = (request.form.get(f"{prefix}_notes") or "").strip() or None
+            f = request.files.get(f"{prefix}_attachment")
+
+            try:
+                amount_val = _parse_amount(raw_amount)
+            except Exception:
+                amount_val = 0.0
+
+            if not amount_val and not raw_date and not row_note and not (f and getattr(f, "filename", "")):
+                continue
+
+            due_dt = None
+            if raw_date:
+                try:
+                    due_dt = datetime.fromisoformat(raw_date)
+                except Exception:
+                    due_dt = None
+
+            attach_url = _upload_file_to_cloudinary(f)
+            if needs_attach and (raw_amount or raw_date) and not attach_url:
+                abort(400, "Este medio de pago requiere adjunto y no se pudo subir.")
+
+            db.session.add(
+                CollectionPayment(
+                    order_id=order_id,
+                    kind="PAYMENT",
+                    method=method,
+                    amount=amount_val,
+                    due_date=due_dt,
+                    attachment_url=attach_url,
+                    notes=row_note,
+                )
+            )
+
             total_paid += abs(amount_val)
-
-        if due_dt and (max_due is None or due_dt > max_due):
-            max_due = due_dt
+            if due_dt and (max_due is None or due_dt > max_due):
+                max_due = due_dt
 
     # Update collection summary
     try:
@@ -2498,11 +2685,6 @@ def nueva_cobranza_create():
     except Exception:
         base_monto = 0.0
     net_due = base_monto - total_credit
-    # Marcar cobrado si cubre el neto
-    if net_due <= 0:
-        coll.fecha_cobro_efectiva = datetime.utcnow()
-    elif total_paid >= net_due and net_due > 0:
-        coll.fecha_cobro_efectiva = datetime.utcnow()
     # Vencimiento estimado: tomar el más lejano ingresado (p.ej. cheque)
     if max_due:
         coll.fecha_pago_estimada = max_due
@@ -2516,6 +2698,38 @@ def cobranzas_mark_cobrado(order_id: int):
     coll = Collection.query.filter_by(order_id=order_id).first_or_404()
     coll.fecha_cobro_efectiva = datetime.utcnow()
     db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    return redirect(url_for("main.deudas_pendientes"))
+
+
+@bp.post("/cobranzas/<int:order_id>/desmarcar")
+def cobranzas_unmark_cobrado(order_id: int):
+    coll = Collection.query.filter_by(order_id=order_id).first_or_404()
+    coll.fecha_cobro_efectiva = None
+    db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    return redirect(url_for("main.deudas_pendientes"))
+
+
+@bp.post("/cobranzas/desmarcar_automaticos")
+def cobranzas_unmark_automaticos():
+    # Revertir cobros marcados automáticamente: cobro_efectivo == entrega_efectiva
+    try:
+        q = (
+            Collection.query
+            .filter(Collection.fecha_cobro_efectiva.isnot(None))
+            .filter(Collection.fecha_entrega_efectiva.isnot(None))
+            .filter(Collection.fecha_cobro_efectiva == Collection.fecha_entrega_efectiva)
+        )
+        q.update({Collection.fecha_cobro_efectiva: None}, synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
     return redirect(url_for("main.deudas_pendientes"))
 
 
@@ -2564,6 +2778,8 @@ def cobranzas_update(order_id: int):
         if forma_pago_raw is not None:
             order.forma_pago = forma_pago
     db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
     return redirect(url_for("main.deudas_pendientes"))
 
 
@@ -2705,16 +2921,22 @@ def api_prev_orders():
     if not client_id or not company_id:
         abort(400)
     q = (
-        Order.query.filter_by(client_id=client_id, company_id=company_id)
-        .order_by(Order.created_at.desc())
+        Order.query
+        .filter_by(client_id=client_id, company_id=company_id)
+        .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
+        .order_by(LogisticsStatus.fecha_compra.desc().nullslast(), Order.created_at.desc())
         .limit(max(1, min(limit, 50)))
     )
     items = []
     for o in q.all():
+        lg = getattr(o, "logistics", None)
+        fc = getattr(lg, "fecha_compra", None) if lg is not None else None
         items.append({
             "id": o.id,
             "created_at": o.created_at.isoformat() if o.created_at else None,
             "created_date": o.created_at.date().isoformat() if o.created_at else None,
+            "fecha_compra": fc.isoformat() if fc else None,
+            "fecha_compra_date": fc.date().isoformat() if fc else None,
             "nota": o.nota or "",
             "descripcion": o.descripcion or "",
             "precio_final": float(o.precio_final or 0),

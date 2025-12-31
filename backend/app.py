@@ -6,6 +6,7 @@ from .extensions import db, migrate, login_manager
 from .config import Config
 from . import models
 from flask_migrate import upgrade
+from sqlalchemy import text
 
 
 def create_app():
@@ -35,6 +36,21 @@ def create_app():
                 db.create_all()
             except Exception:
                 # As último recurso, dejar que la app arranque y ver logs
+                pass
+
+        # SQLite: create_all no agrega columnas nuevas; asegurar compatibilidad mínima
+        try:
+            if db.engine.dialect.name == "sqlite":
+                cols = db.session.execute(text("PRAGMA table_info(client_company_link)"))
+                col_names = {row[1] for row in cols.fetchall()}  # row[1] = name
+                if "plazo_pago_dias" not in col_names:
+                    db.session.execute(text("ALTER TABLE client_company_link ADD COLUMN plazo_pago_dias INTEGER"))
+                    db.session.commit()
+        except Exception:
+            # No impedir el arranque si el check/alter falla
+            try:
+                db.session.rollback()
+            except Exception:
                 pass
 
     # Register blueprints

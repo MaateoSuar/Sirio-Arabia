@@ -71,10 +71,6 @@
           <input name="plazo_usual" type="text" class="form-control" value="{{ company.plazo_usual or '' if company else '' }}" placeholder="Ej: 15 días / contado / etc">
         </div>
         <div class="col-md-6">
-          <label class="form-label">Pedido estándar recomendado</label>
-          <textarea name="pedido_estandar_recomendado" class="form-control" rows="3" placeholder="Detalle de pedido estándar...">{{ company.pedido_estandar_recomendado or '' if company else '' }}</textarea>
-        </div>
-        <div class="col-md-6">
           <label class="form-label">Forma de pago (default)</label>
           {% set fpd = ((company.forma_pago_default if company else '') or '') %}
           <select name="forma_pago_default" class="form-select">
@@ -219,18 +215,92 @@
           </div>
         </div>
         {% endif %}
+
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaRecomCollapse" aria-expanded="false" aria-controls="empresaRecomCollapse">
+            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
+              Recomendaciones
+              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
+            </h3>
+            <i class="bi bi-chevron-right"></i>
+          </div>
+        </div>
+        <div class="col-12 collapse" id="empresaRecomCollapse">
+          <div class="row g-3 mt-1">
+            <div class="col-12">
+              <input type="hidden" name="pedido_estandar_recomendado" id="recom_pedido" value="{{ company.pedido_estandar_recomendado or '' if company else '' }}">
+              <div class="card shadow-sm">
+                <div class="card-header bg-light d-flex align-items-center justify-content-between">
+                  <strong>Pedido estándar recomendado</strong>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary js-recom-edit" data-field="pedido"><i class="bi bi-journal-text"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary js-recom-copy" data-field="pedido"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="recom_pedido_preview" class="form-control" style="min-height:120px; background:#fffef7; overflow:auto;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <input type="hidden" name="notas" id="recom_desc" value="{{ company.notas or '' if company else '' }}">
+              <div class="card shadow-sm">
+                <div class="card-header bg-light d-flex align-items-center justify-content-between">
+                  <strong>Descripción</strong>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary js-recom-edit" data-field="desc"><i class="bi bi-journal-text"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary js-recom-copy" data-field="desc"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="recom_desc_preview" class="form-control" style="min-height:120px; background:#fffef7; overflow:auto;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       </div>
     </form>
+
+    <div class="modal fade" id="recomNotasModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="recomNotasTitle">Notas</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <div class="d-flex gap-2">
+              <div id="recomNotasToolbar" class="btn-group-vertical" role="group" aria-label="Herramientas">
+                <button type="button" class="btn btn-outline-secondary" data-cmd="bold" title="Negrita"><strong>B</strong></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="italic" title="Itálica"><em>I</em></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="underline" title="Subrayado"><u>U</u></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="insertUnorderedList" title="Lista">•</button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="insertOrderedList" title="Lista numerada">1.</button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="fontSize" data-value="5" title="Texto grande">A+</button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="removeFormat" title="Quitar formato">Tx</button>
+              </div>
+              <div id="recomNotasEditor" class="form-control" contenteditable="true" style="min-height: 60vh; overflow:auto;"></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="recomNotasGuardarBtn">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="card-body pt-0">
       <div class="row g-3">
         <div class="col-12 mt-4">
           <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
-            <h2 class="empresa-section-title mb-0" style="flex:1; text-align:left;">
+            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
               Información complementaria
               <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h2>
+            </h3>
             <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
           </div>
         </div>
@@ -481,6 +551,184 @@
       extra.classList.add('d-none');
       chev.classList.remove('bi-chevron-down');
       chev.classList.add('bi-chevron-right');
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  function escapeHtml(s){
+    s = String(s || '');
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function htmlToText(html){
+    try{
+      var tmp = document.createElement('div');
+      tmp.innerHTML = String(html || '');
+      return (tmp.textContent || tmp.innerText || '').trim();
+    }catch(e){
+      return String(html || '').trim();
+    }
+  }
+
+  function htmlToPlainWithBullets(html){
+    try{
+      var tmp = document.createElement('div');
+      tmp.innerHTML = String(html || '');
+      var lis = tmp.querySelectorAll('li');
+      if (lis && lis.length){
+        var out = [];
+        lis.forEach(function(li){
+          var t = (li.textContent || '').trim();
+          if (t) out.push('- ' + t);
+        });
+        return out.join('\n');
+      }
+      return (tmp.textContent || tmp.innerText || '').trim();
+    } catch(e){
+      return String(html || '').trim();
+    }
+  }
+
+  var hidPedido = document.getElementById('recom_pedido');
+  var hidDesc = document.getElementById('recom_desc');
+  var prevPedido = document.getElementById('recom_pedido_preview');
+  var prevDesc = document.getElementById('recom_desc_preview');
+  if (!hidPedido || !hidDesc || !prevPedido || !prevDesc) return;
+
+  function renderPreviews(){
+    prevPedido.innerHTML = escapeHtml(htmlToText(hidPedido.value)) || '<span class="text-muted">(Vacío)</span>';
+    prevDesc.innerHTML = escapeHtml(htmlToText(hidDesc.value)) || '<span class="text-muted">(Vacío)</span>';
+  }
+  renderPreviews();
+
+  var modalEl = document.getElementById('recomNotasModal');
+  var editor = document.getElementById('recomNotasEditor');
+  var toolbar = document.getElementById('recomNotasToolbar');
+  var saveBtn = document.getElementById('recomNotasGuardarBtn');
+  var titleEl = document.getElementById('recomNotasTitle');
+  var modal = (modalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(modalEl) : null;
+  var cancelBtn = modalEl ? modalEl.querySelector('[data-bs-dismiss="modal"]') : null;
+
+  var currentField = null; // 'pedido' | 'desc'
+  function openModal(field){
+    currentField = field;
+    if (titleEl) titleEl.textContent = field === 'pedido' ? 'Pedido estándar recomendado' : 'Descripción';
+    if (editor) {
+      var val = (field === 'pedido' ? hidPedido.value : hidDesc.value) || '';
+      editor.innerHTML = val;
+      editor.focus();
+    }
+    if (modal) modal.show();
+    else if (modalEl){
+      modalEl.classList.add('show');
+      modalEl.style.display='block';
+      modalEl.removeAttribute('aria-hidden');
+      if (!document.getElementById('recomNotasBackdrop')){
+        var bd = document.createElement('div');
+        bd.id = 'recomNotasBackdrop';
+        bd.className = 'modal-backdrop fade show';
+        document.body.appendChild(bd);
+      }
+    }
+  }
+  function closeModal(){
+    if (modal) {
+      modal.hide();
+    } else if (modalEl){
+      modalEl.classList.remove('show');
+      modalEl.style.display='none';
+      modalEl.setAttribute('aria-hidden','true');
+      var bd = document.getElementById('recomNotasBackdrop');
+      if (bd) bd.remove();
+    }
+  }
+
+  // Si Bootstrap no engancha, permitir cerrar con X/Cancelar/backdrop/Esc
+  try {
+    if (modalEl) {
+      modalEl.addEventListener('click', function(ev){
+        var bd = document.getElementById('recomNotasBackdrop');
+        if (bd && ev.target === bd) { ev.preventDefault(); closeModal(); }
+      });
+    }
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape') {
+        if (modalEl && modalEl.classList.contains('show')) closeModal();
+      }
+    });
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function(ev){
+        if (!modal) { ev.preventDefault(); closeModal(); }
+      });
+    }
+    if (modalEl) {
+      var xBtn = modalEl.querySelector('.btn-close');
+      if (xBtn) {
+        xBtn.addEventListener('click', function(ev){
+          if (!modal) { ev.preventDefault(); closeModal(); }
+        });
+      }
+    }
+  } catch(e) {}
+
+  if (toolbar) {
+    toolbar.addEventListener('click', function(e){
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      var cmd = btn.getAttribute('data-cmd');
+      var val = btn.getAttribute('data-value');
+      try {
+        if (val) document.execCommand(cmd, false, val);
+        else document.execCommand(cmd, false, null);
+      } catch(err) {}
+      try { editor && editor.focus(); } catch(err) {}
+    });
+  }
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function(){
+      if (!currentField) return;
+      var html = editor ? (editor.innerHTML || '') : '';
+      if (currentField === 'pedido') hidPedido.value = html;
+      else hidDesc.value = html;
+      renderPreviews();
+      closeModal();
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    var btnEdit = e.target.closest('.js-recom-edit');
+    if (btnEdit){
+      e.preventDefault();
+      openModal(btnEdit.getAttribute('data-field'));
+      return;
+    }
+    var btnCopy = e.target.closest('.js-recom-copy');
+    if (btnCopy){
+      e.preventDefault();
+      var field = btnCopy.getAttribute('data-field');
+      var raw = field === 'pedido' ? hidPedido.value : hidDesc.value;
+      var plain = htmlToPlainWithBullets(raw);
+      try {
+        if (navigator.clipboard && window.ClipboardItem) {
+          var item = new ClipboardItem({
+            'text/html': new Blob([String(raw || '')], { type: 'text/html' }),
+            'text/plain': new Blob([String(plain || '')], { type: 'text/plain' })
+          });
+          navigator.clipboard.write([item]);
+        } else {
+          navigator.clipboard.writeText(plain);
+        }
+      } catch(err) {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = plain; document.body.appendChild(ta);
+          ta.select(); document.execCommand('copy');
+          ta.remove();
+        } catch(_) {}
+      }
+      return;
     }
   });
 })();

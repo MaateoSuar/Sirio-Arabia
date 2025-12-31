@@ -398,6 +398,49 @@
 
     function updateEnabledBySelection(){ return; }
 
+    async function loadCompanies(clientId){
+      if(!empresaSel) return;
+      empresaSel.innerHTML = '<option value="">Empresa...</option>';
+      if (mailInput) mailInput.value = '';
+      if(!clientId) return;
+      try{
+        const res = await fetch(`/api/clientes/${clientId}/empresas`);
+        const items = await res.json();
+        if (!Array.isArray(items)) return;
+        for(const e of items){
+          const opt = document.createElement('option');
+          opt.value = e.id;
+          opt.textContent = e.label;
+          opt.setAttribute('data-mail', e.mail_pedido || '');
+          opt.setAttribute('data-mail-pago', e.mail_pago || '');
+          opt.setAttribute('data-pedido-std', e.pedido_estandar_recomendado || '');
+          opt.setAttribute('data-tipo-default', (e.comprobante_tipo || '').toString());
+          opt.setAttribute('data-pago-default', (e.forma_pago_default || '').toString());
+          opt.setAttribute('data-plazo', ((e.plazo_pago_dias != null ? e.plazo_pago_dias : e.plazo_pago_promedio_dias) || '').toString());
+          empresaSel.appendChild(opt);
+        }
+      }catch(e){/* noop */}
+    }
+
+    // Cargar empresas al seleccionar cliente
+    clienteSel?.addEventListener('change', async ()=>{
+      const id = clienteSel.value;
+      clearFormForClientChange();
+      resetRecipients();
+      lastCompanyId = '';
+      delete document.body.dataset.tipoTouched;
+      if (formaPagoSel) delete formaPagoSel.dataset.touched;
+      if (plazoPagoInput) delete plazoPagoInput.dataset.touched;
+      if (!id){
+        if (empresaSel) empresaSel.innerHTML = '<option value="">Empresa...</option>';
+        if (prevWrap) prevWrap.innerHTML = '';
+        updateEnabledBySelection();
+        return;
+      }
+      await loadCompanies(id);
+      updateEnabledBySelection();
+    });
+
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
     empresaSel?.addEventListener('change', ()=>{
       // Al cambiar empresa, NO borrar sucursales ni otros datos del cliente;
@@ -408,148 +451,24 @@
         // reset flags de defaults por cambio real de empresa
         delete document.body.dataset.tipoTouched;
         if (formaPagoSel) delete formaPagoSel.dataset.touched;
-        lastCompanyId = currCompanyId;
+        if (plazoPagoInput) delete plazoPagoInput.dataset.touched;
       }
-      if (mailInput) mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
+      lastCompanyId = currCompanyId;
+      if (mailInput){
+        try{
+          mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
+        } catch(e) {}
+      }
 
-      // Default: pedido estándar recomendado de la empresa (si el usuario todavía no escribió nada)
-      try {
-        const std = opt ? (opt.getAttribute('data-pedido-std') || '') : '';
-        const hasText = !!(descInput && descInput.value && descInput.value.trim());
-        if (descInput && !descInput.dataset.touched && !hasText && std && std.trim()) {
-          descInput.value = std;
-          descInput.dispatchEvent(new Event('input'));
-        }
-      } catch(e) {}
-
-      // Defaults de la empresa: tipo comprobante + forma de pago
-      try {
-        const defTipo = opt ? (opt.getAttribute('data-tipo-default') || '') : '';
-        const defPago = opt ? (opt.getAttribute('data-pago-default') || '') : '';
+      // Default plazo de pago por vínculo Cliente+Empresa (si el usuario todavía no lo tocó)
+      try{
         const defPlazo = opt ? (opt.getAttribute('data-plazo') || '') : '';
-        // setTipo está definido abajo en el script
-        if (defTipo && typeof setTipo === 'function' && !document.body.dataset.tipoTouched) {
-          setTipo(defTipo);
-        }
-        if (defPago && formaPagoSel && !formaPagoSel.dataset.touched) {
-          // setTipo() ya llama populateFormaPago(), entonces acá sólo intentamos setear si existe
-          const exists = Array.from(formaPagoSel.options || []).some(o => String(o.value) === String(defPago));
-          if (exists) {
-            formaPagoSel.value = defPago;
-            formaPagoSel.dispatchEvent(new Event('change'));
-          }
-        }
         if (plazoPagoInput && !plazoPagoInput.dataset.touched && String(defPlazo || '').trim() !== '') {
           plazoPagoInput.value = String(defPlazo);
         }
-      } catch(e) {}
+      }catch(e) {}
 
-      loadPrevOrders();
-      loadRecipientsFromCompany();
-      updateEnabledBySelection();
-      tryLoadDraftForSelection();
-    });
-
-    const gmailBtn = document.getElementById('gmail-draft-btn');
-    gmailBtn?.addEventListener('click', function(){
-      const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
-      // Union: confirmados + tildados actualmente
-      let toSet = new Set(Array.from(toConfirmed));
-      if (toBox) {
-        toBox.querySelectorAll('.js-to-chk:checked').forEach(chk=>{
-          const v = String(chk.value).trim(); if (v) toSet.add(v);
-        });
-      }
-      let to = Array.from(toSet);
-      if (!to.length) {
-        const raw = (empresaOpt && empresaOpt.getAttribute('data-mail')) || '';
-        to = raw.split(',').map(s=>s.trim()).filter(Boolean);
-      }
-      const clienteText = clienteSel.options[clienteSel.selectedIndex]?.getAttribute('data-razon') || clienteSel.options[clienteSel.selectedIndex]?.text || '';
-      const empresaText = empresaOpt?.text || '';
-      let titleTxt = `Pedido ${clienteText} - ${empresaText}`;
-      const branchOpt = branchSel?.options[branchSel.selectedIndex];
-      if (branchSel && branchSel.value && branchOpt) { titleTxt += ` / Sucursal: ${branchOpt.text}`; }
-      const subject = encodeURIComponent(titleTxt);
-      const body = encodeURIComponent(buildPreviewText());
-      const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.join(','))}&su=${subject}&body=${body}`;
-      window.open(url, '_blank');
-    });
-
-    // Load branches when client changes
-    async function loadBranches(clientId){
-      if(!branchSel) return;
-      branchSel.innerHTML = '<option value="">Sucursal del cliente...</option>';
-      if(!clientId){
-        if (branchCol) branchCol.style.display = 'none';
-        return;
-      }
-      try{
-        const res = await fetch(`/api/clientes/${clientId}/sucursales`);
-        const items = await res.json();
-        if (!Array.isArray(items) || items.length === 0){
-          if (branchCol) branchCol.style.display = 'none';
-          return;
-        }
-        // Si sólo hay una sucursal, seleccionarla por defecto y no mostrar el select
-        if (items.length === 1){
-          const b = items[0];
-          const opt = document.createElement('option');
-          opt.value = b.id;
-          opt.textContent = b.label;
-          branchSel.appendChild(opt);
-          branchSel.value = String(b.id);
-          if (branchCol) branchCol.style.display = 'none';
-          return;
-        }
-        // Si hay 2 o más, mostrar el select y listar todas
-        for (let b of items){
-          const opt = document.createElement('option');
-          opt.value = b.id;
-          opt.textContent = b.label;
-          branchSel.appendChild(opt);
-        }
-        if (branchCol) branchCol.style.display = '';
-      }catch(e){
-        if (branchCol) branchCol.style.display = 'none';
-      }
-    }
-
-    // Load companies linked to selected client
-    async function loadCompanies(clientId){
-      if(!empresaSel) return;
-      empresaSel.innerHTML = '<option value="">Empresa...</option>';
-      if (mailInput) mailInput.value = '';
-      if(!clientId) return;
-      try{
-        const res = await fetch(`/api/clientes/${clientId}/empresas`);
-        const items = await res.json();
-        for(const e of items){
-          const opt = document.createElement('option');
-          opt.value = e.id;
-          opt.textContent = e.label;
-          opt.setAttribute('data-mail', e.mail_pedido || '');
-          opt.setAttribute('data-mail-pago', e.mail_pago || '');
-          opt.setAttribute('data-pedido-std', e.pedido_estandar_recomendado || '');
-          opt.setAttribute('data-tipo-default', (e.comprobante_tipo || '').toString());
-          opt.setAttribute('data-pago-default', (e.forma_pago_default || '').toString());
-          opt.setAttribute('data-plazo', (e.plazo_pago_promedio_dias || '').toString());
-          empresaSel.appendChild(opt);
-        }
-      }catch(e){/* noop */}
-    }
-    clienteSel?.addEventListener('change', ()=>{
-      const id = clienteSel.value;
-      // Al cambiar cliente, solo limpiar (no guardar automático)
-      clearFormForClientChange();
-      // reset de flags de defaults
-      delete document.body.dataset.tipoTouched;
-      if (formaPagoSel) delete formaPagoSel.dataset.touched;
-      loadBranches(id);
-      loadCompanies(id);
-      loadPrevOrders();
-      // limpiar destinatarios al cambiar cliente
-      resetRecipients();
+      // Default: pedido estándar recomendado de la empresa (si el usuario todavía no escribió nada)
       updateEnabledBySelection();
       // Intentar cargar borrador si ya hay empresa seleccionada
       tryLoadDraftForSelection();
@@ -759,8 +678,8 @@
         items.forEach((o)=>{
           const row = document.createElement('div');
           row.className = 'list-group-item';
-          const createdDate = (o.created_date || '').trim();
-          const dtTxt = createdDate ? createdDate.split('-').reverse().join('/') : '';
+          const showDate = String((o.fecha_compra_date || o.created_date || '')).trim();
+          const dtTxt = showDate ? showDate.split('-').reverse().join('/') : '';
           const prev = (o.descripcion||'').split('\n').find(Boolean) || (o.nota||'');
           const header = document.createElement('button');
           header.type = 'button';
@@ -784,6 +703,16 @@
           copyBtn.addEventListener('click', ()=>{
             notaInput.value = o.nota || '';
             descInput.value = o.descripcion || '';
+            try {
+              const iso = String((o.fecha_compra_date || o.created_date || '')).trim();
+              if (fechaInput) {
+                if (fechaInput._flatpickr) {
+                  fechaInput._flatpickr.setDate(iso || '', true, 'Y-m-d');
+                } else {
+                  fechaInput.value = iso || '';
+                }
+              }
+            } catch(e) {}
             if (previewTa) previewTa.value = buildPreviewText();
           });
           detail.appendChild(pre);

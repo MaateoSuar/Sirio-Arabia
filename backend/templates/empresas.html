@@ -65,19 +65,99 @@
                 {% if total_alerts > 0 %}
                   <div class="d-flex flex-column gap-2">
                     {% for a in company_alerts %}
-                      <div class="d-flex flex-wrap gap-2 align-items-center js-alerta-item" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" data-message="{{ a.message }}" data-severity="{{ a.severity }}" data-company="{{ a.company }}">
-                        <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }}</span>
-                        <button type="button" class="btn btn-sm btn-success rounded-circle js-alerta-action" data-action="visto" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" aria-label="Marcar alerta como vista" title="Visto">
-                          <i class="bi bi-check-lg"></i>
-                        </button>
-                        <div class="dropdown">
-                          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Posponer</button>
-                          <ul class="dropdown-menu dropdown-menu-end">
-                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="1" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">1 día</button></li>
-                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="7" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">7 días</button></li>
-                            <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="30" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">30 días</button></li>
-                          </ul>
+                      <div class="d-flex flex-column gap-2 js-alerta-item" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" data-message="{{ a.message }}" data-severity="{{ a.severity }}" data-company="{{ a.company }}">
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                          <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }}</span>
+                          <button type="button" class="btn btn-sm btn-success rounded-circle js-alerta-action" data-action="visto" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}" aria-label="Marcar alerta como vista" title="Visto">
+                            <i class="bi bi-check-lg"></i>
+                          </button>
+                          <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Posponer</button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                              <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="1" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">1 día</button></li>
+                              <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="7" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">7 días</button></li>
+                              <li><button type="button" class="dropdown-item js-alerta-action" data-action="snooze" data-days="30" data-client-id="{{ a.client_id }}" data-order-id="{{ a.order_id }}" data-kind="{{ a.kind }}">30 días</button></li>
+                            </ul>
+                          </div>
                         </div>
+
+                        {% if a.kind == 'COBRANZA' %}
+                          <div class="border rounded-3 p-2 bg-white">
+                            <div class="small text-muted mb-2">Detalle (Cobranzas)</div>
+                            <div class="row g-2 align-items-end">
+                              <div class="col-12 col-md-3">
+                                <label class="form-label small mb-1">Entrega efectiva</label>
+                                <input type="text" class="form-control form-control-sm js-alert-cob-entrega" value="{{ a.cob_entrega_efectiva or '' }}" placeholder="YYYY-MM-DD" data-order-id="{{ a.order_id }}">
+                              </div>
+                              <div class="col-12 col-md-3">
+                                <label class="form-label small mb-1">Monto</label>
+                                <div class="input-group input-group-sm">
+                                  <span class="input-group-text">$</span>
+                                  <input type="text" class="form-control form-control-sm js-alert-cob-monto" value="{{ a.cob_monto or '' }}" inputmode="numeric" data-order-id="{{ a.order_id }}">
+                                </div>
+                              </div>
+                              <div class="col-12 col-md-3">
+                                <label class="form-label small mb-1">Forma de pago</label>
+                                <select class="form-select form-select-sm js-alert-cob-forma" data-order-id="{{ a.order_id }}">
+                                  <option value="" {{ 'selected' if not a.cob_forma_pago else '' }}>-</option>
+                                  <option value="EFECTIVO" {{ 'selected' if a.cob_forma_pago=='EFECTIVO' else '' }}>Efectivo</option>
+                                  <option value="CHEQUE" {{ 'selected' if a.cob_forma_pago=='CHEQUE' else '' }}>Cheque</option>
+                                  <option value="TRANSFERENCIA" {{ 'selected' if a.cob_forma_pago=='TRANSFERENCIA' else '' }}>Transferencia</option>
+                                  <option value="NO_SE_SABE" {{ 'selected' if a.cob_forma_pago=='NO_SE_SABE' else '' }}>No se sabe</option>
+                                </select>
+                              </div>
+                              <div class="col-12 col-md-3">
+                                <label class="form-label small mb-1">Vencimiento</label>
+                                <input type="text" class="form-control form-control-sm js-alert-cob-estimado" value="{{ a.cob_pago_estimado or '' }}" placeholder="YYYY-MM-DD" data-order-id="{{ a.order_id }}">
+                              </div>
+                              <div class="col-12 col-md-3">
+                                <label class="form-label small mb-1">Cobro efectivo</label>
+                                <input type="text" class="form-control form-control-sm js-alert-cob-cobro" value="{{ a.cob_cobro_efectivo or '' }}" placeholder="YYYY-MM-DD" data-order-id="{{ a.order_id }}">
+                              </div>
+                              <div class="col-12 col-md-9">
+                                <div class="d-flex flex-wrap gap-2 justify-content-end">
+                                  <button type="button" class="btn btn-sm btn-outline-primary js-alert-save" data-kind="COBRANZA" data-order-id="{{ a.order_id }}">Guardar</button>
+                                  <button type="button" class="btn btn-sm btn-success js-alert-mark" data-kind="COBRANZA" data-order-id="{{ a.order_id }}">Cobrado</button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        {% elif a.kind == 'MERCADERIA' %}
+                          <div class="border rounded-3 p-2 bg-white">
+                            <div class="small text-muted mb-2">Detalle (Status mercadería)</div>
+                            {% if a.st_has_logistics %}
+                              <div class="row g-2 align-items-end">
+                                <div class="col-12 col-md-3">
+                                  <label class="form-label small mb-1">Fecha compra</label>
+                                  <input type="text" class="form-control form-control-sm js-alert-st-compra" value="{{ a.st_fecha_compra or '' }}" placeholder="YYYY-MM-DD" data-order-id="{{ a.order_id }}">
+                                </div>
+                                <div class="col-12 col-md-3">
+                                  <label class="form-label small mb-1">Entrega estimada</label>
+                                  <input type="text" class="form-control form-control-sm js-alert-st-estimada" value="{{ a.st_entrega_estimada or '' }}" placeholder="YYYY-MM-DD" data-order-id="{{ a.order_id }}">
+                                </div>
+                                <div class="col-12 col-md-3">
+                                  <label class="form-label small mb-1">Entrega efectiva</label>
+                                  <input type="text" class="form-control form-control-sm js-alert-st-entrega" value="{{ a.st_entrega_efectiva or '' }}" placeholder="YYYY-MM-DD" data-order-id="{{ a.order_id }}">
+                                </div>
+                                <div class="col-12 col-md-3">
+                                  <label class="form-label small mb-1">Monto</label>
+                                  <div class="input-group input-group-sm">
+                                    <span class="input-group-text">$</span>
+                                    <input type="text" class="form-control form-control-sm js-alert-st-precio" value="{{ a.st_precio or '' }}" inputmode="numeric" data-order-id="{{ a.order_id }}">
+                                  </div>
+                                </div>
+                                <div class="col-12">
+                                  <div class="d-flex flex-wrap gap-2 justify-content-end">
+                                    <button type="button" class="btn btn-sm btn-outline-primary js-alert-save" data-kind="MERCADERIA" data-order-id="{{ a.order_id }}">Guardar</button>
+                                    <button type="button" class="btn btn-sm btn-success js-alert-mark" data-kind="MERCADERIA" data-order-id="{{ a.order_id }}">Entregado</button>
+                                  </div>
+                                </div>
+                              </div>
+                            {% else %}
+                              <div class="text-muted small">Este pedido no tiene registro de Status. Abrí Status y cargalo para poder editar desde acá.</div>
+                            {% endif %}
+                          </div>
+                        {% endif %}
                       </div>
                     {% endfor %}
                   </div>
@@ -256,9 +336,11 @@
       tr.style.display = match ? '' : 'none';
     });
   }
+
   if (input){
     input.addEventListener('input', applySearch);
   }
+  applySearch();
 })();
 </script>
 <script>
@@ -309,6 +391,31 @@
       credentials: 'same-origin'
     }).then(function(r){ return r.json(); });
   }
+
+  function postFormSimple(url, data){
+    var form = new URLSearchParams();
+    Object.keys(data || {}).forEach(function(k){
+      if (data[k] !== undefined && data[k] !== null) form.append(k, data[k]);
+    });
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: form.toString(),
+      credentials: 'same-origin'
+    }).then(function(r){ return r.json(); });
+  }
+
+  function findVal(root, selector){
+    var el = root.querySelector(selector);
+    return el ? (el.value || '').trim() : '';
+  }
+
+  function moneyVal(v){
+    return (v || '').toString().replace(/\D+/g, '');
+  }
   function getCompanyCount(companyId){
     var el = document.querySelector('.js-company-alert-count[data-company-id="' + companyId + '"]');
     if (!el) return 0;
@@ -335,6 +442,111 @@
     if (el) el.textContent = String(Math.max(0, n));
     if (wrap) wrap.classList.toggle('d-none', !(n > 0));
   }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.classList || !btn.classList.contains('js-alert-save'))){
+      if (btn.closest) btn = btn.closest('.js-alert-save');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-alert-save')) return;
+    e.preventDefault();
+    var orderId = btn.getAttribute('data-order-id');
+    var kind = btn.getAttribute('data-kind');
+    if (!orderId || !kind) return;
+    var item = btn.closest('.js-alerta-item');
+    if (!item) return;
+    btn.disabled = true;
+
+    var companyPanel = item.closest('.js-alertas-list');
+    var companyId = companyPanel ? companyPanel.getAttribute('data-company-id') : null;
+
+    if (kind === 'COBRANZA'){
+      var payload = {
+        monto: moneyVal(findVal(item, '.js-alert-cob-monto')),
+        forma_pago: findVal(item, '.js-alert-cob-forma'),
+        pago_estimado: findVal(item, '.js-alert-cob-estimado'),
+        fecha_entrega_efectiva: findVal(item, '.js-alert-cob-entrega'),
+        fecha_cobro_efectiva: findVal(item, '.js-alert-cob-cobro')
+      };
+      postFormSimple('/cobranzas/' + orderId + '/update', payload).then(function(resp){
+        btn.disabled = false;
+        if (resp && resp.ok){
+          if (window.showToast) window.showToast('Cobranza actualizada', 'success');
+          if (payload.fecha_cobro_efectiva && companyId){
+            item.remove();
+            setCompanyCount(companyId, getCompanyCount(companyId) - 1);
+            setTotalCount(getTotalCount() - 1);
+          }
+        } else {
+          if (window.showToast) window.showToast('No se pudo actualizar la cobranza', 'danger');
+        }
+      }).catch(function(){
+        btn.disabled = false;
+        if (window.showToast) window.showToast('Error de conexión al actualizar', 'danger');
+      });
+    } else if (kind === 'MERCADERIA'){
+      var payload2 = {
+        fecha_compra: findVal(item, '.js-alert-st-compra'),
+        fecha_entrega_estimada: findVal(item, '.js-alert-st-estimada'),
+        fecha_entrega_efectiva: findVal(item, '.js-alert-st-entrega'),
+        precio: moneyVal(findVal(item, '.js-alert-st-precio'))
+      };
+      postFormSimple('/status/' + orderId + '/update', payload2).then(function(resp){
+        btn.disabled = false;
+        if (resp && resp.ok){
+          if (window.showToast) window.showToast('Status actualizado', 'success');
+          if (payload2.fecha_entrega_efectiva && companyId){
+            item.remove();
+            setCompanyCount(companyId, getCompanyCount(companyId) - 1);
+            setTotalCount(getTotalCount() - 1);
+          }
+        } else {
+          if (window.showToast) window.showToast('No se pudo actualizar el status', 'danger');
+        }
+      }).catch(function(){
+        btn.disabled = false;
+        if (window.showToast) window.showToast('Error de conexión al actualizar', 'danger');
+      });
+    } else {
+      btn.disabled = false;
+    }
+  });
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.classList || !btn.classList.contains('js-alert-mark'))){
+      if (btn.closest) btn = btn.closest('.js-alert-mark');
+    }
+    if (!btn || !btn.classList || !btn.classList.contains('js-alert-mark')) return;
+    e.preventDefault();
+    var orderId = btn.getAttribute('data-order-id');
+    var kind = btn.getAttribute('data-kind');
+    if (!orderId || !kind) return;
+    var item = btn.closest('.js-alerta-item');
+    var companyPanel = item ? item.closest('.js-alertas-list') : null;
+    var companyId = companyPanel ? companyPanel.getAttribute('data-company-id') : null;
+    btn.disabled = true;
+    var url = null;
+    if (kind === 'COBRANZA') url = '/cobranzas/' + orderId + '/cobrar';
+    if (kind === 'MERCADERIA') url = '/status/' + orderId + '/entregar';
+    if (!url){ btn.disabled = false; return; }
+    postFormSimple(url, {}).then(function(resp){
+      btn.disabled = false;
+      if (resp && resp.ok){
+        if (window.showToast) window.showToast(kind === 'COBRANZA' ? 'Marcado como cobrado' : 'Marcado como entregado', 'success');
+        if (item && item.parentNode && companyId){
+          item.remove();
+          setCompanyCount(companyId, getCompanyCount(companyId) - 1);
+          setTotalCount(getTotalCount() - 1);
+        }
+      } else {
+        if (window.showToast) window.showToast('No se pudo completar la acción', 'danger');
+      }
+    }).catch(function(){
+      btn.disabled = false;
+      if (window.showToast) window.showToast('Error de conexión al procesar la acción', 'danger');
+    });
+  });
   function updateRowAttrs(companyId, newCount){
     var row = document.querySelector('#empresas-table tbody tr button.js-toggle-alertas[data-company-id="' + companyId + '"]');
     if (!row) return;

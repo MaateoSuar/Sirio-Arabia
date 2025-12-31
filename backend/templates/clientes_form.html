@@ -69,8 +69,10 @@
           <select name="forma_pago_habitual" class="form-select">
             <option value="">-</option>
             <option value="EFECTIVO" {{ 'selected' if fph=='EFECTIVO' else '' }}>Efectivo</option>
-            <option value="CHEQUE" {{ 'selected' if fph=='CHEQUE' else '' }}>Cheque</option>
             <option value="TRANSFERENCIA" {{ 'selected' if fph=='TRANSFERENCIA' else '' }}>Transferencia</option>
+            <option value="CHEQUE" {{ 'selected' if fph=='CHEQUE' else '' }}>E-cheq</option>
+            <option value="CHEQUE">Cheque Físico Terceros</option>
+            <option value="CHEQUE">Cheque Físico Propio</option>
             <option value="NO_SE_SABE" {{ 'selected' if fph=='NO_SE_SABE' else '' }}>No se sabe</option>
           </select>
         </div>

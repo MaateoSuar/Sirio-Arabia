@@ -4,9 +4,6 @@
   <div>
     <h1 class="h4 mb-0">Deudas pendientes</h1>
   </div>
-  <div class="d-flex gap-2">
-    <a class="btn btn-sm btn-primary" href="{{ url_for('main.nueva_cobranza') }}">Nueva cobranza</a>
-  </div>
   <style>
     .cob-filter .btn { 
       border-width: 2px; 
@@ -132,6 +129,7 @@
               <input name="fecha_cobro_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-cobro"
                      value="{{ c.fecha_cobro_efectiva.strftime('%Y-%m-%d') if c.fecha_cobro_efectiva else '' }}" form="upd{{ c.order.id }}">
             </td>
+            </form>
             <td>
               {% if c.status == 'COBRADO' %}
                 <span class="badge bg-success">COBRADO</span>
@@ -145,10 +143,11 @@
               <div class="d-flex justify-content-end flex-wrap gap-2">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ c.order.id }}">Editar</button>
                 {% if not c.fecha_cobro_efectiva %}
-                  </form>
                   <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#markPaid{{ c.order.id }}">Cobrado</button>
                 {% else %}
-                  <span class="text-muted">—</span>
+                  <form method="post" action="{{ url_for('main.cobranzas_unmark_cobrado', order_id=c.order.id) }}">
+                    <button type="submit" class="btn btn-sm btn-outline-warning">Desmarcar</button>
+                  </form>
                 {% endif %}
                 <div class="btn-group btn-group-sm" role="group">
                   <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ c.order.id }}" title="Eliminar">

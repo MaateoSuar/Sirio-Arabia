@@ -104,6 +104,10 @@
     .monto-factura .form-control { border-color:#0d6efd; }
     .monto-remito .input-group-text { background-color:#dc3545; color:#fff; border-color:#dc3545; }
     .monto-remito .form-control { border-color:#dc3545; }
+
+    /* Achicar campos de fechas en tabla para ganar espacio */
+    .status-date{ max-width: 122px; }
+    .flatpickr-input.status-date + .form-control.input { max-width: 122px; }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
   <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
@@ -155,8 +159,7 @@
             <th class="col-client">Cliente</th>
             <th class="col-company">Empresa</th>
             <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Fecha compra</th>
-            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega estimada</th>
-            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
+            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega</th>
             <th>Monto</th>
             <th>Status</th>
             <th class="text-end w-actions">Acciones</th>
@@ -168,16 +171,22 @@
             <td class="col-client">{{ s.order.client.apellido }}</td>
             <td class="col-company">{{ s.order.company.nombre }}</td>
             <td class="d-none d-md-table-cell">
-              <input name="fecha_compra" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-compra"
+              <input name="fecha_compra" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-compra status-date"
                      value="{{ s.fecha_compra.strftime('%Y-%m-%d') if s.fecha_compra else '' }}">
             </td>
             <td class="d-none d-md-table-cell">
-              <input name="fecha_entrega_estimada" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-estimada"
-                     value="{{ s.fecha_entrega_estimada.strftime('%Y-%m-%d') if s.fecha_entrega_estimada else '' }}">
-            </td>
-            <td class="d-none d-md-table-cell">
-              <input name="fecha_entrega_efectiva" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-entrega-efectiva"
-                     value="{{ s.fecha_entrega_efectiva.strftime('%Y-%m-%d') if s.fecha_entrega_efectiva else '' }}">
+              <div class="d-flex align-items-center gap-2">
+                <input name="fecha_entrega_estimada" form="upd{{ s.order.id }}" type="text" data-datepicker class="form-control form-control-sm js-entrega status-date"
+                       value="{{ (s.fecha_entrega_efectiva or s.fecha_entrega_estimada).strftime('%Y-%m-%d') if (s.fecha_entrega_efectiva or s.fecha_entrega_estimada) else '' }}">
+                <input type="hidden" name="fecha_entrega_efectiva" form="upd{{ s.order.id }}" class="js-entrega-efectiva-hid"
+                       value="{{ s.fecha_entrega_efectiva.strftime('%Y-%m-%d') if s.fecha_entrega_efectiva else '' }}">
+                {% if not s.fecha_entrega_efectiva %}
+                  <form class="m-0" method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}">
+                    <input type="hidden" name="fecha" value="{{ s.fecha_entrega_estimada.strftime('%Y-%m-%d') if s.fecha_entrega_estimada else '' }}">
+                    <button type="submit" class="btn btn-sm btn-success" title="Marcar entrega efectiva">✅</button>
+                  </form>
+                {% endif %}
+              </div>
             </td>
             <td class="col-money">
               {% set tipo = (s.order.tipo_comprobante or 'FACTURA') %}
@@ -199,11 +208,6 @@
             <td class="text-end">
               <div class="d-flex justify-content-end flex-wrap gap-2">
                 <form id="upd{{ s.order.id }}" class="d-none" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}"></form>
-                {% if not s.fecha_entrega_efectiva %}
-                  <form method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}">
-                    <button type="submit" class="btn btn-sm btn-success" title="Marcar entregado">✅</button>
-                  </form>
-                {% endif %}
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ s.order.id }}">Editar</button>
                 <div class="btn-group btn-group-sm" role="group">
                   <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ s.order.id }}" title="Eliminar">
@@ -441,12 +445,27 @@
         });
       } catch(e) {}
 
+      // Si ya hay entrega efectiva, sincronizar hidden antes de autosubmit
+      try {
+        document.querySelectorAll('#status-tbody tr').forEach(function(tr){
+          var ent = tr.querySelector('input.js-entrega');
+          var effH = tr.querySelector('input.js-entrega-efectiva-hid');
+          if (!ent || !effH) return;
+          if (!(effH.value || '').trim()) return;
+          ent.addEventListener('change', function(){
+            try { effH.value = (ent.value || '').trim(); } catch(e) {}
+          });
+        });
+      } catch(e) {}
+
       // Default entrega estimada: fecha_compra + demora (solo si está vacío)
       try {
         document.querySelectorAll('#status-tbody tr').forEach(function(tr){
-          var est = tr.querySelector('input.js-estimada');
+          var est = tr.querySelector('input.js-entrega');
           var compra = tr.querySelector('input.js-compra');
           if (!est || !compra) return;
+          var effH = tr.querySelector('input.js-entrega-efectiva-hid');
+          if (effH && (effH.value || '').trim()) return;
           var estVal = (est.value || '').trim();
           if (estVal) return;
           var compraVal = (compra.value || '').trim();
@@ -483,7 +502,7 @@
       });
 
       // autosubmit al cambiar fechas
-      document.querySelectorAll('.js-estimada, .js-compra, .js-entrega-efectiva').forEach(function(el){
+      document.querySelectorAll('.js-entrega, .js-compra').forEach(function(el){
         el.addEventListener('change', function(){
           var formId = el.getAttribute('form');
           var f = formId ? document.getElementById(formId) : el.closest('form');

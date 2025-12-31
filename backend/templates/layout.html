@@ -123,6 +123,7 @@
             <li class="nav-item"><a class="nav-link {% if active=='pedidos' %}active{% endif %}" href="{{ url_for('main.pedidos') }}"><i class="bi bi-bag-check me-2"></i>Pedidos</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='status' %}active{% endif %}" href="{{ url_for('main.status') }}"><i class="bi bi-truck me-2"></i>Status Mercadería</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='deudas' %}active{% endif %}" href="{{ url_for('main.deudas_pendientes') }}"><i class="bi bi-cash-coin me-2"></i>Deudas pendientes</a></li>
+            <li class="nav-item"><a class="nav-link {% if active=='nueva_cobranza' %}active{% endif %}" href="{{ url_for('main.nueva_cobranza') }}"><i class="bi bi-plus-circle me-2"></i>Nuevas cobranzas</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
             <li class="nav-item"><a class="nav-link {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
@@ -144,6 +145,7 @@
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='pedidos' %}active{% endif %}" href="{{ url_for('main.pedidos') }}"><i class="bi bi-bag-check me-2"></i>Pedidos</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='status' %}active{% endif %}" href="{{ url_for('main.status') }}"><i class="bi bi-truck me-2"></i>Status Mercadería</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='deudas' %}active{% endif %}" href="{{ url_for('main.deudas_pendientes') }}"><i class="bi bi-cash-coin me-2"></i>Deudas pendientes</a></li>
+              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='nueva_cobranza' %}active{% endif %}" href="{{ url_for('main.nueva_cobranza') }}"><i class="bi bi-plus-circle me-2"></i>Nuevas cobranzas</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
               <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>

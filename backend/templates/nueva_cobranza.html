@@ -23,15 +23,15 @@
 
         <div class="col-12 col-lg-4">
           <label class="form-label">Empresa</label>
-          <select class="form-select" name="company_id" id="companySelect" required disabled>
+          <select class="form-select" name="company_id" id="companySelect" required>
             <option value="">Seleccionar...</option>
           </select>
         </div>
 
         <div class="col-12 col-lg-4">
           <label class="form-label">Pedido</label>
-          <select class="form-select" name="order_id" id="orderSelect" required disabled>
-            <option value="">Seleccionar...</option>
+          <select class="form-select" name="order_id" id="orderSelect">
+            <option value="">(Opcional) Seleccionar...</option>
           </select>
         </div>
       </div>
@@ -64,25 +64,126 @@
       <hr class="my-4">
 
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <h2 class="h6 mb-0">Movimientos</h2>
-        <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRow">Agregar</button>
+        <h2 class="h6 mb-0">Medios de pago</h2>
       </div>
 
-      <div class="table-responsive">
-        <table class="table table-sm align-middle" id="rowsTable">
-          <thead class="table-light">
-            <tr>
-              <th style="min-width: 160px;">Tipo</th>
-              <th style="min-width: 180px;">Medio</th>
-              <th style="min-width: 140px;">Monto</th>
-              <th style="min-width: 170px;">Vencimiento (cheques)</th>
-              <th>Notas</th>
-              <th style="min-width: 220px;">Adjunto</th>
-              <th class="text-end" style="min-width: 80px;">Acción</th>
-            </tr>
-          </thead>
-          <tbody id="rowsBody"></tbody>
-        </table>
+      <style>
+        .pm-wrap{ display:flex; flex-wrap:wrap; gap:1rem; }
+        .pm-card{ flex: 1 1 240px; min-width:240px; }
+        .pm-card .form-control, .pm-card .form-select{ font-size:.95rem; }
+      </style>
+
+      <div class="pm-wrap">
+        <div class="card pm-card">
+          <div class="card-body">
+            <div class="form-check mb-2">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmEfectivo" data-prefix="pm_efectivo">
+              <label class="form-check-label" for="pmEfectivo">Efectivo</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label mb-1">Monto</label>
+                <input class="form-control" name="pm_efectivo_amount" inputmode="decimal" placeholder="0.00" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Fecha</label>
+                <input class="form-control" name="pm_efectivo_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card pm-card">
+          <div class="card-body">
+            <div class="form-check mb-2">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmTransf" data-prefix="pm_transferencia" data-requires-attach="1">
+              <label class="form-check-label" for="pmTransf">Transferencia</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label mb-1">Monto</label>
+                <input class="form-control" name="pm_transferencia_amount" inputmode="decimal" placeholder="0.00" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Fecha</label>
+                <input class="form-control" name="pm_transferencia_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Adjunto</label>
+                <input class="form-control" type="file" name="pm_transferencia_attachment" disabled>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card pm-card">
+          <div class="card-body">
+            <div class="form-check mb-2">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmEcheq" data-prefix="pm_echeq" data-requires-attach="1">
+              <label class="form-check-label" for="pmEcheq">E-cheq</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label mb-1">Monto</label>
+                <input class="form-control" name="pm_echeq_amount" inputmode="decimal" placeholder="0.00" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Fecha</label>
+                <input class="form-control" name="pm_echeq_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Adjunto</label>
+                <input class="form-control" type="file" name="pm_echeq_attachment" disabled>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card pm-card">
+          <div class="card-body">
+            <div class="form-check mb-2">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmChqTerc" data-prefix="pm_cheque_terceros">
+              <label class="form-check-label" for="pmChqTerc">Cheque físico terceros</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label mb-1">Monto</label>
+                <input class="form-control" name="pm_cheque_terceros_amount" inputmode="decimal" placeholder="0.00" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Fecha</label>
+                <input class="form-control" name="pm_cheque_terceros_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Imagen (opcional)</label>
+                <input class="form-control" type="file" name="pm_cheque_terceros_attachment" disabled>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card pm-card">
+          <div class="card-body">
+            <div class="form-check mb-2">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmChqProp" data-prefix="pm_cheque_propio">
+              <label class="form-check-label" for="pmChqProp">Cheque físico propio</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label mb-1">Monto</label>
+                <input class="form-control" name="pm_cheque_propio_amount" inputmode="decimal" placeholder="0.00" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Fecha</label>
+                <input class="form-control" name="pm_cheque_propio_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-1">Imagen (opcional)</label>
+                <input class="form-control" type="file" name="pm_cheque_propio_attachment" disabled>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="d-flex justify-content-end gap-2 mt-3">
@@ -126,10 +227,22 @@
       window.flatpickr(inp, {
         dateFormat: 'Y-m-d',
         altInput: true,
-        altFormat: 'd-m-Y',
+        altFormat: 'd/m/Y',
         allowInput: true
       });
     } catch(e) {}
+  }
+
+  function fmtDateDMY(iso){
+    try{
+      const s = String(iso || '').trim();
+      if (!s) return '';
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return s;
+      return `${m[3]}/${m[2]}/${m[1]}`;
+    }catch(e){
+      return String(iso || '');
+    }
   }
 
   function setDateValue(inp, iso){
@@ -164,8 +277,7 @@
   const orderMonto = document.getElementById('orderMonto');
   const orderDesc = document.getElementById('orderDesc');
 
-  const rowsBody = document.getElementById('rowsBody');
-  const btnAddRow = document.getElementById('btnAddRow');
+  const pmEnables = document.querySelectorAll('.pm-enable');
 
   let pendingOrders = [];
 
@@ -177,169 +289,166 @@
     orderDesc.value = '';
   }
 
-  function resetMovements(prefill){
+  function resetMovements(){
     try {
-      rowsBody.innerHTML = '';
-      rowsBody.appendChild(newRow(prefill || null));
+      pmEnables.forEach(ch => {
+        ch.checked = false;
+      });
+      document.querySelectorAll('[name^="pm_"]').forEach(inp => {
+        inp.disabled = true;
+        if (inp.type === 'file') {
+          try { inp.value = ''; } catch(e) {}
+        } else {
+          inp.value = '';
+        }
+        try { inp.required = false; } catch(e) {}
+      });
+      ensureFlatpickrLoaded(function(){
+        try { document.querySelectorAll('[data-datepicker]').forEach(initDatepicker); } catch(e) {}
+      });
     } catch(e) {}
   }
 
   function setCompanies(clientId){
-    companySel.innerHTML = '<option value="">Seleccionar...</option>';
-    orderSel.innerHTML = '<option value="">Seleccionar...</option>';
-    companySel.disabled = true;
-    orderSel.disabled = true;
+    if (companySel) companySel.innerHTML = '<option value="">Seleccionar...</option>';
+    if (orderSel) orderSel.innerHTML = '<option value="">(Opcional) Seleccionar...</option>';
     clearOrderInfo();
     pendingOrders = [];
-    resetMovements(null);
+    resetMovements();
 
     if (!clientId) return;
     fetch(`/api/clientes/${clientId}/empresas`)
       .then(r => r.json())
       .then(rows => {
         (rows || []).forEach(c => {
+          const label = (c.label || c.nombre || '').trim();
+          if (!label) return;
           const opt = document.createElement('option');
-          opt.value = c.id;
-          opt.textContent = c.label || c.nombre || '';
-          companySel.appendChild(opt);
+          opt.value = String(c.id);
+          opt.textContent = label;
+          companySel && companySel.appendChild(opt);
         });
-        companySel.disabled = false;
       })
-      .catch(() => {
-        companySel.disabled = false;
-      });
+      .catch(() => {});
   }
 
-  function setPendingOrders(clientId, companyId){
-    orderSel.innerHTML = '<option value="">Seleccionar...</option>';
-    orderSel.disabled = true;
+  function setPendingOrders(clientId, companyIdVal){
+    if (orderSel) orderSel.innerHTML = '<option value="">(Opcional) Seleccionar...</option>';
     clearOrderInfo();
     pendingOrders = [];
-    resetMovements(null);
-    if (!clientId || !companyId) return;
+    resetMovements();
+    if (!clientId || !companyIdVal) return;
 
-    fetch(`/api/cobranzas/pedidos_pendientes?client_id=${encodeURIComponent(clientId)}&company_id=${encodeURIComponent(companyId)}`)
+    fetch(`/api/cobranzas/pedidos_pendientes?client_id=${encodeURIComponent(clientId)}&company_id=${encodeURIComponent(companyIdVal)}`)
       .then(r => r.json())
       .then(rows => {
         pendingOrders = rows || [];
         pendingOrders.forEach(o => {
-          const opt = document.createElement('option');
-          opt.value = o.order_id;
           const label = `#${o.order_id} - ${o.tipo_comprobante || '-'} - ${fmtMoney(o.monto)} - Venc: ${o.fecha_pago_estimada || '-'}`;
+          const opt = document.createElement('option');
+          opt.value = String(o.order_id);
           opt.textContent = label;
-          orderSel.appendChild(opt);
+          orderSel && orderSel.appendChild(opt);
         });
-        orderSel.disabled = false;
       })
-      .catch(() => {
-        orderSel.disabled = false;
-      });
+      .catch(() => {});
   }
 
-  function fillOrderInfo(orderId){
-    const o = (pendingOrders || []).find(x => String(x.order_id) === String(orderId));
+  function fillOrderInfo(orderIdVal){
+    const o = (pendingOrders || []).find(x => String(x.order_id) === String(orderIdVal));
     if (!o){
       clearOrderInfo();
-      resetMovements(null);
+      resetMovements();
       return;
     }
-    orderCreatedAt.value = o.created_at || '';
-    orderEntrega.value = o.fecha_entrega_efectiva || '';
-    orderVenc.value = o.fecha_pago_estimada || '';
+    orderCreatedAt.value = fmtDateDMY(o.created_at || '');
+    orderEntrega.value = fmtDateDMY(o.fecha_entrega_efectiva || '');
+    orderVenc.value = fmtDateDMY(o.fecha_pago_estimada || '');
     orderMonto.value = fmtMoney(o.monto);
     const desc = [o.nota, o.descripcion].filter(Boolean).join('\n\n');
     orderDesc.value = desc;
-
-    // Resetear movimientos y precargar con datos del pedido.
-    resetMovements({
-      amount: o.monto,
-      due_date: o.fecha_pago_estimada || ''
-    });
   }
 
-  function newRow(prefill){
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>
-        <select class="form-select form-select-sm" name="row_kind">
-          <option value="PAYMENT">Pago</option>
-          <option value="CREDIT_NOTE">Nota de crédito</option>
-        </select>
-      </td>
-      <td>
-        <select class="form-select form-select-sm" name="row_method">
-          <option value="">-</option>
-          <option value="EFECTIVO">Efectivo</option>
-          <option value="TRANSFERENCIA">Transferencia</option>
-          <option value="E-CHEQ">E-Cheq</option>
-          <option value="CHEQUE_TERCEROS">Cheque (terceros)</option>
-          <option value="CHEQUE_PROPIO">Cheque (propio)</option>
-          <option value="OTRO">Otro</option>
-        </select>
-      </td>
-      <td>
-        <input class="form-control form-control-sm" name="row_amount" inputmode="decimal" placeholder="0.00">
-      </td>
-      <td>
-        <input class="form-control form-control-sm" name="row_due_date" type="text" data-datepicker placeholder="DD-MM-AAAA">
-      </td>
-      <td>
-        <input class="form-control form-control-sm" name="row_notes" placeholder="Observaciones">
-      </td>
-      <td>
-        <input class="form-control form-control-sm" type="file" name="row_attachment">
-      </td>
-      <td class="text-end">
-        <button type="button" class="btn btn-sm btn-outline-danger js-del">Quitar</button>
-      </td>
-    `;
-    tr.querySelector('.js-del').addEventListener('click', () => tr.remove());
-
-    // Prefill
+  function applyPmEnabled(prefix, enabled, requiresAttach){
     try {
-      if (prefill && prefill.amount != null) {
-        const mv = Number(prefill.amount || 0);
-        const a = tr.querySelector('input[name="row_amount"]');
-        if (a) a.value = (isFinite(mv) ? mv.toFixed(2) : '');
-      }
-    } catch(e) {}
-
-    ensureFlatpickrLoaded(function(){
-      try {
-        const inp = tr.querySelector('[data-datepicker]');
-        initDatepicker(inp);
-        if (prefill && prefill.due_date) {
-          setDateValue(inp, prefill.due_date);
+      const fields = document.querySelectorAll(`[name^="${prefix}_"]`);
+      fields.forEach(inp => {
+        inp.disabled = !enabled;
+        // flatpickr crea un input visible (altInput) distinto; mantenerlo sincronizado
+        try {
+          if (inp._flatpickr && inp._flatpickr.altInput) {
+            inp._flatpickr.altInput.disabled = !enabled;
+          }
+        } catch(e) {}
+        if (!enabled) {
+          try { inp.required = false; } catch(e) {}
+          if (inp.type === 'file') {
+            try { inp.value = ''; } catch(e) {}
+          } else {
+            inp.value = '';
+          }
         }
-      } catch(e) {}
-    });
-    return tr;
-  }
+      });
 
-  btnAddRow.addEventListener('click', () => {
-    rowsBody.appendChild(newRow());
-  });
+      // Default fecha: hoy al habilitar (solo si está vacía)
+      if (enabled) {
+        try {
+          const today = new Date();
+          const y = today.getFullYear();
+          const m = String(today.getMonth() + 1).padStart(2, '0');
+          const d = String(today.getDate()).padStart(2, '0');
+          const iso = `${y}-${m}-${d}`;
+          const dateInp = document.querySelector(`[name="${prefix}_date"][data-datepicker]`);
+          if (dateInp && !String(dateInp.value || '').trim()) {
+            // asegurar flatpickr
+            try { initDatepicker(dateInp); } catch(e) {}
+            setDateValue(dateInp, iso);
+            // si existe altInput, habilitarlo
+            try {
+              if (dateInp._flatpickr && dateInp._flatpickr.altInput) {
+                dateInp._flatpickr.altInput.disabled = false;
+              }
+            } catch(e) {}
+          }
+        } catch(e) {}
+      }
+      if (enabled && requiresAttach) {
+        const f = document.querySelector(`[name="${prefix}_attachment"]`);
+        if (f) {
+          try { f.required = true; } catch(e) {}
+        }
+      }
+      ensureFlatpickrLoaded(function(){
+        try { document.querySelectorAll(`[name^="${prefix}_"][data-datepicker]`).forEach(initDatepicker); } catch(e) {}
+      });
+    } catch(e) {}
+  }
 
   clientSel.addEventListener('change', () => {
     setCompanies(clientSel.value);
+    if (companySel) companySel.value = '';
+    setPendingOrders(clientSel.value, '');
   });
 
-  companySel.addEventListener('change', () => {
-    setPendingOrders(clientSel.value, companySel.value);
+  companySel?.addEventListener('change', () => {
+    const coid = (companySel && companySel.value) ? String(companySel.value) : '';
+    setPendingOrders(clientSel.value, coid);
   });
 
-  orderSel.addEventListener('change', () => {
-    fillOrderInfo(orderSel.value);
+  orderSel?.addEventListener('change', () => {
+    const oid = (orderSel && orderSel.value) ? String(orderSel.value) : '';
+    fillOrderInfo(oid);
   });
 
-  // Default: one row
-  rowsBody.appendChild(newRow(null));
-
-  ensureFlatpickrLoaded(function(){
-    try {
-      document.querySelectorAll('[data-datepicker]').forEach(initDatepicker);
-    } catch(e) {}
+  pmEnables.forEach(ch => {
+    ch.addEventListener('change', () => {
+      const prefix = ch.getAttribute('data-prefix');
+      const req = ch.getAttribute('data-requires-attach') === '1';
+      applyPmEnabled(prefix, ch.checked, req);
+    });
   });
+
+  resetMovements();
 })();
 </script>
 {% endblock %}

@@ -24,6 +24,7 @@ class ClientCompanyLink(db.Model):
     status = db.Column(db.Enum(RelationStatus), nullable=False, default=RelationStatus.TRABAJA)
     comprobante_tipo = db.Column(db.String(20), nullable=False, default="FACTURA")
     descuento = db.Column(db.Numeric(5, 2))
+    plazo_pago_dias = db.Column(db.Integer)
 
     __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_client_company"),)
 
