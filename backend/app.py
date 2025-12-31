@@ -1,6 +1,7 @@
 from flask import Flask
 from dotenv import load_dotenv
 import os
+import time
 
 from .extensions import db, migrate, login_manager
 from .config import Config
@@ -25,20 +26,41 @@ def create_app():
         did_upgrade = False
         if os.getenv("AUTO_MIGRATE") == "1":
             try:
-                # On Postgres (production), guard migrations with an advisory lock to avoid
-                # concurrent upgrades across multiple Gunicorn workers.
                 advisory_lock_taken = False
                 try:
                     if db.engine.dialect.name == "postgresql":
-                        db.session.execute(text("SELECT pg_advisory_lock(2147483647)"))
-                        advisory_lock_taken = True
+                        got_lock = db.session.execute(text("SELECT pg_try_advisory_lock(2147483647)"))
+                        advisory_lock_taken = bool(got_lock.scalar())
 
-                    # Prefer upgrading to the merged head.
-                    # If the DB/code still has divergent heads, fall back to upgrading all heads.
-                    try:
-                        upgrade()
-                    except Exception:
-                        upgrade(revision="heads")
+                    if advisory_lock_taken:
+                        try:
+                            upgrade()
+                        except Exception:
+                            upgrade(revision="heads")
+                    else:
+                        if db.engine.dialect.name == "postgresql":
+                            deadline = time.time() + float(os.getenv("AUTO_MIGRATE_WAIT_SECONDS", "60"))
+                            while time.time() < deadline:
+                                try:
+                                    ok = db.session.execute(
+                                        text(
+                                            "SELECT 1 "
+                                            "FROM information_schema.columns "
+                                            "WHERE table_schema = 'public' "
+                                            "AND table_name = 'client_company_link' "
+                                            "AND column_name = 'plazo_pago_dias'"
+                                        )
+                                    ).first()
+                                    if ok is not None:
+                                        break
+                                except Exception:
+                                    try:
+                                        db.session.rollback()
+                                    except Exception:
+                                        pass
+                                time.sleep(1)
+                            else:
+                                raise RuntimeError("Timed out waiting for migrations to complete")
                 finally:
                     if advisory_lock_taken:
                         try:
