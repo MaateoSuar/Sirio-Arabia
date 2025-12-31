@@ -25,8 +25,30 @@ def create_app():
         did_upgrade = False
         if os.getenv("AUTO_MIGRATE") == "1":
             try:
-                # If there are multiple heads (divergent migrations), apply them all.
-                upgrade(revision="heads")
+                # On Postgres (production), guard migrations with an advisory lock to avoid
+                # concurrent upgrades across multiple Gunicorn workers.
+                advisory_lock_taken = False
+                try:
+                    if db.engine.dialect.name == "postgresql":
+                        db.session.execute(text("SELECT pg_advisory_lock(2147483647)"))
+                        advisory_lock_taken = True
+
+                    # Prefer upgrading to the merged head.
+                    # If the DB/code still has divergent heads, fall back to upgrading all heads.
+                    try:
+                        upgrade()
+                    except Exception:
+                        upgrade(revision="heads")
+                finally:
+                    if advisory_lock_taken:
+                        try:
+                            db.session.execute(text("SELECT pg_advisory_unlock(2147483647)"))
+                            db.session.commit()
+                        except Exception:
+                            try:
+                                db.session.rollback()
+                            except Exception:
+                                pass
                 did_upgrade = True
             except Exception:
                 # Rely on logs in platform to inspect failure
