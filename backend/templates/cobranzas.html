@@ -34,7 +34,42 @@
     .cob-filter .btn-outline-success.active,
     .cob-filter .btn-outline-success.active:hover { background:#198754; color:#fff; border-color:#198754; }
     /* Asegurar espacio para Acciones */
-    .w-actions { min-width: 150px; }
+    .w-actions { min-width: 56px; width: 56px; }
+    .table-cobranzas { table-layout: auto; width: 100%; }
+    .table-cobranzas thead th { white-space: normal; overflow: visible; text-overflow: clip; padding-left: .65rem; padding-right: .65rem; }
+    .table-cobranzas tbody td { padding-left: .65rem; padding-right: .65rem; vertical-align: middle; }
+
+    /* Inputs dentro de la tabla: que no se deformen ni rompan el layout */
+    .table-cobranzas td .form-control,
+    .table-cobranzas td .form-select { max-width: 100%; }
+
+    /* Monto: ancho usable (sin compactar al extremo) */
+    .table-cobranzas th.col-money,
+    .table-cobranzas td.col-money { width: 118px; min-width: 118px; padding-left: .25rem; padding-right: .25rem; }
+    .table-cobranzas td.col-money .input-group { display: inline-flex; width: auto; max-width: none; flex-wrap: nowrap; }
+    .table-cobranzas td.col-money .input-group-text { flex: 0 0 18px; padding-left: .2rem; padding-right: .2rem; }
+    .table-cobranzas td.col-money .form-control { flex: 1 1 auto; width: 1%; min-width: 0; }
+    .table-cobranzas td.col-money input.js-cob-monto { width: 96px; max-width: 96px; flex: 0 0 96px; }
+
+    /* Fechas: tamaño consistente, pero permitiendo wrap del header */
+    .table-cobranzas th.col-date,
+    .table-cobranzas td.col-date { width: 120px; min-width: 120px; }
+    .table-cobranzas td.col-date .form-control { max-width: 120px; width: 100%; }
+
+    /* Alinear controles por columna */
+    .table-cobranzas td.col-entrega .form-control,
+    .table-cobranzas td.col-date .form-control { width: 120px; }
+    .table-cobranzas th.col-forma,
+    .table-cobranzas td.col-forma { width: 110px; min-width: 110px; }
+    .table-cobranzas td.col-forma .form-select { width: 110px; }
+
+    /* Cliente/Empresa: permitir 2 líneas si hace falta */
+    .table-cobranzas td.col-client,
+    .table-cobranzas td.col-company { white-space: normal; }
+    .table-cobranzas th.col-orderdate,
+    .table-cobranzas td.col-orderdate { padding-right: .25rem; }
+    .table-cobranzas th.col-entrega,
+    .table-cobranzas td.col-entrega { padding-left: .25rem; }
   </style>
   <form id="cobFilter" class="d-flex align-items-end gap-2 mt-3 flex-wrap" method="get">
     <div class="btn-group cob-filter" role="group" aria-label="Filtros de cobranza">
@@ -72,33 +107,36 @@
       <table class="table table-hover align-middle mb-0 table-cobranzas">
         <thead class="table-light">
           <tr>
-            <th>Cliente</th>
-            <th>Empresa</th>
-            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
-            <th>Monto</th>
-            <th>Forma de pago</th>
-            <th class="js-sort-date" data-sort-type="date" style="cursor:pointer;">Vencimiento</th>
+            <th class="col-client js-sort-text" data-sort-type="text" style="cursor:pointer;">Cliente</th>
+            <th class="col-company js-sort-text" data-sort-type="text" style="cursor:pointer;">Empresa</th>
+            <th class="d-none d-md-table-cell js-sort-date col-orderdate" data-sort-type="date" style="cursor:pointer;">Fecha pedido</th>
+            <th class="d-none d-md-table-cell js-sort-date col-date col-entrega" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
+            <th class="col-money">Monto</th>
+            <th class="col-forma">Forma de pago</th>
+            <th class="js-sort-date col-date" data-sort-type="date" style="cursor:pointer;">Vencimiento</th>
             <th>Días</th>
-            <th class="d-none d-md-table-cell js-sort-date" data-sort-type="date" style="cursor:pointer;">Cobro efectivo</th>
-            <th>Status</th>
+            <th class="d-none d-md-table-cell js-sort-date col-date" data-sort-type="date" style="cursor:pointer;">Cobro efectivo</th>
+            <th class="col-status">Status</th>
             <th class="text-end w-actions">Acciones</th>
           </tr>
         </thead>
         <tbody>
         {% for c in items %}
           <tr>
-            <td>{{ c.order.client.apellido }}</td>
-            <td>{{ c.order.company.nombre }}</td>
-            <td class="d-none d-md-table-cell">
+            <td class="col-client">{{ c.order.client.apellido }}
+              <form id="upd{{ c.order.id }}" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}" class="d-none"></form>
+            </td>
+            <td class="col-company">{{ c.order.company.nombre }}</td>
+            <td class="d-none d-md-table-cell col-orderdate">{{ c.order.created_at.strftime('%Y-%m-%d') if c.order and c.order.created_at else '' }}</td>
+            <td class="d-none d-md-table-cell col-date col-entrega">
               <input name="fecha_entrega_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-entrega"
                      value="{{ c.fecha_entrega_efectiva.strftime('%Y-%m-%d') if c.fecha_entrega_efectiva else '' }}" form="upd{{ c.order.id }}">
             </td>
             <td class="col-money">
-              <form id="upd{{ c.order.id }}" class="d-flex gap-1" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}">
                 <div class="input-group input-group-sm js-cob-price-group">
                   <span class="input-group-text">$</span>
-                  <input id="montoDisp{{ c.order.id }}" type="text" class="form-control form-control-sm js-cob-monto js-currency" data-hidden="montoHid{{ c.order.id }}" data-raw="{{ c.monto or '' }}" value="" autocomplete="off" inputmode="numeric">
-                  <input type="hidden" name="monto" id="montoHid{{ c.order.id }}" value="">
+                  <input id="montoDisp{{ c.order.id }}" type="text" class="form-control form-control-sm js-cob-monto js-currency" data-hidden="montoHid{{ c.order.id }}" data-raw="{{ c.monto or '' }}" value="" autocomplete="off" inputmode="numeric" form="upd{{ c.order.id }}">
+                  <input type="hidden" name="monto" id="montoHid{{ c.order.id }}" value="" form="upd{{ c.order.id }}">
                 </div>
             </td>
             <td class="col-forma">
@@ -110,7 +148,7 @@
                   <option value="NO_SE_SABE" {{ 'selected' if c.forma_pago and c.forma_pago.value=='NO_SE_SABE' else '' }}>No se sabe</option>
                 </select>
             </td>
-            <td>
+            <td class="col-date">
                 <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Vencimiento" value="{{ c.fecha_pago_estimada.strftime('%Y-%m-%d') if c.fecha_pago_estimada else '' }}" form="upd{{ c.order.id }}">
             </td>
             <td>
@@ -125,12 +163,11 @@
                 <span class="text-muted">-</span>
               {% endif %}
             </td>
-            <td class="d-none d-md-table-cell">
+            <td class="d-none d-md-table-cell col-date">
               <input name="fecha_cobro_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-cobro"
                      value="{{ c.fecha_cobro_efectiva.strftime('%Y-%m-%d') if c.fecha_cobro_efectiva else '' }}" form="upd{{ c.order.id }}">
             </td>
-            </form>
-            <td>
+            <td class="col-status">
               {% if c.status == 'COBRADO' %}
                 <span class="badge bg-success">COBRADO</span>
               {% elif c.status == 'ATRASADO' %}
@@ -140,18 +177,22 @@
               {% endif %}
             </td>
             <td class="text-end">
-              <div class="d-flex justify-content-end flex-wrap gap-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ c.order.id }}">Editar</button>
-                {% if not c.fecha_cobro_efectiva %}
-                  <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#markPaid{{ c.order.id }}">Cobrado</button>
-                {% else %}
-                  <form method="post" action="{{ url_for('main.cobranzas_unmark_cobrado', order_id=c.order.id) }}">
-                    <button type="submit" class="btn btn-sm btn-outline-warning">Desmarcar</button>
-                  </form>
-                {% endif %}
-                <div class="btn-group btn-group-sm" role="group">
-                  <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ c.order.id }}" title="Eliminar">
-                    <i class="bi bi-trash"></i>
+              <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Acciones">
+                  <i class="bi bi-three-dots-vertical"></i>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end js-actions-menu">
+                  <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editOrder{{ c.order.id }}">Editar</button>
+                  {% if not c.fecha_cobro_efectiva %}
+                    <button type="button" class="dropdown-item js-action-cobrar" data-bs-toggle="modal" data-bs-target="#markPaid{{ c.order.id }}">Cobrado</button>
+                  {% else %}
+                    <form method="post" action="{{ url_for('main.cobranzas_unmark_cobrado', order_id=c.order.id) }}" data-js="cob-desmarcar">
+                      <button type="submit" class="dropdown-item text-warning">Desmarcar</button>
+                    </form>
+                  {% endif %}
+                  <div class="dropdown-divider"></div>
+                  <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ c.order.id }}">
+                    Eliminar
                   </button>
                 </div>
               </div>
@@ -189,7 +230,7 @@
                     </div>
                     <div class="modal-footer">
                       <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-                      <form method="post" action="{{ url_for('main.cobranzas_mark_cobrado', order_id=c.order.id) }}">
+                      <form method="post" action="{{ url_for('main.cobranzas_mark_cobrado', order_id=c.order.id) }}" data-js="cob-cobrar">
                         <button class="btn btn-success">Confirmar</button>
                       </form>
                     </div>
@@ -229,7 +270,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">Sin deudas</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">Sin deudas</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -243,6 +284,13 @@
   var thead = table.querySelector('thead');
   var tbody = table.querySelector('tbody');
   if (!thead || !tbody) return;
+
+  function textValue(cell){
+    if (!cell) return '';
+    var inp = cell.querySelector && cell.querySelector('input');
+    if (inp) return (inp.value || '').trim().toLowerCase();
+    return (cell.textContent || '').trim().toLowerCase();
+  }
 
   function parseDateValue(cell){
     if (!cell) return null;
@@ -278,6 +326,20 @@
     rows.forEach(function(r){ tbody.appendChild(r); });
   }
 
+  function sortByTextColumn(colIndex, direction){
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a, b){
+      var sa = textValue(a.children[colIndex]);
+      var sb = textValue(b.children[colIndex]);
+      if (!sa && !sb) return 0;
+      if (!sa) return 1;
+      if (!sb) return -1;
+      var cmp = sa.localeCompare(sb);
+      return direction === 'desc' ? -cmp : cmp;
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+  }
+
   var current = { idx: null, dir: 'desc' };
   Array.from(thead.querySelectorAll('th.js-sort-date')).forEach(function(th){
     th.addEventListener('click', function(){
@@ -289,11 +351,32 @@
       sortByDateColumn(idx, dir);
     });
   });
+
+  Array.from(thead.querySelectorAll('th.js-sort-text')).forEach(function(th){
+    th.addEventListener('click', function(){
+      var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+      var dir = 'asc';
+      if (current.idx === idx) dir = (current.dir === 'asc') ? 'desc' : 'asc';
+      current.idx = idx;
+      current.dir = dir;
+      sortByTextColumn(idx, dir);
+    });
+  });
 })();
 </script>
 <script>
 (function(){
   // Utilidad compartida: sincroniza inputs monetarios ocultos y envía el form
+  function resolveFormFromEl(el){
+    if (!el) return null;
+    if (el.form) return el.form;
+    try {
+      var fid = el.getAttribute && el.getAttribute('form');
+      if (fid) return document.getElementById(fid);
+    } catch(e) {}
+    return null;
+  }
+
   function syncAndSubmit(formEl){
     if (!formEl) return;
     formEl.querySelectorAll('.js-currency').forEach(function(inp){
@@ -304,6 +387,8 @@
     });
     (formEl.requestSubmit ? formEl.requestSubmit() : formEl.submit());
   }
+
+  try { window.syncAndSubmit = syncAndSubmit; } catch(e) {}
 
   document.querySelectorAll('.js-cob-monto').forEach(function(el){
     el.addEventListener('change', function(){
@@ -316,13 +401,22 @@
           hid.value = raw;
         }
       }catch(e){}
-      var f = el.closest('form');
+      var f = resolveFormFromEl(el);
       syncAndSubmit(f);
     });
   });
   document.querySelectorAll('.js-cob-forma').forEach(function(el){
   function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
-  function integerPart(v){ if(v==null) return ''; var s=String(v).replace(',', '.'); var parts=s.split('.'); return onlyDigits(parts[0]); }
+  function integerPart(v){
+    if (v == null) return '';
+    var s = String(v).trim();
+    if (!s) return '';
+    // Quitar espacios
+    s = s.replace(/\s+/g, '');
+    // Si viene formateado con miles (70.000.000) o con coma decimal, quedarnos con todos los dígitos.
+    // Para evitar truncar (ej: 70.000.000 -> 70), removemos TODO lo que no sea dígito.
+    return onlyDigits(s);
+  }
   function fmtThousands(v){ if(!v) return ''; v=v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
   document.querySelectorAll('.js-currency').forEach(function(el){
     var hid = document.getElementById(el.getAttribute('data-hidden'));
@@ -336,20 +430,20 @@
     syncRaw();
   });
   el.addEventListener('change', function(){
-    var f = el.form || el.closest('form');
+    var f = resolveFormFromEl(el);
     syncAndSubmit(f);
   });
   });
   document.querySelectorAll('.js-cob-estimado').forEach(function(el){
     el.addEventListener('change', function(){
-      var f = el.form || el.closest('form');
+      var f = resolveFormFromEl(el);
       syncAndSubmit(f);
     });
   });
 
   document.querySelectorAll('.js-cob-entrega, .js-cob-cobro').forEach(function(el){
     el.addEventListener('change', function(){
-      var f = el.form || el.closest('form');
+      var f = resolveFormFromEl(el);
       syncAndSubmit(f);
     });
   });
@@ -506,6 +600,225 @@
     l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
     document.head.appendChild(l);
   }
+})();
+</script>
+<script>
+(function(){
+  function isoToday(){
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + dd;
+  }
+
+  function showRowFlash(tr, ok){
+    if (!tr || !tr.classList) return;
+    var cls = ok ? 'table-success' : 'table-danger';
+    tr.classList.add(cls);
+    setTimeout(function(){
+      try { tr.classList.remove(cls); } catch(e) {}
+    }, 900);
+  }
+
+  function setBadge(tr, status){
+    if (!tr) return;
+    var tds = tr.querySelectorAll ? tr.querySelectorAll('td') : null;
+    var statusCell = (tds && tds.length >= 2) ? tds[tds.length - 2] : null;
+    var badge = statusCell ? statusCell.querySelector('.badge') : null;
+    if (!badge) return;
+    if (status === 'COBRADO') {
+      badge.className = 'badge bg-success';
+      badge.textContent = 'COBRADO';
+    } else if (status === 'ATRASADO') {
+      badge.className = 'badge bg-danger';
+      badge.textContent = 'ATRASADO';
+    } else {
+      badge.className = 'badge bg-secondary';
+      badge.textContent = 'A COBRAR';
+    }
+  }
+
+  function parseIsoDate(s){
+    s = (s || '').trim();
+    if (!s) return null;
+    var t = Date.parse(s);
+    return isNaN(t) ? null : new Date(t);
+  }
+
+  function computeStatusFromRow(tr){
+    if (!tr) return 'A_COBRAR';
+    var cobro = tr.querySelector('input.js-cob-cobro');
+    var cobroVal = cobro ? (cobro.value || '').trim() : '';
+    if (cobroVal) return 'COBRADO';
+    var venc = tr.querySelector('input.js-cob-estimado');
+    var vencDt = venc ? parseIsoDate(venc.value) : null;
+    if (!vencDt) return 'A_COBRAR';
+    var today = new Date();
+    today.setHours(0,0,0,0);
+    vencDt.setHours(0,0,0,0);
+    return (today.getTime() > vencDt.getTime()) ? 'ATRASADO' : 'A_COBRAR';
+  }
+
+  function updateDiasBadge(tr){
+    if (!tr) return;
+    var venc = tr.querySelector('input.js-cob-estimado');
+    var tds = tr.querySelectorAll ? tr.querySelectorAll('td') : null;
+    // Índice fijo (0-based) de la columna "Días" para esta tabla:
+    // Cliente(0), Empresa(1), Fecha pedido(2), Entrega efectiva(3), Monto(4), Forma pago(5), Vencimiento(6), Días(7), Cobro efectivo(8), Status(9), Acciones(10)
+    var cell = (tds && tds.length > 7) ? tds[7] : null;
+    if (!cell || !venc) return;
+
+    var vencDt = parseIsoDate(venc.value);
+    if (!vencDt) {
+      cell.innerHTML = '<span class="text-muted">-</span>';
+      return;
+    }
+    var today = new Date();
+    today.setHours(0,0,0,0);
+    vencDt.setHours(0,0,0,0);
+    var diff = Math.round((vencDt.getTime() - today.getTime()) / (24*60*60*1000));
+    if (diff >= 0) {
+      cell.innerHTML = '<span class="badge bg-success">Faltan ' + diff + ' día(s)</span>';
+    } else {
+      cell.innerHTML = '<span class="badge bg-danger">Atraso ' + (diff * -1) + ' día(s)</span>';
+    }
+  }
+
+  function fetchForm(form){
+    var fd = new FormData(form);
+    return fetch(form.action, {
+      method: (form.method || 'POST').toUpperCase(),
+      body: fd,
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin'
+    }).then(function(resp){
+      var ct = (resp.headers.get('content-type') || '').toLowerCase();
+      if (ct.indexOf('application/json') !== -1) {
+        return resp.json().catch(function(){ return { ok: resp.ok }; });
+      }
+      return resp.text().then(function(){ return { ok: resp.ok }; }).catch(function(){ return { ok: resp.ok }; });
+    });
+  }
+
+  function hideContainingModal(el){
+    try {
+      var modal = el && el.closest ? el.closest('.modal') : null;
+      if (!modal) return;
+      if (window.bootstrap && window.bootstrap.Modal) {
+        var inst = window.bootstrap.Modal.getInstance(modal);
+        if (inst) inst.hide();
+      }
+    } catch(e) {}
+  }
+
+  function ensureUnmarkForm(actionsCell, orderId){
+    if (!actionsCell || !orderId) return null;
+    var existing = actionsCell.querySelector('form[data-js="cob-desmarcar"]');
+    if (existing) return existing;
+    var menu = actionsCell.querySelector('.js-actions-menu');
+    if (!menu) return null;
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.action = '/cobranzas/' + orderId + '/desmarcar';
+    f.setAttribute('data-js', 'cob-desmarcar');
+    var b = document.createElement('button');
+    b.type = 'submit';
+    b.className = 'dropdown-item text-warning';
+    b.textContent = 'Desmarcar';
+    f.appendChild(b);
+    // Insertar antes del divisor (si existe)
+    var div = menu.querySelector('.dropdown-divider');
+    if (div && div.parentNode === menu) menu.insertBefore(f, div);
+    else menu.appendChild(f);
+    return f;
+  }
+
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!form || !form.action) return;
+    var action = String(form.action);
+    if (action.indexOf('/cobranzas/') === -1) return;
+    if ((form.method || '').toUpperCase() !== 'POST') return;
+
+    e.preventDefault();
+    var tr = form.closest ? form.closest('tr') : null;
+    var btn = null;
+    try { btn = form.querySelector('button[type="submit"], button:not([type])'); } catch(err) { btn = null; }
+    if (btn) btn.disabled = true;
+
+    fetchForm(form).then(function(resp){
+      var ok = !!(resp && resp.ok);
+      if (btn) btn.disabled = false;
+      showRowFlash(tr, ok);
+      if (!ok) {
+        if (window.showToast) window.showToast('No se pudo actualizar', 'danger');
+        return;
+      }
+
+      if (action.indexOf('/cobrar') !== -1) {
+        // Marcar COBRADO
+        var cobroInp = tr ? tr.querySelector('input.js-cob-cobro') : null;
+        var val = isoToday();
+        if (cobroInp) {
+          if (cobroInp._flatpickr) {
+            try { cobroInp._flatpickr.setDate(val, false, 'Y-m-d'); } catch(e1) {}
+          } else {
+            cobroInp.value = val;
+          }
+        }
+        var status = 'COBRADO';
+        setBadge(tr, status);
+        var actions = tr ? tr.querySelector('td.text-end') : null;
+        // ocultar opción Cobrado (modal trigger)
+        if (actions) {
+          var markBtn = actions.querySelector('button.js-action-cobrar[data-bs-target^="#markPaid"]');
+          if (markBtn) markBtn.style.display = 'none';
+          var orderId = null;
+          try {
+            var m = action.match(/\/cobranzas\/(\d+)\/cobrar/);
+            if (m) orderId = m[1];
+          } catch(e2) { orderId = null; }
+          if (orderId) ensureUnmarkForm(actions, orderId);
+        }
+        hideContainingModal(form);
+      } else if (action.indexOf('/desmarcar') !== -1) {
+        // Quitar COBRADO
+        var cobroInp2 = tr ? tr.querySelector('input.js-cob-cobro') : null;
+        if (cobroInp2) {
+          if (cobroInp2._flatpickr) {
+            try { cobroInp2._flatpickr.clear(); } catch(e3) {}
+          }
+          cobroInp2.value = '';
+        }
+        var status2 = computeStatusFromRow(tr);
+        setBadge(tr, status2);
+        updateDiasBadge(tr);
+        var actions2 = tr ? tr.querySelector('td.text-end') : null;
+        if (actions2) {
+          // mostrar opción Cobrado
+          var markBtn2 = actions2.querySelector('button.js-action-cobrar[data-bs-target^="#markPaid"]');
+          if (markBtn2) markBtn2.style.display = '';
+          // eliminar form Desmarcar
+          try {
+            var unmark = actions2.querySelector('form[data-js="cob-desmarcar"]');
+            if (unmark) unmark.remove();
+          } catch(e4) {}
+        }
+      } else {
+        // Update general (monto/forma/fechas)
+        var status3 = computeStatusFromRow(tr);
+        setBadge(tr, status3);
+        updateDiasBadge(tr);
+      }
+
+      if (window.showToast) window.showToast('Actualizado', 'success');
+    }).catch(function(){
+      if (btn) btn.disabled = false;
+      showRowFlash(tr, false);
+      if (window.showToast) window.showToast('Error de conexión al actualizar', 'danger');
+    });
+  });
 })();
 </script>
 {% endblock %}

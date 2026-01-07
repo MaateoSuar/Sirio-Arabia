@@ -1,7 +1,7 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h1 class="h4 mb-0">Registro de Venta / Pedido</h1>
+  <h1 class="h4 mb-0">{% if edit_order %}Editando pedido{% else %}Registro de Venta / Pedido{% endif %}</h1>
   <div>
     <button class="btn btn-outline-success" type="button" id="pending-open-btn">Pendientes</button>
   </div>
@@ -57,7 +57,22 @@
 <div class="card mb-4">
   <div class="card-body">
     <div id="pedido-alert" class="alert alert-warning py-2 px-3 mb-3 d-none" role="alert" style="font-size:.9rem"></div>
+    {% if edit_order %}
+      <script id="edit-order-data" type="application/json">{{ {
+        "id": edit_order.id,
+        "client_id": edit_order.client_id,
+        "company_id": edit_order.company_id,
+        "branch_id": edit_order.branch_id,
+        "tipo_comprobante": (edit_order.tipo_comprobante or ""),
+        "forma_pago": (edit_order.forma_pago.value if edit_order.forma_pago else ""),
+        "plazo_pago_dias": edit_order.plazo_pago_dias,
+        "monto": (edit_logistics.precio if edit_logistics and edit_logistics.precio is not none else edit_order.precio_final),
+      } | tojson }}</script>
+    {% endif %}
     <form id="pedido-form" class="row g-2 g-md-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
+      {% if edit_order %}
+        <input type="hidden" name="order_id" value="{{ edit_order.id }}">
+      {% endif %}
       <div class="col-md-3">
         <label class="form-label">Fecha de compra</label>
         <input type="text" class="form-control" id="pedido_fecha" name="fecha_compra" value="{{ today }}" data-datepicker>
@@ -84,10 +99,10 @@
         </select>
       </div>
       <div class="col-12">
-        <input type="text" class="form-control" id="pedido_nota" name="nota" placeholder="Nota">
+        <input type="text" class="form-control" id="pedido_nota" name="nota" placeholder="Nota" value="{{ (edit_order.nota or '') if edit_order else '' }}">
       </div>
       <div class="col-12">
-        <textarea class="form-control" id="pedido_descripcion" name="descripcion" rows="6" placeholder="Descripción del pedido (puedes pegar texto desde WhatsApp)"></textarea>
+        <textarea class="form-control" id="pedido_descripcion" name="descripcion" rows="6" placeholder="Descripción del pedido (puedes pegar texto desde WhatsApp)">{{ (edit_order.descripcion or '') if edit_order else '' }}</textarea>
       </div>
       <div class="col-12">
         <input type="file" name="attachments" id="pedido_attachments" class="form-control" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
@@ -124,7 +139,8 @@
         </div>
       </div>
       <div class="col-md-4">
-        <input type="number" step="0.01" class="form-control" id="pedido_precio" name="precio_final" placeholder="Precio final (opcional)">
+        <label class="form-label">Monto</label>
+        <input type="number" step="0.01" class="form-control" id="pedido_precio" name="precio_final" placeholder="Monto" value="{{ (edit_logistics.precio if edit_logistics and edit_logistics.precio is not none else (edit_order.precio_final if edit_order and edit_order.precio_final is not none else '')) }}">
       </div>
       <div class="col-md-4">
         <div id="pedido_pago_box" class="border border-secondary rounded-3 p-2">
@@ -134,7 +150,7 @@
               <button type="button" class="btn btn-sm btn-outline-primary" data-tipo="FACTURA" id="btn_tipo_factura">Factura</button>
               <button type="button" class="btn btn-sm btn-outline-danger" data-tipo="REMITO" id="btn_tipo_remito">Remito</button>
             </div>
-            <input type="hidden" id="pedido_tipo_comprobante" name="tipo_comprobante" value="">
+            <input type="hidden" id="pedido_tipo_comprobante" name="tipo_comprobante" value="{{ (edit_order.tipo_comprobante or '') if edit_order else '' }}">
           </div>
           <label class="form-label">Forma de pago</label>
           <select class="form-select" id="pedido_forma_pago" name="forma_pago"></select>
@@ -142,7 +158,7 @@
       </div>
       <div class="col-md-4">
         <label class="form-label">Plazo de pago (días)</label>
-        <input type="number" class="form-control" id="pedido_plazo_pago" name="plazo_pago_dias" min="0" placeholder="Plazo">
+        <input type="number" class="form-control" id="pedido_plazo_pago" name="plazo_pago_dias" min="0" placeholder="Plazo" value="{{ edit_order.plazo_pago_dias if edit_order and edit_order.plazo_pago_dias is not none else '' }}">
       </div>
       <div class="col-12 d-flex flex-wrap gap-2">
         <button class="btn btn-outline-success w-100 w-md-auto" type="button" id="save-pending-btn">Dejar pendiente</button>
@@ -363,6 +379,7 @@
       }catch(e){}
     }
     function tryLoadDraftForSelection(){
+      if (document.querySelector('input[name="order_id"]')) return;
       const cid = clienteSel?.value || '';
       const eid = empresaSel?.value || '';
       if (!cid || !eid) return;
@@ -374,6 +391,7 @@
       }catch(e){}
     }
     function clearFormForClientChange(){
+      if (document.querySelector('input[name="order_id"]')) return;
       try{
         if (notaInput) notaInput.value = '';
         if (descInput) descInput.value = '';
@@ -439,6 +457,7 @@
       }
       await loadCompanies(id);
       updateEnabledBySelection();
+      try{ await loadPrevOrders(); }catch(e){}
     });
 
     // Autorellenar mail pedido al seleccionar empresa leyendo data-mail del option seleccionado
@@ -472,6 +491,7 @@
       updateEnabledBySelection();
       // Intentar cargar borrador si ya hay empresa seleccionada
       tryLoadDraftForSelection();
+      try { loadPrevOrders(); } catch(e) {}
 
       // Default forma de pago del cliente (si existe) o EFECTIVO
       try {
@@ -665,6 +685,78 @@
     // Si al cargar la página ya hay selección, intentar cargar borrador
     tryLoadDraftForSelection();
 
+    const editOrder = (function(){
+      try {
+        const el = document.getElementById('edit-order-data');
+        if (!el) return null;
+        const raw = (el.textContent || '').trim();
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch(e) {
+        return null;
+      }
+    })();
+
+    async function applyEditOrder(){
+      if (!editOrder) return;
+      try {
+        if (clienteSel) {
+          clienteSel.value = String(editOrder.client_id);
+          clienteSel.dispatchEvent(new Event('change'));
+        }
+
+        try { await loadCompanies(String(editOrder.client_id)); } catch(e) {}
+
+        if (empresaSel) {
+          empresaSel.value = String(editOrder.company_id);
+          empresaSel.dispatchEvent(new Event('change'));
+        }
+
+        try {
+          if (precioInput && editOrder.monto != null && String(editOrder.monto).trim() !== '') {
+            precioInput.value = String(editOrder.monto);
+            precioInput.dataset.touched = '1';
+          }
+        } catch(e) {}
+
+        try {
+          const tp = (editOrder.tipo_comprobante || '').toString().trim().toUpperCase();
+          if (tp === 'FACTURA' || tp === 'REMITO') {
+            setTipo(tp);
+          }
+        } catch(e) {}
+
+        try {
+          const fp = (editOrder.forma_pago || '').toString().trim().toUpperCase();
+          if (formaPagoSel && fp) {
+            formaPagoSel.value = fp;
+            formaPagoSel.dataset.touched = '1';
+          }
+        } catch(e) {}
+
+        try {
+          if (plazoPagoInput && editOrder.plazo_pago_dias != null) {
+            plazoPagoInput.value = String(editOrder.plazo_pago_dias);
+            plazoPagoInput.dataset.touched = '1';
+          }
+        } catch(e) {}
+
+        try {
+          if (branchSel && editOrder.branch_id != null) {
+            const bid = String(editOrder.branch_id);
+            branchSel.value = bid;
+            if (branchCol) branchCol.style.display = '';
+          }
+        } catch(e) {}
+
+        try { await loadPrevOrders(); } catch(e) {}
+      } catch(e) {}
+    }
+
+    if (editOrder) {
+      applyEditOrder();
+    }
+
     async function loadPrevOrders(){
       if(!prevWrap) return;
       prevWrap.innerHTML = '';
@@ -672,6 +764,15 @@
       if(!cid || !eid) return;
       try{
         const res = await fetch(`/api/pedidos/anteriores?client_id=${encodeURIComponent(cid)}&company_id=${encodeURIComponent(eid)}&limit=10`);
+        if (!res.ok) {
+          prevWrap.innerHTML = '<div class="text-danger">Error al cargar</div>';
+          return;
+        }
+        const ct = (res.headers && res.headers.get && res.headers.get('content-type')) ? res.headers.get('content-type') : '';
+        if (!ct || ct.toLowerCase().indexOf('application/json') === -1) {
+          prevWrap.innerHTML = '<div class="text-danger">Error al cargar</div>';
+          return;
+        }
         const items = await res.json();
         if(!Array.isArray(items) || items.length===0){ prevWrap.innerHTML = '<div class="text-muted">Sin pedidos anteriores</div>'; return; }
         const fr = document.createDocumentFragment();

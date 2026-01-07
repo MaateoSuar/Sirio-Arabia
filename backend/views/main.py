@@ -12,7 +12,7 @@ import os
 import requests
 from ..extensions import db
 from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, CollectionPayment, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, ClientAlertState
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 from sqlalchemy.exc import OperationalError
 
 bp = Blueprint("main", __name__)
@@ -2109,12 +2109,33 @@ def api_empresas():
 
 @bp.get("/pedidos")
 def pedidos():
-    return render_template("pedidos.html", active="pedidos", today=date.today().isoformat(),
-                           clientes=Client.query.order_by(Client.apellido, Client.nombre).all())
+    order_id = request.args.get("order_id", type=int)
+    order = None
+    logistics = None
+    today_iso = date.today().isoformat()
+    if order_id:
+        order = Order.query.get_or_404(order_id)
+        logistics = LogisticsStatus.query.filter_by(order_id=order.id).first()
+        try:
+            if logistics and logistics.fecha_compra:
+                today_iso = logistics.fecha_compra.date().isoformat()
+            elif order.created_at:
+                today_iso = order.created_at.date().isoformat()
+        except Exception:
+            today_iso = date.today().isoformat()
+    return render_template(
+        "pedidos.html",
+        active="pedidos",
+        today=today_iso,
+        clientes=Client.query.order_by(Client.apellido, Client.nombre).all(),
+        edit_order=order,
+        edit_logistics=logistics,
+    )
 
 
 @bp.post("/pedidos")
 def pedidos_create():
+    order_id = request.form.get("order_id", type=int)
     # Get selected client/company IDs from the form
     client_id = request.form.get("client_id", type=int)
     company_id = request.form.get("company_id", type=int)
@@ -2164,13 +2185,30 @@ def pedidos_create():
             if not sucursal:
                 sucursal = first_branch.nombre
 
-    order = Order(client=client, company=company, sucursal=sucursal, branch_id=branch_id, nota=nota, descripcion=descripcion,
-                  precio_final=precio_final, forma_pago=forma_pago_enum, tipo_comprobante=tipo_comprobante,
-                  plazo_pago_dias=plazo_pago_dias,
-                  demora_despacho_promedio_dias=company.demora_despacho_promedio_dias,
-                  mail_pedido=company.mail_pedido)
-    db.session.add(order)
-    db.session.flush()
+    if order_id:
+        order = Order.query.get_or_404(order_id)
+        order.client = client
+        order.company = company
+        order.sucursal = sucursal
+        order.branch_id = branch_id
+        order.nota = nota
+        order.descripcion = descripcion
+        order.precio_final = precio_final
+        order.forma_pago = forma_pago_enum
+        order.tipo_comprobante = tipo_comprobante
+        order.plazo_pago_dias = plazo_pago_dias
+        order.demora_despacho_promedio_dias = company.demora_despacho_promedio_dias
+        order.mail_pedido = company.mail_pedido
+        db.session.add(order)
+        db.session.flush()
+    else:
+        order = Order(client=client, company=company, sucursal=sucursal, branch_id=branch_id, nota=nota, descripcion=descripcion,
+                      precio_final=precio_final, forma_pago=forma_pago_enum, tipo_comprobante=tipo_comprobante,
+                      plazo_pago_dias=plazo_pago_dias,
+                      demora_despacho_promedio_dias=company.demora_despacho_promedio_dias,
+                      mail_pedido=company.mail_pedido)
+        db.session.add(order)
+        db.session.flush()
 
     # Regla: al crear pedido, si la relación estaba A_INCORPORAR pasa a TRABAJA
     try:
@@ -2189,8 +2227,8 @@ def pedidos_create():
     except Exception:
         db.session.rollback()
 
-    # Create logistics record
-    # fecha_compra: usar la provista (YYYY-MM-DD) o fallback a ahora
+    # Create/update logistics record
+    logistics = LogisticsStatus.query.filter_by(order_id=order.id).first()
     try:
         fecha_compra = datetime.fromisoformat(fecha_compra_raw) if fecha_compra_raw else datetime.utcnow()
     except Exception:
@@ -2200,10 +2238,19 @@ def pedidos_create():
         fecha_estimada = datetime.fromisoformat(fecha_entrega_estimada_raw) if fecha_entrega_estimada_raw else (fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0))
     except Exception:
         fecha_estimada = fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0)
-    logistics = LogisticsStatus(order_id=order.id, fecha_compra=fecha_compra,
-                                fecha_entrega_estimada=fecha_estimada, nota=nota, descripcion=descripcion,
-                                precio=precio_final, forma_pago=order.forma_pago)
-    db.session.add(logistics)
+    if logistics:
+        logistics.fecha_compra = fecha_compra
+        logistics.fecha_entrega_estimada = fecha_estimada
+        logistics.nota = nota
+        logistics.descripcion = descripcion
+        logistics.precio = precio_final
+        logistics.forma_pago = order.forma_pago
+        db.session.add(logistics)
+    else:
+        logistics = LogisticsStatus(order_id=order.id, fecha_compra=fecha_compra,
+                                    fecha_entrega_estimada=fecha_estimada, nota=nota, descripcion=descripcion,
+                                    precio=precio_final, forma_pago=order.forma_pago)
+        db.session.add(logistics)
     files = request.files.getlist("attachments")
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
     upload_preset = os.getenv("CLOUDINARY_UPLOAD_PRESET")
@@ -2449,8 +2496,8 @@ def api_cobranzas_pedidos_pendientes():
         Order.query
         .filter(Order.client_id == client_id)
         .filter(Order.company_id == company_id)
-        .join(Collection)
-        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        .outerjoin(Collection)
+        .filter(or_(Collection.id.is_(None), Collection.fecha_cobro_efectiva.is_(None)))
         .order_by(Order.created_at.desc())
     )
     res = []

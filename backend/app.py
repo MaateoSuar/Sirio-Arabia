@@ -17,6 +17,18 @@ def create_app():
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config.from_object(Config())
 
+    is_debug = (os.getenv("FLASK_DEBUG", "0") == "1")
+    try:
+        db_uri = str(app.config.get("SQLALCHEMY_DATABASE_URI") or "")
+        is_local_sqlite = db_uri.startswith("sqlite")
+    except Exception:
+        is_local_sqlite = False
+
+    if is_debug or is_local_sqlite:
+        app.config["TEMPLATES_AUTO_RELOAD"] = True
+        app.jinja_env.auto_reload = True
+        app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
     db.init_app(app)
     migrate.init_app(app, db)
     # Auth
@@ -124,4 +136,5 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)
+    debug = (os.getenv("FLASK_DEBUG", "0") == "1")
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=debug)

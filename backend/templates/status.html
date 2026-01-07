@@ -181,7 +181,7 @@
                 <input type="hidden" name="fecha_entrega_efectiva" form="upd{{ s.order.id }}" class="js-entrega-efectiva-hid"
                        value="{{ s.fecha_entrega_efectiva.strftime('%Y-%m-%d') if s.fecha_entrega_efectiva else '' }}">
                 {% if not s.fecha_entrega_efectiva %}
-                  <form class="m-0" method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}">
+                  <form class="m-0" method="post" action="{{ url_for('main.status_mark_entregado', order_id=s.order.id) }}" data-js="status-entregar">
                     <input type="hidden" name="fecha" value="{{ s.fecha_entrega_estimada.strftime('%Y-%m-%d') if s.fecha_entrega_estimada else '' }}">
                     <button type="submit" class="btn btn-sm btn-success" title="Marcar entrega efectiva">✅</button>
                   </form>
@@ -208,40 +208,11 @@
             <td class="text-end">
               <div class="d-flex justify-content-end flex-wrap gap-2">
                 <form id="upd{{ s.order.id }}" class="d-none" method="post" action="{{ url_for('main.status_update', order_id=s.order.id) }}"></form>
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ s.order.id }}">Editar</button>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.pedidos', order_id=s.order.id) }}">Editar</a>
                 <div class="btn-group btn-group-sm" role="group">
                   <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ s.order.id }}" title="Eliminar">
                     <i class="bi bi-trash"></i>
                   </button>
-                </div>
-              </div>
-
-              <div class="modal fade" id="editOrder{{ s.order.id }}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog modal-lg">
-                  <div class="modal-content">
-                    <div class="modal-header">
-                      <h5 class="modal-title">Editar pedido</h5>
-                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                      <div class="row g-2">
-                        <div class="col-12">
-                          <label class="form-label">Nota</label>
-                          <input type="text" class="form-control" name="nota" form="editOrderForm{{ s.order.id }}" value="{{ s.order.nota or '' }}">
-                        </div>
-                        <div class="col-12">
-                          <label class="form-label">Descripción</label>
-                          <textarea class="form-control" rows="6" name="descripcion" form="editOrderForm{{ s.order.id }}">{{ s.order.descripcion or '' }}</textarea>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="modal-footer">
-                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
-                      <form id="editOrderForm{{ s.order.id }}" method="post" action="{{ url_for('main.pedidos_edit', order_id=s.order.id) }}">
-                        <button type="submit" class="btn btn-primary">Guardar</button>
-                      </form>
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -649,6 +620,138 @@
       el.addEventListener('change', function(){
         var f = el.closest('form');
         if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+      });
+    });
+  })();
+</script>
+<script>
+  (function(){
+    function isoToday(){
+      var d = new Date();
+      var y = d.getFullYear();
+      var m = String(d.getMonth() + 1).padStart(2, '0');
+      var dd = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + dd;
+    }
+
+    function showRowFlash(tr, ok){
+      if (!tr || !tr.classList) return;
+      var cls = ok ? 'table-success' : 'table-danger';
+      tr.classList.add(cls);
+      setTimeout(function(){
+        try { tr.classList.remove(cls); } catch(e) {}
+      }, 900);
+    }
+
+    function getFilterSelectedStatuses(){
+      var f = document.getElementById('statusFilter');
+      if (!f) return null;
+      var sts = Array.from(f.querySelectorAll('input[type="hidden"][name="status"]')).map(function(i){ return (i.value || '').trim(); }).filter(Boolean);
+      return sts;
+    }
+
+    function setBadge(tr, status){
+      if (!tr) return;
+      var badge = tr.querySelector('td:nth-child(6) .badge') || tr.querySelector('span.badge');
+      if (!badge) return;
+      if (status === 'ENTREGADO') {
+        badge.className = 'badge bg-success';
+        badge.textContent = 'ENTREGADO';
+      } else if (status === 'ATRASADO') {
+        badge.className = 'badge bg-danger';
+        badge.textContent = 'ATRASADO';
+      } else {
+        badge.className = 'badge bg-secondary';
+        badge.textContent = 'EN CAMINO';
+      }
+    }
+
+    function computeStatusFromRow(tr){
+      if (!tr) return 'EN CAMINO';
+      var effH = tr.querySelector('input.js-entrega-efectiva-hid');
+      if (effH && (effH.value || '').trim()) return 'ENTREGADO';
+      var est = tr.querySelector('input.js-entrega');
+      var v = est ? (est.value || '').trim() : '';
+      if (!v) return 'EN CAMINO';
+      var t = Date.parse(v);
+      if (isNaN(t)) return 'EN CAMINO';
+      var now = new Date();
+      now.setHours(0,0,0,0);
+      return (t < now.getTime()) ? 'ATRASADO' : 'EN CAMINO';
+    }
+
+    function maybeRemoveRowIfFiltered(tr, status){
+      var selected = getFilterSelectedStatuses();
+      if (!selected || selected.length === 0) return;
+      if (selected.indexOf(status) === -1) {
+        try { tr.remove(); } catch(e) { if (tr.parentNode) tr.parentNode.removeChild(tr); }
+      }
+    }
+
+    function fetchForm(form){
+      var fd = new FormData(form);
+      return fetch(form.action, {
+        method: (form.method || 'POST').toUpperCase(),
+        body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin'
+      }).then(function(resp){
+        var ct = (resp.headers.get('content-type') || '').toLowerCase();
+        if (ct.indexOf('application/json') !== -1) {
+          return resp.json().catch(function(){ return { ok: resp.ok }; });
+        }
+        return resp.text().then(function(){ return { ok: resp.ok }; }).catch(function(){ return { ok: resp.ok }; });
+      });
+    }
+
+    document.addEventListener('submit', function(e){
+      var form = e.target;
+      if (!form || !form.action) return;
+      var isUpd = !!(form.id && form.id.indexOf('upd') === 0);
+      var isEntregar = !!(form.getAttribute('data-js') === 'status-entregar');
+      if (!isUpd && !isEntregar) return;
+
+      e.preventDefault();
+      var tr = form.closest ? form.closest('tr') : null;
+
+      var btn = null;
+      try { btn = form.querySelector('button[type="submit"]'); } catch (err) { btn = null; }
+      if (btn) btn.disabled = true;
+
+      fetchForm(form).then(function(data){
+        var ok = !!(data && data.ok);
+        if (btn) btn.disabled = false;
+        showRowFlash(tr, ok);
+        if (!ok) {
+          if (window.showToast) window.showToast('No se pudo actualizar', 'danger');
+          return;
+        }
+
+        if (isEntregar) {
+          var effH = tr ? tr.querySelector('input.js-entrega-efectiva-hid') : null;
+          var ent = tr ? tr.querySelector('input.js-entrega') : null;
+          var picked = '';
+          try { picked = (form.querySelector('input[name="fecha"]') || {}).value || ''; } catch(e2) { picked = ''; }
+          if (!picked) picked = (ent && (ent.value || '').trim()) ? (ent.value || '').trim() : isoToday();
+          if (effH) effH.value = picked;
+          if (ent) {
+            if (ent._flatpickr) {
+              try { ent._flatpickr.setDate(picked, false, 'Y-m-d'); } catch(e3) {}
+            } else {
+              ent.value = picked;
+            }
+          }
+          try { form.remove(); } catch(e4) { if (form.parentNode) form.parentNode.removeChild(form); }
+        }
+
+        var st = computeStatusFromRow(tr);
+        setBadge(tr, st);
+        maybeRemoveRowIfFiltered(tr, st);
+        if (window.showToast) window.showToast('Actualizado', 'success');
+      }).catch(function(){
+        if (btn) btn.disabled = false;
+        showRowFlash(tr, false);
+        if (window.showToast) window.showToast('Error de conexión al actualizar', 'danger');
       });
     });
   })();
