@@ -1,0 +1,48 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h4 mb-0">Cobranzas pendientes (borradores)</h1>
+    <div class="text-muted small">Borradores guardados para retomar más tarde.</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('main.nueva_cobranza') }}">Nueva cobranza</a>
+    <a class="btn btn-light" href="{{ url_for('main.deudas_pendientes') }}">Deudas pendientes</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if not items %}
+      <div class="p-3 text-muted">No hay borradores guardados.</div>
+    {% else %}
+      <div class="table-responsive table-mobile-cards">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Cliente</th>
+              <th>Empresa</th>
+              <th>Fecha pedido</th>
+              <th>Guardado</th>
+              <th class="text-end">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in items %}
+              <tr>
+                <td>{{ it.client }}</td>
+                <td>{{ it.company }}</td>
+                <td>{{ it.order_date }}</td>
+                <td>{{ it.saved_at }}</td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-primary" href="{{ url_for('main.nueva_cobranza', draft_id=it.draft_id) }}">Reabrir</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

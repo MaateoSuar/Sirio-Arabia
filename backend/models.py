@@ -1,6 +1,27 @@
 from datetime import datetime, timedelta, date
 from enum import Enum
 from .extensions import db
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+
+
+class AppUser(db.Model, UserMixin):
+    __tablename__ = "app_user"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), nullable=False, unique=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_admin = db.Column(db.Boolean, nullable=False, default=False)
+    permissions_json = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def set_password(self, password: str):
+        self.password_hash = generate_password_hash(password or "")
+
+    def check_password(self, password: str) -> bool:
+        try:
+            return check_password_hash(self.password_hash or "", password or "")
+        except Exception:
+            return False
 
 
 class RelationStatus(str, Enum):
@@ -27,6 +48,20 @@ class ClientCompanyLink(db.Model):
     plazo_pago_dias = db.Column(db.Integer)
 
     __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_client_company"),)
+
+
+class ClientCompanyBalance(db.Model):
+    __tablename__ = "client_company_balance"
+    id = db.Column(db.Integer, primary_key=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+    balance_adjustment = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("owner_user_id", "client_id", "company_id", name="uq_client_company_balance"),
+    )
 
 
 class ClientBranch(db.Model):
@@ -68,6 +103,7 @@ class ClientBirthday(db.Model):
 
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
     apellido = db.Column(db.String(120), nullable=False)
     nombre = db.Column(db.String(120), nullable=False)
     sucursal = db.Column(db.String(120))
@@ -113,6 +149,7 @@ class Company(db.Model):
     mail_pedido = db.Column(db.String(255))
     mail_pago = db.Column(db.String(255))
     pedido_estandar_recomendado = db.Column(db.Text)
+    nota_pedido = db.Column(db.Text)
     plazo_usual = db.Column(db.String(120))
     forma_pago_default = db.Column(db.String(32))
     # Información complementaria
@@ -140,9 +177,27 @@ class CompanyDocument(db.Model):
     company = db.relationship("Company", backref=db.backref("documents", cascade="all, delete-orphan"))
 
 
+class CompanyProductSheet(db.Model):
+    __tablename__ = "company_product_sheet"
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    filepath = db.Column(db.String(500))  # URL (Cloudinary) opcional
+    data = db.Column(db.LargeBinary)  # BLOB opcional (fallback)
+    mimetype = db.Column(db.String(120))
+    size = db.Column(db.Integer)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    company = db.relationship("Company", backref=db.backref("product_sheets", cascade="all, delete-orphan"))
+
+
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    deleted_at = db.Column(db.DateTime)
+
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
 
     client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
@@ -154,6 +209,7 @@ class Order(db.Model):
 
     precio_final = db.Column(db.Numeric(12, 2))
     forma_pago = db.Column(db.Enum(PaymentMethod))
+    forma_pago_detalle = db.Column(db.String(32))
 
     # Tipo de comprobante asociado al pedido (por ejemplo FACTURA o REMITO)
     tipo_comprobante = db.Column(db.String(16))
@@ -179,6 +235,7 @@ class LogisticsStatus(db.Model):
 
     precio = db.Column(db.Numeric(12, 2))
     forma_pago = db.Column(db.Enum(PaymentMethod))
+    forma_pago_detalle = db.Column(db.String(32))
 
     nota = db.Column(db.Text)
     descripcion = db.Column(db.Text)
@@ -196,9 +253,12 @@ class Collection(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False, unique=True)
 
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
+
     fecha_entrega_efectiva = db.Column(db.DateTime)
     monto = db.Column(db.Numeric(12, 2))
     forma_pago = db.Column(db.Enum(PaymentMethod))
+    forma_pago_detalle = db.Column(db.String(32))
 
     fecha_pago_estimada = db.Column(db.DateTime)
     fecha_cobro_efectiva = db.Column(db.DateTime)
@@ -216,6 +276,8 @@ class CollectionPayment(db.Model):
     __tablename__ = "collection_payment"
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
     kind = db.Column(db.String(16), nullable=False)  # PAYMENT / CREDIT_NOTE
     method = db.Column(db.String(32))
     amount = db.Column(db.Numeric(12, 2))
@@ -224,7 +286,18 @@ class CollectionPayment(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    voided_at = db.Column(db.DateTime)
+    voided_by_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
+    voided_reason = db.Column(db.Text)
+
     order = db.relationship("Order", backref=db.backref("collection_payments", cascade="all, delete-orphan"))
+
+
+class CommissionState(db.Model):
+    __tablename__ = "commission_state"
+    id = db.Column(db.Integer, primary_key=True)
+    last_paid_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class OrderAttachment(db.Model):
@@ -240,6 +313,7 @@ class OrderAttachment(db.Model):
 class OrderDraft(db.Model):
     __tablename__ = "order_draft"
     id = db.Column(db.Integer, primary_key=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
     client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
     branch_id = db.Column(db.Integer)
@@ -248,15 +322,29 @@ class OrderDraft(db.Model):
     descripcion = db.Column(db.Text)
     precio_final = db.Column(db.Numeric(12, 2))
     forma_pago = db.Column(db.Enum(PaymentMethod))
+    forma_pago_detalle = db.Column(db.String(32))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("client_id", "company_id", name="uq_draft_client_company"),)
+
+
+class CollectionDraft(db.Model):
+    __tablename__ = "collection_draft"
+    id = db.Column(db.Integer, primary_key=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
+    client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"))
+    notes = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ClientDocument(db.Model):
     __tablename__ = "client_document"
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
+
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
     category = db.Column(db.String(32))
     filename = db.Column(db.String(255), nullable=False)
     filepath = db.Column(db.String(500), nullable=False)
@@ -272,6 +360,8 @@ class ClientAlertState(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey("client.id"), nullable=False)
     order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
     kind = db.Column(db.String(32), nullable=False)
     dismissed_at = db.Column(db.DateTime)
     snoozed_until = db.Column(db.DateTime)

@@ -58,8 +58,8 @@
         /* Mejorar targets táctiles */
         .btn, .form-control, .form-select { min-height: 44px; font-size: 16px; }
         .btn-group.btn-group-sm > .btn { padding: .45rem .6rem; }
-        /* Tablas en móvil: mantener grid compacto (no apilar) */
-        .table { font-size: 13px; table-layout: fixed; }
+        /* Tablas en móvil: no forzar fixed (recorta columnas). */
+        .table { font-size: 13px; table-layout: auto; }
         .table th, .table td { padding: .45rem .55rem; word-break: break-word; overflow-wrap: anywhere; }
         .col-actions { width: 1%; white-space: nowrap; }
         /* Acciones: misma disposición y sin salto de línea */
@@ -78,6 +78,15 @@
         /* Modales fullscreen en móvil */
         .modal-dialog { width: 100% !important; max-width: none !important; margin: 0 !important; }
         .modal-content { min-height: 100vh; border-radius: 0; }
+
+        /* Scroll horizontal suave para tablas en landscape (y cuando haga falta) */
+        .table-responsive{ -webkit-overflow-scrolling: touch; }
+        .table-responsive > .table{ min-width: 720px; }
+      }
+
+      /* En portrait (celular vertical), se prioriza el modo cards (se genera via JS) */
+      @media (max-width: 767.98px) and (orientation: portrait) {
+        .table-responsive > .table{ min-width: 0; }
       }
       /* Bloqueo de orientación: overlay controlado por clase require-rotate */
       #orientationLock { display: none; position: fixed; inset: 0; z-index: 2000; background: #0b1721; color: #fff; align-items: center; justify-content: center; text-align: center; padding: 2rem; }
@@ -86,8 +95,8 @@
       #orientationLock h2 { font-size: 1.25rem; margin-bottom: .5rem; }
       #orientationLock p { color: #cbd5e1; margin: 0; }
       @media (max-width: 767.98px) and (orientation: portrait) {
-        body.require-rotate #orientationLock { display: flex; }
-        body.require-rotate { overflow: hidden; }
+        body.require-rotate-disabled #orientationLock { display: flex; }
+        body.require-rotate-disabled { overflow: hidden; }
       }
       /* Navbar mobile links hover/focus con acento petróleo/verde */
       .navbar-dark .navbar-nav .nav-link:hover,
@@ -103,6 +112,11 @@
       body[data-active="clientes"] main.col > .d-flex.mb-3 { margin-top: .25rem !important; }
       body[data-active="clientes"] h1.h4.mb-0 { margin-top: 0 !important; }
       body[data-active="clientes"] .card { margin-top: .5rem !important; }
+
+      /* Sidebar toggle (desktop) */
+      body.sidebar-collapsed #appSidebar { display: none !important; }
+      body.sidebar-collapsed #sidebarShowBtn { display: inline-flex !important; }
+      #sidebarShowBtn { display: none; }
     </style>
   </head>
   <body class="bg-light" data-active="{{ active }}">
@@ -117,17 +131,23 @@
         </button>
         <div class="collapse navbar-collapse d-lg-none" id="topMenu">
           <ul class="navbar-nav ms-auto mt-2 mt-lg-0">
-            <li class="nav-item"><a class="nav-link {% if active=='dashboard' %}active{% endif %}" href="{{ url_for('main.index') }}"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='clientes' %}active{% endif %}" href="{{ url_for('main.clientes') }}"><i class="bi bi-people me-2"></i>Clientes</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='empresas' %}active{% endif %}" href="{{ url_for('main.empresas') }}"><i class="bi bi-building me-2"></i>Empresas</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='pedidos' %}active{% endif %}" href="{{ url_for('main.pedidos') }}"><i class="bi bi-bag-check me-2"></i>Pedidos</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='status' %}active{% endif %}" href="{{ url_for('main.status') }}"><i class="bi bi-truck me-2"></i>Status Mercadería</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='deudas' %}active{% endif %}" href="{{ url_for('main.deudas_pendientes') }}"><i class="bi bi-cash-coin me-2"></i>Deudas pendientes</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='nueva_cobranza' %}active{% endif %}" href="{{ url_for('main.nueva_cobranza') }}"><i class="bi bi-plus-circle me-2"></i>Nuevas cobranzas</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
-            <li class="nav-item"><a class="nav-link {% if active=='comisiones' %}active{% endif %}" href="{{ url_for('main.comisiones') }}"><i class="bi bi-cash-stack me-2"></i>Comisiones</a></li>
+            {% if can_view is not defined or can_view('dashboard') %}<li class="nav-item"><a class="nav-link {% if active=='dashboard' %}active{% endif %}" href="{{ url_for('main.index') }}"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>{% endif %}
+            {% if can_view is not defined or can_view('calendario') %}<li class="nav-item"><a class="nav-link {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>{% endif %}
+            {% if can_view is not defined or can_view('clientes') %}<li class="nav-item"><a class="nav-link {% if active=='clientes' %}active{% endif %}" href="{{ url_for('main.clientes') }}"><i class="bi bi-people me-2"></i>Clientes</a></li>{% endif %}
+            {% if can_view is not defined or can_view('empresas') %}<li class="nav-item"><a class="nav-link {% if active=='empresas' %}active{% endif %}" href="{{ url_for('main.empresas') }}"><i class="bi bi-building me-2"></i>Empresas</a></li>{% endif %}
+            {% if can_view is not defined or can_view('pedidos') %}<li class="nav-item"><a class="nav-link {% if active=='pedidos' %}active{% endif %}" href="{{ url_for('main.pedidos') }}"><i class="bi bi-bag-check me-2"></i>Pedidos</a></li>{% endif %}
+            {% if can_view is not defined or can_view('status') %}<li class="nav-item"><a class="nav-link {% if active=='status' %}active{% endif %}" href="{{ url_for('main.status') }}"><i class="bi bi-truck me-2"></i>Status Mercadería</a></li>{% endif %}
+            {% if can_view is not defined or can_view('nueva_cobranza') %}<li class="nav-item"><a class="nav-link {% if active=='nueva_cobranza' %}active{% endif %}" href="{{ url_for('main.nueva_cobranza') }}"><i class="bi bi-plus-circle me-2"></i>Nuevas cobranzas</a></li>{% endif %}
+            {% if can_view is not defined or can_view('deudas') %}<li class="nav-item"><a class="nav-link {% if active=='deudas' %}active{% endif %}" href="{{ url_for('main.deudas_pendientes') }}"><i class="bi bi-cash-coin me-2"></i>Deudas pendientes</a></li>{% endif %}
+            {% if can_view is not defined or can_view('historial') %}<li class="nav-item"><a class="nav-link {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>{% endif %}
+            {% if can_view is not defined or can_view('crm') %}<li class="nav-item"><a class="nav-link {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>{% endif %}
+            {% if can_view is not defined or can_view('comisiones') %}<li class="nav-item"><a class="nav-link {% if active=='comisiones' %}active{% endif %}" href="{{ url_for('main.comisiones') }}"><i class="bi bi-cash-stack me-2"></i>Comisiones</a></li>{% endif %}
+            {% if current_user.is_authenticated and current_user.is_admin and (can_view is not defined or can_view('mail_pagos')) %}
+            <li class="nav-item"><a class="nav-link {% if active=='mail_pagos' %}active{% endif %}" href="{{ url_for('main.mail_pagos') }}"><i class="bi bi-envelope-paper me-2"></i>Mail Pagos</a></li>
+            {% endif %}
+            {% if current_user.is_authenticated and current_user.is_admin and (can_view is not defined or can_view('usuarios')) %}
+            <li class="nav-item"><a class="nav-link {% if active=='usuarios' %}active{% endif %}" href="{{ url_for('main.usuarios') }}"><i class="bi bi-person-badge me-2"></i>Usuarios</a></li>
+            {% endif %}
             <li class="nav-item"><a class="nav-link logout-link" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a></li>
           </ul>
         </div>
@@ -137,24 +157,44 @@
       <div class="row">
         <aside class="col-12 col-lg-2 sidebar-blue min-vh-100 p-0 d-none d-lg-block" id="appSidebar">
           <div class="sidebar-inner py-4 px-3">
-            <div class="sidebar-title">Menú</div>
+            {% if current_user.is_authenticated %}
+            <div class="small text-white-50 mb-1">Usuario: <span class="text-white">{{ current_user.username }}</span></div>
+            {% endif %}
+            <div class="d-flex align-items-center justify-content-between">
+              <div class="sidebar-title mb-0">Menú</div>
+              <button type="button" class="btn btn-sm btn-outline-light" id="sidebarHideBtn" aria-label="Ocultar menú" title="Ocultar menú">
+                <i class="bi bi-layout-sidebar-inset"></i>
+              </button>
+            </div>
             <ul class="nav nav-pills flex-column gap-2 mt-2">
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='dashboard' %}active{% endif %}" href="{{ url_for('main.index') }}"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='clientes' %}active{% endif %}" href="{{ url_for('main.clientes') }}"><i class="bi bi-people me-2"></i>Clientes</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='empresas' %}active{% endif %}" href="{{ url_for('main.empresas') }}"><i class="bi bi-building me-2"></i>Empresas</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='pedidos' %}active{% endif %}" href="{{ url_for('main.pedidos') }}"><i class="bi bi-bag-check me-2"></i>Pedidos</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='status' %}active{% endif %}" href="{{ url_for('main.status') }}"><i class="bi bi-truck me-2"></i>Status Mercadería</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='deudas' %}active{% endif %}" href="{{ url_for('main.deudas_pendientes') }}"><i class="bi bi-cash-coin me-2"></i>Deudas pendientes</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='nueva_cobranza' %}active{% endif %}" href="{{ url_for('main.nueva_cobranza') }}"><i class="bi bi-plus-circle me-2"></i>Nuevas cobranzas</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>
-              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='comisiones' %}active{% endif %}" href="{{ url_for('main.comisiones') }}"><i class="bi bi-cash-stack me-2"></i>Comisiones</a></li>
+              {% if can_view is not defined or can_view('dashboard') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='dashboard' %}active{% endif %}" href="{{ url_for('main.index') }}"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>{% endif %}
+              {% if can_view is not defined or can_view('calendario') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='calendario' %}active{% endif %}" href="{{ url_for('main.calendario') }}"><i class="bi bi-calendar3 me-2"></i>Calendario</a></li>{% endif %}
+              {% if can_view is not defined or can_view('clientes') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='clientes' %}active{% endif %}" href="{{ url_for('main.clientes') }}"><i class="bi bi-people me-2"></i>Clientes</a></li>{% endif %}
+              {% if can_view is not defined or can_view('empresas') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='empresas' %}active{% endif %}" href="{{ url_for('main.empresas') }}"><i class="bi bi-building me-2"></i>Empresas</a></li>{% endif %}
+              {% if can_view is not defined or can_view('pedidos') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='pedidos' %}active{% endif %}" href="{{ url_for('main.pedidos') }}"><i class="bi bi-bag-check me-2"></i>Pedidos</a></li>{% endif %}
+              {% if can_view is not defined or can_view('status') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='status' %}active{% endif %}" href="{{ url_for('main.status') }}"><i class="bi bi-truck me-2"></i>Status Mercadería</a></li>{% endif %}
+              {% if can_view is not defined or can_view('nueva_cobranza') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='nueva_cobranza' %}active{% endif %}" href="{{ url_for('main.nueva_cobranza') }}"><i class="bi bi-plus-circle me-2"></i>Nuevas cobranzas</a></li>{% endif %}
+              {% if can_view is not defined or can_view('deudas') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='deudas' %}active{% endif %}" href="{{ url_for('main.deudas_pendientes') }}"><i class="bi bi-cash-coin me-2"></i>Deudas pendientes</a></li>{% endif %}
+              {% if can_view is not defined or can_view('historial') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='historial' %}active{% endif %}" href="{{ url_for('main.historial') }}"><i class="bi bi-archive me-2"></i>Historial</a></li>{% endif %}
+              {% if can_view is not defined or can_view('crm') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='crm' %}active{% endif %}" href="{{ url_for('main.crm') }}"><i class="bi bi-graph-up-arrow me-2"></i>CRM</a></li>{% endif %}
+              {% if can_view is not defined or can_view('comisiones') %}<li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='comisiones' %}active{% endif %}" href="{{ url_for('main.comisiones') }}"><i class="bi bi-cash-stack me-2"></i>Comisiones</a></li>{% endif %}
+              {% if current_user.is_authenticated and current_user.is_admin and (can_view is not defined or can_view('mail_pagos')) %}
+              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='mail_pagos' %}active{% endif %}" href="{{ url_for('main.mail_pagos') }}"><i class="bi bi-envelope-paper me-2"></i>Mail Pagos</a></li>
+              {% endif %}
+              {% if current_user.is_authenticated and current_user.is_admin and (can_view is not defined or can_view('usuarios')) %}
+              <li class="nav-item"><a class="nav-link nav-link-ghost {% if active=='usuarios' %}active{% endif %}" href="{{ url_for('main.usuarios') }}"><i class="bi bi-person-badge me-2"></i>Usuarios</a></li>
+              {% endif %}
               <li class="nav-item mt-2"><a class="nav-link nav-link-ghost logout-link" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a></li>
             </ul>
           </div>
         </aside>
         <main class="col p-4">
+          <div class="d-none d-lg-flex justify-content-between align-items-center mb-2">
+            <button type="button" class="btn btn-light" id="sidebarShowBtn" aria-label="Mostrar menú" title="Mostrar menú">
+              <i class="bi bi-layout-sidebar"></i>
+            </button>
+            <div></div>
+          </div>
           <div class="d-flex justify-content-end mb-2">
             <a href="{{ url_for('main.notificaciones') }}" class="btn btn-light position-relative" aria-label="Centro de notificaciones" title="Notificaciones">
               <i class="bi bi-bell"></i>
@@ -163,6 +203,21 @@
               {% endif %}
             </a>
           </div>
+          {% if support_mode %}
+          <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
+            <div>
+              <strong>Soporte activo</strong>
+              {% if support_username %}
+                : {{ support_username }}
+              {% elif support_user_id %}
+                : ID {{ support_user_id }}
+              {% endif %}
+            </div>
+            <form method="post" action="{{ url_for('main.usuarios_salir_soporte') }}" class="m-0">
+              <button type="submit" class="btn btn-outline-warning btn-sm">Salir de soporte</button>
+            </form>
+          </div>
+          {% endif %}
           {% block content %}{% endblock %}
         </main>
       </div>
@@ -186,6 +241,347 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+      (function(){
+        function onlyDigits(v){ return (v || '').toString().replace(/\D+/g, ''); }
+        function isIsoDate(s){ return /^\d{4}-\d{2}-\d{2}$/.test((s||'').trim()); }
+        function isSlashDate(s){ return /^\d{2}\/\d{2}\/\d{4}$/.test((s||'').trim()); }
+        function toIsoFromDDMMYYYY(digits){
+          if (!digits || digits.length !== 8) return '';
+          var dd = digits.slice(0,2);
+          var mm = digits.slice(2,4);
+          var yyyy = digits.slice(4,8);
+          return yyyy + '-' + mm + '-' + dd;
+        }
+        function toSlashFromDDMMYYYY(digits){
+          if (!digits || digits.length !== 8) return '';
+          var dd = digits.slice(0,2);
+          var mm = digits.slice(2,4);
+          var yyyy = digits.slice(4,8);
+          return dd + '/' + mm + '/' + yyyy;
+        }
+        function digitsFromSpacedOrSlashed(raw){
+          var s = (raw || '').toString().trim();
+          if (!s) return '';
+          // DD/MM/YYYY
+          if (isSlashDate(s)) return onlyDigits(s);
+          // DD MM YYYY (allow multiple spaces)
+          var m = s.match(/^(\d{1,2})\s+(\d{1,2})\s+(\d{4})$/);
+          if (m) {
+            var dd = String(m[1]).padStart(2,'0');
+            var mm = String(m[2]).padStart(2,'0');
+            var yyyy = String(m[3]);
+            return dd + mm + yyyy;
+          }
+          // DDMMYYYY (digits only)
+          if (/^\d{8}$/.test(s)) return s;
+          return '';
+        }
+        function shouldBind(el){
+          if (!el || el.disabled || el.readOnly) return false;
+          var t = (el.getAttribute('type') || '').toLowerCase();
+          if (t === 'date') return true;
+          var nm = (el.getAttribute('name') || '').toLowerCase();
+          var id = (el.getAttribute('id') || '').toLowerCase();
+          return (nm.indexOf('fecha') !== -1) || (id.indexOf('fecha') !== -1);
+        }
+        function applyFormat(el){
+          if (!shouldBind(el)) return;
+          var raw = (el.value || '').toString().trim();
+          var t = (el.getAttribute('type') || '').toLowerCase();
+
+          // No tocar valores ya normalizados
+          if (t === 'date' && isIsoDate(raw)) return;
+          if (t !== 'date' && isSlashDate(raw)) return;
+
+          // Aceptar DDMMYYYY, DD MM YYYY, DD/MM/YYYY
+          var digits = digitsFromSpacedOrSlashed(raw);
+          if (!digits || digits.length !== 8) return;
+
+          if (t === 'date'){
+            el.value = toIsoFromDDMMYYYY(digits);
+          } else {
+            el.value = toSlashFromDDMMYYYY(digits);
+          }
+        }
+
+        function bindFlatpickrAltInputs(root){
+          // flatpickr con altInput: el usuario escribe en altInput (d/m/Y) y el value real queda en Y-m-d.
+          // Si el usuario tipea 8 dígitos, flatpickr puede interpretarlo mal (ej 10102026 -> 10/02/2026).
+          // Acá forzamos el ISO correcto.
+          (root || document).querySelectorAll('input').forEach(function(el){
+            try {
+              var fp = el._flatpickr;
+              if (!fp || !fp.altInput) return;
+              var alt = fp.altInput;
+              if (alt._dateMaskBound) return;
+              if (alt.disabled || alt.readOnly) return;
+
+              var handler = function(){
+                var raw = (alt.value || '').toString().trim();
+                // Si ya está en d/m/Y no lo tocamos; solo usamos esto para inputs “rápidos”
+                var digits = digitsFromSpacedOrSlashed(raw);
+                if (!digits || digits.length !== 8) return;
+                var iso = toIsoFromDDMMYYYY(digits);
+                if (!iso) return;
+                try {
+                  fp.setDate(iso, true, 'Y-m-d');
+                } catch(e) {
+                  try { fp.setDate(iso, true); } catch(e2) {}
+                }
+              };
+
+              alt.addEventListener('input', handler);
+              alt.addEventListener('blur', handler);
+              alt._dateMaskBound = true;
+            } catch(e) {}
+          });
+        }
+        function bind(root){
+          (root || document).querySelectorAll('input').forEach(function(el){
+            if (!shouldBind(el) || el._dateMaskBound) return;
+            // En 'input' solo formatear cuando ya está completo (evita sorpresas mientras escribe)
+            el.addEventListener('input', function(){ applyFormat(el); });
+            el.addEventListener('blur', function(){ applyFormat(el); });
+            el._dateMaskBound = true;
+          });
+          bindFlatpickrAltInputs(root || document);
+        }
+        bind(document);
+        var mo = new MutationObserver(function(){ bind(document); });
+        mo.observe(document.body, { childList:true, subtree:true });
+      })();
+    </script>
+    <script>
+      (function(){
+        function getBellAnchor(){
+          try {
+            return document.querySelector('a[aria-label="Centro de notificaciones"]');
+          } catch(e){
+            return null;
+          }
+        }
+
+        function setBellCount(n){
+          var a = getBellAnchor();
+          if (!a) return;
+          n = Number(n || 0);
+          if (isNaN(n) || n < 0) n = 0;
+          var badge = document.getElementById('notifBellCount');
+          if (n <= 0){
+            if (badge) {
+              try { badge.remove(); } catch(e0) { badge.textContent = ''; }
+            }
+            return;
+          }
+          if (!badge){
+            badge = document.createElement('span');
+            badge.id = 'notifBellCount';
+            badge.className = 'position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger';
+            a.appendChild(badge);
+          }
+          badge.textContent = String(n);
+        }
+
+        function refresh(){
+          try {
+            return fetch('/api/notificaciones/count', { credentials: 'same-origin' })
+              .then(function(r){
+                if (!r || !r.ok) throw new Error('HTTP_' + (r ? r.status : '0'));
+                return r.json();
+              })
+              .then(function(data){
+                try { setBellCount(data && typeof data.count !== 'undefined' ? data.count : 0); } catch(e0) {}
+              })
+              .catch(function(){});
+          } catch(e) {
+            return;
+          }
+        }
+
+        window.refreshNotifCount = refresh;
+
+        try {
+          refresh();
+          setInterval(refresh, 8000);
+        } catch(e) {}
+      })();
+    </script>
+    <script>
+      (function(){
+        var KEY = 'sirio.sidebar.collapsed';
+        function applyState(collapsed){
+          try {
+            document.body.classList.toggle('sidebar-collapsed', !!collapsed);
+          } catch(e) {}
+        }
+        function loadState(){
+          try {
+            return localStorage.getItem(KEY) === '1';
+          } catch(e) { return false; }
+        }
+        function saveState(collapsed){
+          try {
+            localStorage.setItem(KEY, collapsed ? '1' : '0');
+          } catch(e) {}
+        }
+
+        applyState(loadState());
+
+        var hideBtn = document.getElementById('sidebarHideBtn');
+        var showBtn = document.getElementById('sidebarShowBtn');
+        if (hideBtn) {
+          hideBtn.addEventListener('click', function(){
+            applyState(true);
+            saveState(true);
+          });
+        }
+        if (showBtn) {
+          showBtn.addEventListener('click', function(){
+            applyState(false);
+            saveState(false);
+          });
+        }
+      })();
+    </script>
+    <script>
+      (function(){
+        function topOffset(){
+          var top = 0;
+          try {
+            try {
+              var active0 = '{{ active }}';
+              var isMobile0 = false;
+              try { isMobile0 = !!(window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches); }
+              catch(e_mq0){ isMobile0 = window.innerWidth < 768; }
+              if ((active0 === 'deudas' || active0 === 'status') && isMobile0) {
+                try {
+                  if (window.visualViewport && typeof window.visualViewport.offsetTop === 'number') {
+                    return Math.round(window.visualViewport.offsetTop || 0);
+                  }
+                } catch(e_vv) {}
+                return 0;
+              }
+            } catch(e_a0) {}
+            var nav = document.querySelector('nav.navbar.d-lg-none');
+            if (nav && window.getComputedStyle(nav).display !== 'none'){
+              top = Math.round(nav.getBoundingClientRect().height || 0);
+            }
+          } catch(e) {}
+          return top;
+        }
+
+        function applyCssStickyTop(){
+          try {
+            var top = topOffset();
+            document.documentElement.style.setProperty('--sticky-top', top + 'px');
+          } catch(e) {}
+        }
+
+        function setup(table){
+          if (!table || table._stickyHeaderBound) return;
+          var thead = table.querySelector('thead');
+          if (!thead) return;
+          table._stickyHeaderBound = true;
+
+          var wrap = document.createElement('div');
+          wrap.className = 'sticky-thead-wrap';
+          wrap.style.display = 'none';
+          wrap.style.position = 'fixed';
+          wrap.style.left = '0px';
+          wrap.style.top = '0px';
+          wrap.style.zIndex = '1500';
+          wrap.style.overflow = 'hidden';
+          wrap.style.pointerEvents = 'auto';
+
+          var cloneTable = document.createElement('table');
+          cloneTable.className = (table.className || '').replace(/\btable-sticky\b/g, '').trim() + ' sticky-thead-table';
+          cloneTable.style.margin = '0';
+          cloneTable.style.width = '100%';
+          cloneTable.style.borderCollapse = 'separate';
+          cloneTable.style.borderSpacing = '0';
+          cloneTable.style.willChange = 'transform';
+          cloneTable.style.tableLayout = 'fixed';
+          cloneTable.appendChild(thead.cloneNode(true));
+          wrap.appendChild(cloneTable);
+          document.body.appendChild(wrap);
+
+          function sync(){
+            var rect = table.getBoundingClientRect();
+            wrap.style.width = Math.round(rect.width) + 'px';
+            wrap.style.left = Math.round(rect.left) + 'px';
+
+            // Importante: el header clonado debe medir el ancho TOTAL de la tabla (incluye columnas fuera de pantalla)
+            // para que los anchos de columnas no se reescalen cuando hay scroll horizontal.
+            try {
+              var fullW = table.scrollWidth || 0;
+              if (fullW && fullW > 0) {
+                cloneTable.style.width = Math.round(fullW) + 'px';
+                cloneTable.style.minWidth = Math.round(fullW) + 'px';
+              } else {
+                cloneTable.style.width = Math.round(rect.width) + 'px';
+                cloneTable.style.minWidth = Math.round(rect.width) + 'px';
+              }
+            } catch(e_w) {}
+
+            var ths = thead.querySelectorAll('th');
+            var cths = cloneTable.querySelectorAll('th');
+            for (var i = 0; i < ths.length && i < cths.length; i++){
+              var w = ths[i].getBoundingClientRect().width;
+              cths[i].style.width = Math.round(w) + 'px';
+            }
+          }
+
+          function update(){
+            var top = topOffset();
+            var rect = table.getBoundingClientRect();
+            var thHeight = thead.getBoundingClientRect().height || 0;
+            var theadRect = thead.getBoundingClientRect();
+            var stickyVisible = Math.abs((theadRect.top || 0) - top) < 1;
+            var inRange = (rect.top < top) && (rect.bottom > (top + thHeight));
+            if (inRange && !stickyVisible){
+              wrap.style.display = 'block';
+              wrap.style.top = top + 'px';
+              sync();
+              var resp = table.closest('.table-responsive');
+              var sl = resp ? (resp.scrollLeft || 0) : 0;
+              cloneTable.style.transform = sl ? ('translateX(' + (-sl) + 'px)') : '';
+            } else {
+              wrap.style.display = 'none';
+              try { cloneTable.style.transform = ''; } catch(e_tx) {}
+            }
+          }
+
+          cloneTable.addEventListener('click', function(e){
+            var th = e.target && e.target.closest ? e.target.closest('th') : null;
+            if (!th) return;
+            var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+            var origThs = thead.querySelectorAll('th');
+            var orig = origThs && origThs[idx];
+            if (orig && typeof orig.click === 'function') orig.click();
+          });
+
+          window.addEventListener('scroll', update, { passive: true });
+          window.addEventListener('resize', update);
+          var resp = table.closest('.table-responsive');
+          if (resp) resp.addEventListener('scroll', update, { passive: true });
+          update();
+        }
+
+        function init(){
+          try { applyCssStickyTop(); } catch(e_top0) {}
+
+          try {
+            document.querySelectorAll('table.table-sticky').forEach(function(t){ setup(t); });
+          } catch(e) {}
+
+          try { window.addEventListener('resize', function(){ try { applyCssStickyTop(); } catch(e_top2) {} }); } catch(e_top3) {}
+        }
+
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+        else init();
+      })();
+    </script>
     <script>
       // Helper global para mostrar toasts con variantes: success | warning | danger | info | primary
       (function(){
@@ -238,6 +634,7 @@
         })();
         // Requerir girar el celular para todas las secciones excepto Pedidos
         (function rotateGate(){
+          return;
           function isMobilePortrait(){ return window.innerWidth < 768 && window.matchMedia('(orientation: portrait)').matches; }
           // bandera inicial según ruta activa
           var isPedidos = '{{ active }}' === 'pedidos';

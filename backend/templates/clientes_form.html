@@ -70,9 +70,10 @@
             <option value="">-</option>
             <option value="EFECTIVO" {{ 'selected' if fph=='EFECTIVO' else '' }}>Efectivo</option>
             <option value="TRANSFERENCIA" {{ 'selected' if fph=='TRANSFERENCIA' else '' }}>Transferencia</option>
-            <option value="CHEQUE" {{ 'selected' if fph=='CHEQUE' else '' }}>E-cheq</option>
-            <option value="CHEQUE">Cheque Físico Terceros</option>
-            <option value="CHEQUE">Cheque Físico Propio</option>
+            <option value="E-CHEQ" {{ 'selected' if fph=='E-CHEQ' else '' }}>E-cheq</option>
+            <option value="CHEQUE_TERCEROS" {{ 'selected' if fph=='CHEQUE_TERCEROS' else '' }}>Cheque Físico Terceros</option>
+            <option value="CHEQUE_PROPIO" {{ 'selected' if fph=='CHEQUE_PROPIO' else '' }}>Cheque Físico Propio</option>
+            <option value="CHEQUE" {{ 'selected' if fph=='CHEQUE' else '' }}>Cheque (genérico)</option>
             <option value="NO_SE_SABE" {{ 'selected' if fph=='NO_SE_SABE' else '' }}>No se sabe</option>
           </select>
         </div>
@@ -84,8 +85,8 @@
               <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#client-mails-collapse" aria-expanded="false" aria-controls="client-mails-collapse">Seleccionar mails</button>
             </div>
             <div id="client-mails-collapse" class="collapse mt-2">
-              <div class="d-flex gap-2 mb-2">
-                <input type="email" class="form-control form-control-sm" id="new_client_mail_input" placeholder="Agregar mail" style="max-width:260px">
+              <div class="d-flex flex-column flex-sm-row gap-2 mb-2">
+                <input type="email" class="form-control form-control-sm flex-grow-1" id="new_client_mail_input" placeholder="Agregar mail">
                 <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddClientMail">Agregar</button>
               </div>
               <div id="client-mails-alert" class="mt-1"></div>
@@ -187,37 +188,39 @@
               {% endif %}
             </div>
           </div>
-          <div class="table-responsive border rounded mt-2">
-            <table class="table table-sm mb-0 align-middle js-sortable-table">
-              <thead>
-                <tr>
-                  <th data-sort="text">Empresa</th>
-                  <th data-sort="text">Estado</th>
-                  <th data-sort="text">Comprobante</th>
-                  <th class="text-end">Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% if client.links %}
-                  {% for l in client.links %}
-                    <tr>
-                      <td>{{ l.company.nombre if l.company else '-' }}</td>
-                      <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
-                      <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
-                      <td class="text-end">
-                        {% if l.company %}
-                          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_edit_view', company_id=l.company.id) }}">Ver legajo</a>
-                        {% else %}
-                          <span class="text-muted">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                {% else %}
-                  <tr><td colspan="4" class="text-center text-muted">Sin empresas confirmadas</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
+          <div class="desktop-table">
+            <div class="table-responsive border rounded mt-2">
+              <table class="table table-sm mb-0 align-middle js-sortable-table">
+                <thead>
+                  <tr>
+                    <th data-sort="text">Empresa</th>
+                    <th data-sort="text">Estado</th>
+                    <th data-sort="text">Comprobante</th>
+                    <th class="text-end">Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% if client.links %}
+                    {% for l in client.links %}
+                      <tr>
+                        <td>{{ l.company.nombre if l.company else '-' }}</td>
+                        <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
+                        <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
+                        <td class="text-end">
+                          {% if l.company %}
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_edit_view', company_id=l.company.id) }}">Ver legajo</a>
+                          {% else %}
+                            <span class="text-muted">—</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  {% else %}
+                    <tr><td colspan="4" class="text-center text-muted">Sin empresas confirmadas</td></tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
         {% endif %}
@@ -307,8 +310,8 @@
               </div>
             </div>
             <div class="col-12 mt-2">
-              <div class="table-responsive border rounded">
-                <table class="table table-sm mb-0" id="delivery-table" style="min-width: 980px;">
+              <div class="table-responsive table-mobile-cards border rounded">
+                <table class="table table-sm mb-0" id="delivery-table">
                   <thead>
                     <tr>
                       <th>Dirección</th>
@@ -324,31 +327,31 @@
                     {% if client and client.delivery_places %}
                       {% for d in client.delivery_places %}
                         <tr>
-                          <td>
+                          <td data-label="Dirección">
                             {{ d.nombre }}
                             <input type="hidden" name="delivery_name_list" value="{{ d.nombre }}">
                           </td>
-                          <td>
+                          <td data-label="Provincia">
                             {{ d.provincia or '' }}
                             <input type="hidden" name="delivery_provincia_list" value="{{ d.provincia or '' }}">
                           </td>
-                          <td>
+                          <td data-label="Nota">
                             {{ d.nota or '' }}
                             <input type="hidden" name="delivery_nota_list" value="{{ d.nota or '' }}">
                           </td>
-                          <td>
+                          <td data-label="Horarios">
                             {{ d.horario or '' }}
                             <input type="hidden" name="delivery_schedule_list" value="{{ d.horario or '' }}">
                           </td>
-                          <td>
+                          <td data-label="Contacto">
                             {{ d.contacto or '' }}
                             <input type="hidden" name="delivery_contact_list" value="{{ d.contacto or '' }}">
                           </td>
-                          <td>
+                          <td data-label="Teléfono">
                             {{ d.telefono or '' }}
                             <input type="hidden" name="delivery_phone_list" value="{{ d.telefono or '' }}">
                           </td>
-                          <td class="text-end">
+                          <td class="text-end" data-label="Acciones">
                             <div class="d-flex gap-1 justify-content-end">
                               <button type="button" class="btn btn-sm btn-outline-secondary js-delivery-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
                               <button type="button" class="btn btn-sm btn-outline-danger js-delivery-row-del" title="Quitar"><i class="bi bi-trash"></i></button>
@@ -387,7 +390,7 @@
                 </div>
               </div>
               <div class="col-12 mt-2">
-                <div class="table-responsive border rounded">
+                <div class="table-responsive table-mobile-cards border rounded">
                   <table class="table table-sm mb-0" id="personas-table">
                     <thead>
                       <tr>
@@ -401,20 +404,20 @@
                       {% if client and client.birthdays %}
                         {% for b in client.birthdays %}
                           <tr>
-                            <td>
+                            <td data-label="Nombre">
                               {{ b.nombre }}
                               <input type="hidden" name="birthday_name_list" value="{{ b.nombre }}">
                               <input type="hidden" name="birthday_notas_list" value="{{ b.notas or '' }}">
                             </td>
-                            <td>
+                            <td data-label="Puesto">
                               {{ b.puesto or '' }}
                               <input type="hidden" name="birthday_role_list" value="{{ b.puesto or '' }}">
                             </td>
-                            <td>
+                            <td data-label="Cumpleaños">
                               {{ b.fecha.strftime('%d/%m/%Y') if b.fecha else '' }}
                               <input type="hidden" name="birthday_date_list" value="{{ b.fecha.isoformat() if b.fecha else '' }}">
                             </td>
-                            <td class="text-end">
+                            <td class="text-end" data-label="Acciones">
                               <div class="d-flex gap-1 justify-content-end">
                                 <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-notes" title="Notas"><i class="bi bi-journal-text"></i></button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
@@ -514,7 +517,7 @@
 
       </div>
     </div>
-    <div class="card-footer d-flex justify-content-end gap-2">
+    <div class="card-footer d-grid gap-2 d-sm-flex justify-content-sm-end">
       <a href="{{ url_for('main.clientes') }}" class="btn btn-light">Cancelar</a>
       <button class="btn btn-primary" type="submit">{{ 'Guardar cambios' if client else 'Guardar' }}</button>
     </div>

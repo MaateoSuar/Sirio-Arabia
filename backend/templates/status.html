@@ -146,14 +146,16 @@
     </div>
   </form>
 </div>
-<div class="d-flex justify-content-end mb-2">
-  <input type="text" id="statusSearch" class="form-control form-control-sm" style="max-width: 320px;" placeholder="Buscar por cliente o empresa">
+<div class="d-flex justify-content-end mb-2 gap-2 flex-wrap">
+  <input type="text" id="statusClientQ" name="client_q" form="statusFilter" class="form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar cliente" value="{{ request.args.get('client_q','') }}">
+  <input type="text" id="statusCompanyQ" name="company_q" form="statusFilter" class="form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar empresa" value="{{ request.args.get('company_q','') }}">
 </div>
-<div class="card">
+<div id="statusResults">
+<div class="card table-sticky-card">
   <div class="card-body p-0">
     <div class="desktop-table">
       <div class="table-responsive table-mobile-cards">
-        <table class="table table-hover align-middle mb-0 table-tight">
+        <table class="table table-hover align-middle mb-0 table-tight table-sticky">
         <thead class="table-light">
           <tr>
             <th class="col-client">Cliente</th>
@@ -229,6 +231,7 @@
                     <div class="modal-footer">
                       <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
                       <form method="post" action="{{ url_for('main.pedidos_delete', order_id=s.order.id) }}">
+                        <input type="hidden" name="return_to" value="{{ request.full_path|default('/status') }}">
                         <button class="btn btn-danger">Eliminar</button>
                       </form>
                     </div>
@@ -247,10 +250,85 @@
     <div class="mobile-cards"></div>
   </div>
 </div>
+</div>
+<script>
+  (function(){
+    var form = document.getElementById('statusFilter');
+    if (!form) return;
+    var results = document.getElementById('statusResults');
+    if (!results) return;
+
+    function persistStatusFiltersFromLocation(urlOverride){
+      try {
+        var pathOk = (window.location && window.location.pathname) ? (window.location.pathname.indexOf('/status') !== -1) : false;
+        if (!pathOk) return;
+        var raw = '';
+        try {
+          if (typeof urlOverride === 'string' && urlOverride.indexOf('?') !== -1) raw = urlOverride.split('?')[1] || '';
+        } catch(e0) { raw = ''; }
+        var params = new URLSearchParams(raw || (window.location.search || ''));
+        var qs = params.toString();
+        if (qs) localStorage.setItem('status_filters_qs', '?' + qs);
+      } catch(e) {}
+    }
+
+    function buildUrl(){
+      var fd = new FormData(form);
+      var params = new URLSearchParams();
+      fd.forEach(function(v, k){
+        if (v == null) return;
+        params.append(k, String(v));
+      });
+      return window.location.pathname + '?' + params.toString();
+    }
+
+    var ajaxSeq = 0;
+    function fetchAndReplace(){
+      var my = ++ajaxSeq;
+      var url = buildUrl();
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r){ return r.text(); })
+        .then(function(html){
+          if (my !== ajaxSeq) return;
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var next = doc.getElementById('statusResults');
+          if (!next) return;
+          results.innerHTML = next.innerHTML;
+          try { window.history.replaceState({}, '', url); } catch(e) {}
+          persistStatusFiltersFromLocation(url);
+          try { if (typeof window.statusMount === 'function') window.statusMount(); } catch(e) {}
+        })
+        .catch(function(){ /* ignore */ });
+    }
+
+    persistStatusFiltersFromLocation();
+
+    try {
+      window.statusFetchAndReplace = fetchAndReplace;
+      window.__statusAjaxLive = true;
+    } catch(e) {}
+
+    var clientEl = document.getElementById('statusClientQ');
+    var companyEl = document.getElementById('statusCompanyQ');
+    var timer = null;
+    function schedule(){
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fetchAndReplace, 250);
+    }
+    if (clientEl) clientEl.addEventListener('input', schedule);
+    if (companyEl) companyEl.addEventListener('input', schedule);
+  })();
+</script>
 <script>
   (function() {
     var form = document.getElementById('statusFilter');
     if (!form) return;
+    function submitOrAjax(){
+      try {
+        if (window.__statusAjaxLive && typeof window.statusFetchAndReplace === 'function') { window.statusFetchAndReplace(); return; }
+      } catch(e) {}
+      form.submit();
+    }
     function addHidden(name, value) {
       var input = document.createElement('input');
       input.type = 'hidden';
@@ -297,7 +375,7 @@
           btn.setAttribute('aria-pressed', 'true');
           addHidden('status', st);
         }
-        form.submit();
+        submitOrAjax();
       });
     });
 
@@ -342,7 +420,7 @@
           btn.setAttribute('aria-pressed', 'true');
           addHidden('tipo', tipo);
         }
-        form.submit();
+        submitOrAjax();
       });
     });
     Array.from(form.querySelectorAll('button.btn-clear')).forEach(function(btn){
@@ -356,18 +434,20 @@
           if (window.__statusRangePicker) window.__statusRangePicker.clear();
           var range = document.getElementById('statusDateRange');
           if (range) range.value = '';
-          form.submit();
+          submitOrAjax();
           return;
         }
         var input = form.querySelector('input[name="' + target + '"]');
         if (input) { input.value = ''; }
-        form.submit();
+        submitOrAjax();
       });
     });
 
     var clearAll = document.getElementById('btnClearAll');
     if (clearAll) {
       clearAll.addEventListener('click', function(){
+        // Reset persistencia de filtros
+        try { localStorage.removeItem('status_filters_qs'); } catch(e) {}
         // limpiar estados
         Array.from(form.querySelectorAll('input[type="hidden"][name="status"]')).forEach(function(i){ i.remove(); });
         Array.from(form.querySelectorAll('button[data-status].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
@@ -382,14 +462,59 @@
         if (window.__statusRangePicker) window.__statusRangePicker.clear();
         var range = document.getElementById('statusDateRange');
         if (range) range.value = '';
-        form.submit();
+        // limpiar búsquedas
+        var cli = document.getElementById('statusClientQ');
+        var emp = document.getElementById('statusCompanyQ');
+        if (cli) cli.value = '';
+        if (emp) emp.value = '';
+        submitOrAjax();
       });
     }
   })();
 </script>
 <script>
   (function(){
+    var form = document.getElementById('statusFilter');
+    if (!form) return;
+    try {
+      if (window.__statusAjaxLive) return;
+    } catch(e) {}
+    var clientEl = document.getElementById('statusClientQ');
+    var companyEl = document.getElementById('statusCompanyQ');
+    var timer = null;
+    function schedule(){
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function(){ form.submit(); }, 350);
+    }
+    if (clientEl) clientEl.addEventListener('input', schedule);
+    if (companyEl) companyEl.addEventListener('input', schedule);
+  })();
+</script>
+<script>
+  (function(){
+    // Persistir filtros entre recargas. Útil cuando alguna acción redirige a /status sin query.
+    try {
+      var pathOk = (window.location && window.location.pathname) ? (window.location.pathname.indexOf('/status') !== -1) : false;
+      if (!pathOk) return;
+      var qs = (window.location && window.location.search) ? window.location.search : '';
+      if (qs && qs !== '?' ) {
+        // Guardar el query actual (incluye status/tipo/from/to)
+        localStorage.setItem('status_filters_qs', qs);
+      } else {
+        // Si no hay query, intentar restaurar el último
+        var saved = localStorage.getItem('status_filters_qs') || '';
+        if (saved && saved !== '?' ) {
+          // Evitar loop: solo redirigir si realmente estamos sin filtros
+          window.location.replace(window.location.pathname + saved);
+        }
+      }
+    } catch(e) {}
+  })();
+</script>
+<script>
+  (function(){
     function mount(){
+      // ...
       function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
       function integerPart(v){
         if (v == null) return '';
@@ -462,9 +587,37 @@
       document.querySelectorAll('.js-currency').forEach(function(el){
         var hidId = el.getAttribute('data-hidden');
         var hid = hidId ? document.getElementById(hidId) : null;
+        function setCaretByDigitIndex(formattedValue, digitIndex){
+          if (digitIndex <= 0) return 0;
+          var count = 0;
+          for (var i = 0; i < formattedValue.length; i++) {
+            if (/\d/.test(formattedValue.charAt(i))) {
+              count++;
+              if (count >= digitIndex) return i + 1;
+            }
+          }
+          return formattedValue.length;
+        }
         var syncRaw = function(){ var raw = integerPart(el.value); if(hid) hid.value = raw; };
-        var syncFormat = function(){ var raw = integerPart(el.value); el.value = fmtThousands(raw); };
-        el.addEventListener('input', syncRaw);
+        var syncFormat = function(){
+          var sel = (typeof el.selectionStart === 'number') ? el.selectionStart : null;
+          var digitsBefore = null;
+          if (sel != null) {
+            try { digitsBefore = onlyDigits((el.value || '').slice(0, sel)).length; } catch(e) { digitsBefore = null; }
+          }
+          var raw = integerPart(el.value);
+          var formatted = fmtThousands(raw);
+          el.value = formatted;
+          if (digitsBefore != null) {
+            var caret = setCaretByDigitIndex(formatted, digitsBefore);
+            try { el.setSelectionRange(caret, caret); } catch(e) {}
+          }
+        };
+        el.addEventListener('input', function(e){
+          if (e && e.isComposing) return;
+          syncRaw();
+          syncFormat();
+        });
         el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
         // init desde data-raw si existe
         var initial = el.getAttribute('data-raw') || el.value;
@@ -510,11 +663,18 @@
             fromH.value = instance.formatDate(selectedDates[0], 'Y-m-d');
             toH.value = instance.formatDate(selectedDates[1], 'Y-m-d');
             var form = document.getElementById('statusFilter');
-            if (form) form.submit();
+            if (form) {
+              try {
+                if (window.__statusAjaxLive && typeof window.statusFetchAndReplace === 'function') { window.statusFetchAndReplace(); return; }
+              } catch(e) {}
+              form.submit();
+            }
           }
         }
       });
     }
+
+    try { window.statusMount = mount; } catch(e) {}
 
     if (typeof window.flatpickr === 'function') {
       mount();

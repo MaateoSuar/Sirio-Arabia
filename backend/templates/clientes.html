@@ -24,22 +24,36 @@
   .cliente-search-input { min-width: 320px; max-width: 420px; }
   /* Título de sección en verde corporativo */
   .clientes-title { color: #0f766e; }
+
+  @media (max-width: 575.98px) {
+    .cliente-search-input { min-width: 0; max-width: none; width: 100%; }
+    .prov-input { max-width: none; }
+    #alertasSelect { max-width: none !important; }
+    .btn-create-client { width: 100%; }
+  }
 </style>
-<div class="d-flex justify-content-between align-items-center mb-3 mt-3">
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
   <div>
     <h1 class="h4 mb-1 clientes-title">Legajo de Clientes</h1>
-    <input type="text" id="clienteSearch" class="form-control form-control-sm cliente-search-input" placeholder="Buscar por razón social o nombre">
+    <form method="get" class="d-flex flex-column flex-sm-row gap-2">
+      <input type="text" id="clienteSearch" name="q" value="{{ q or '' }}" class="form-control form-control-sm cliente-search-input" placeholder="Buscar por razón social o nombre">
+      <input type="hidden" name="page" value="1">
+      <input type="hidden" name="per_page" value="{{ per_page or 10 }}">
+      {% if prov %}
+        <input type="hidden" name="prov" value="{{ prov }}">
+      {% endif %}
+    </form>
   </div>
-  <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-    <select id="provSelect" class="form-select form-select-sm prov-input" aria-label="Filtrar por provincia">
+  <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2 flex-wrap justify-content-end">
+    <select id="provSelect" name="prov" form="{{ '' }}" class="form-select form-select-sm prov-input" aria-label="Filtrar por provincia">
       <option value="">Todas las provincias</option>
-      <option value="tucuman">Tucumán</option>
-      <option value="sgo del estero">Sgo del Estero</option>
-      <option value="salta">Salta</option>
-      <option value="jujuy">Jujuy</option>
-      <option value="catamarca">Catamarca</option>
-      <option value="la rioja">La Rioja</option>
-      <option value="mendoza">Mendoza</option>
+      <option value="tucuman" {{ 'selected' if (prov or '')|lower == 'tucuman' else '' }}>Tucumán</option>
+      <option value="sgo del estero" {{ 'selected' if (prov or '')|lower == 'sgo del estero' else '' }}>Sgo del Estero</option>
+      <option value="salta" {{ 'selected' if (prov or '')|lower == 'salta' else '' }}>Salta</option>
+      <option value="jujuy" {{ 'selected' if (prov or '')|lower == 'jujuy' else '' }}>Jujuy</option>
+      <option value="catamarca" {{ 'selected' if (prov or '')|lower == 'catamarca' else '' }}>Catamarca</option>
+      <option value="la rioja" {{ 'selected' if (prov or '')|lower == 'la rioja' else '' }}>La Rioja</option>
+      <option value="mendoza" {{ 'selected' if (prov or '')|lower == 'mendoza' else '' }}>Mendoza</option>
     </select>
     <select id="alertasSelect" class="form-select form-select-sm" style="max-width: 200px;" aria-label="Filtrar por alertas">
       <option value="">Todas</option>
@@ -48,11 +62,17 @@
     <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary btn-create-client">+ Crear Cliente</a>
   </div>
 </div>
-<div class="card card-clients">
+<div class="card card-clients table-sticky-card">
   <div class="card-body p-0">
     <div class="desktop-table">
       <div class="table-responsive table-mobile-cards">
-        <table class="table table-hover align-middle mb-0 table-relaxed w-100" id="clientes-table">
+        <select id="companyOptionsTemplate" class="d-none" aria-hidden="true" tabindex="-1">
+          <option value="">Seleccionar empresa...</option>
+          {% for e in companies %}
+            <option value="{{ e.id }}">{{ e.nombre }}</option>
+          {% endfor %}
+        </select>
+        <table class="table table-hover align-middle mb-0 table-relaxed table-sticky w-100" id="clientes-table">
         <thead class="table-light">
           <tr>
             <th class="js-client-sort" data-sort-key="razon">
@@ -223,11 +243,8 @@
                     <div class="modal-body">
                       <form class="row g-2 mb-2" method="post" action="{{ url_for('main.clientes_link_add', client_id=c.id) }}">
                         <div class="col-md-5">
-                          <select class="form-select" name="company_id" required>
+                          <select class="form-select js-company-select" name="company_id" required>
                             <option value="">Seleccionar empresa...</option>
-                            {% for e in companies %}
-                              <option value="{{ e.id }}">{{ e.nombre }}</option>
-                            {% endfor %}
                           </select>
                         </div>
                         <div class="col-md-3">
@@ -348,6 +365,20 @@
         {% endfor %}
         </tbody>
         </table>
+        {% if not show_all %}
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+          <div class="text-muted small">
+            Página {{ page or 1 }}
+          </div>
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_prev else '' }}"
+               href="{{ url_for('main.clientes', q=q, prov=prov, page=(page-1), per_page=per_page) }}">Anterior</a>
+            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_next else '' }}"
+               href="{{ url_for('main.clientes', q=q, prov=prov, page=(page+1), per_page=per_page) }}">Siguiente</a>
+            <a class="btn btn-sm btn-outline-dark" href="{{ url_for('main.clientes', q=q, prov=prov, all=1) }}">Ver todos</a>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </div>
     <div class="mobile-cards"></div>
@@ -736,65 +767,43 @@
 })();
 </script>
 <script>
-// Filtros combinados: provincia, texto y alertas
+// Filtros globales: enviar al servidor (no filtrar solo en la página actual)
 (function(){
+  var searchInput = document.getElementById('clienteSearch');
+  var form = searchInput ? searchInput.closest('form') : null;
   var provSelect = document.getElementById('provSelect');
   var alertasSelect = document.getElementById('alertasSelect');
-  var searchInput = document.getElementById('clienteSearch');
-  var tbody = document.querySelector('#clientes-table tbody');
-  var rows = tbody ? Array.from(tbody.children).filter(function(n){ return n && n.tagName === 'TR'; }) : [];
+  var t = null;
 
-  function rowMatchesAlertas(tr, filtro){
-    if (!filtro) return true;
-    if (filtro === 'CON_ALERTAS') return tr.getAttribute('data-has-alertas') === '1';
-    return true;
+  function setHidden(name, value){
+    if (!form) return;
+    var inp = form.querySelector('input[name="' + name + '"]');
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = name;
+      form.appendChild(inp);
+    }
+    inp.value = value;
   }
 
-  function applyFilters(){
-    var prov = (provSelect && provSelect.value || '').toLowerCase();
-    var filtroAlertas = (alertasSelect && alertasSelect.value) || '';
-    var q = (searchInput && searchInput.value || '').toLowerCase();
-
-    rows.forEach(function(tr){
-      var hayProv = (tr.getAttribute('data-prov')||'').toLowerCase();
-      var rz = (tr.getAttribute('data-razon') || '').toLowerCase();
-      var nm = (tr.getAttribute('data-nombre') || '').toLowerCase();
-      var matchProv = !prov || hayProv.indexOf(prov) !== -1;
-      var matchSearch = !q || rz.indexOf(q) !== -1 || nm.indexOf(q) !== -1;
-      var matchAlertas = rowMatchesAlertas(tr, filtroAlertas);
-      var visible = (matchProv && matchSearch && matchAlertas);
-      tr.style.display = visible ? '' : 'none';
-      // Si hay filtro de alertas activo, abrir automáticamente las alertas de las filas visibles
-      var alertasPanel = tr.querySelector('.js-alertas-list');
-      if (visible && alertasPanel){
-        var allBadges = alertasPanel.querySelectorAll('.js-badge-alerta');
-        if (filtroAlertas){
-          alertasPanel.classList.remove('d-none');
-          allBadges.forEach(function(b){
-            b.classList.remove('border', 'border-dark', 'border-2');
-            b.classList.remove('d-none');
-          });
-        } else {
-          alertasPanel.classList.add('d-none');
-          allBadges.forEach(function(b){
-            b.classList.remove('border', 'border-dark', 'border-2', 'd-none');
-          });
-        }
-      }
-    });
+  function submitNow(){
+    if (!form) return;
+    setHidden('page', '1');
+    if (provSelect) setHidden('prov', provSelect.value || '');
+    if (alertasSelect) setHidden('alertas', alertasSelect.value || '');
+    form.submit();
   }
 
-  if (provSelect) provSelect.addEventListener('change', applyFilters);
-  if (alertasSelect) alertasSelect.addEventListener('change', applyFilters);
-  if (searchInput) searchInput.addEventListener('input', applyFilters);
+  function debounceSubmit(){
+    if (t) clearTimeout(t);
+    t = setTimeout(submitNow, 300);
+  }
 
-  // aplicar al cargar, para mantener filtros después de navegar
-  applyFilters();
-})();
-</script>
-<script>
-// Filtro de estado en popups de vínculos (Empresas de cliente)
-(function(){
+  if (searchInput) searchInput.addEventListener('input', debounceSubmit);
+  if (provSelect) provSelect.addEventListener('change', submitNow);
+  if (alertasSelect) alertasSelect.addEventListener('change', submitNow);
+
   document.addEventListener('change', function(e){
     var sel = e.target;
     if (!sel || !sel.classList || !sel.classList.contains('js-link-status-filter')) return;
@@ -975,27 +984,14 @@
   function reopenModal(){
     try {
       var params = new URLSearchParams(window.location.search || '');
-      var openId = params.get('open_links');
-      if (!openId) return;
-      var modalEl = document.getElementById('links' + openId);
-      if (!modalEl) return;
-      if (window.bootstrap && window.bootstrap.Modal){
-        var modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
-        modal.show();
-      } else {
-        // Fallback simple si Bootstrap aún no está disponible
-        modalEl.classList.add('show');
-        modalEl.style.display = 'block';
-      }
-      // Una vez abierto, quitar open_links de la URL para que no se reabra al entrar de nuevo
-      try {
-        var url = new URL(window.location.href);
-        url.searchParams.delete('open_links');
-        window.history.replaceState({}, document.title, url.toString());
-      } catch(e) {}
-    } catch(e) {
-      // silencioso
-    }
+      var id = params.get('open_links');
+      if (!id) return;
+      var el = document.getElementById('links' + id);
+      if (!el) return;
+      var M = window.bootstrap && window.bootstrap.Modal;
+      if (M) M.getOrCreateInstance(el).show();
+      else { el.classList.add('show'); el.style.display='block'; }
+    } catch(e) {}
   }
 
   if (document.readyState === 'complete'){
@@ -1003,6 +999,26 @@
   } else {
     window.addEventListener('load', reopenModal);
   }
+})();
+</script>
+<script>
+(function(){
+  function fillCompanySelect(modalEl){
+    if (!modalEl) return;
+    var sel = modalEl.querySelector && modalEl.querySelector('select.js-company-select');
+    if (!sel) return;
+    if (sel.options && sel.options.length > 1) return;
+    var tpl = document.getElementById('companyOptionsTemplate');
+    if (!tpl) return;
+    try{
+      sel.innerHTML = '';
+      Array.from(tpl.options || []).forEach(function(o){ sel.appendChild(o.cloneNode(true)); });
+    }catch(e){}
+  }
+
+  document.addEventListener('show.bs.modal', function(e){
+    try{ fillCompanySelect(e.target); }catch(err){}
+  });
 })();
 </script>
 <script>

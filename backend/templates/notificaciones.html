@@ -22,6 +22,28 @@
   <div class="tab-pane fade show active" id="panel-activas" role="tabpanel" aria-labelledby="tab-activas" tabindex="0">
     <div class="card border-top-0 rounded-0 rounded-bottom">
       <div class="card-body">
+        {% set _k_cob = 'COBRANZA_ATRASADA' %}
+        {% set _k_ent = 'ENTREGA_ATRASADA' %}
+        {% set _k_inact = 'EMPRESA_INACTIVA' %}
+        {% set cnt_cob = (active_alerts|selectattr('kind','equalto',_k_cob)|list|length) %}
+        {% set cnt_ent = (active_alerts|selectattr('kind','equalto',_k_ent)|list|length) %}
+        {% set cnt_inact = (active_alerts|selectattr('kind','equalto',_k_inact)|list|length) %}
+
+        <ul class="nav nav-pills mb-3 flex-wrap gap-2" id="notifKindTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" type="button" data-kind="ALL">Todas ({{ active_alerts|length }})</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" data-kind="{{ _k_cob }}">Cobranzas ({{ cnt_cob }})</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" data-kind="{{ _k_ent }}">Entregas ({{ cnt_ent }})</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" type="button" data-kind="{{ _k_inact }}">Empresas sin compras 2+ meses ({{ cnt_inact }})</button>
+          </li>
+        </ul>
+
         {% if active_alerts and active_alerts|length > 0 %}
           <div class="d-flex flex-column gap-2" id="notifActivasList">
             {% for a in active_alerts %}
@@ -34,7 +56,7 @@
                    data-severity="{{ a.severity }}"
                    data-company="{{ a.company }}">
                 <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">
-                  {{ a.client_name }}: {{ a.message }}
+                  {{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})
                 </span>
                 <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada">
                   <i class="bi bi-check-lg"></i>
@@ -89,6 +111,45 @@
 
 <script>
 (function(){
+  var currentKind = 'ALL';
+
+  function applyKindFilter(kind){
+    currentKind = kind || 'ALL';
+    var list = document.getElementById('notifActivasList');
+    if (!list) return;
+    var items = list.querySelectorAll('.js-notif-item');
+    items.forEach(function(it){
+      var k = (it.getAttribute('data-kind') || '').toString();
+      var show = (currentKind === 'ALL') || (k === currentKind);
+      try {
+        if (show) {
+          it.style.removeProperty('display');
+        } else {
+          // Bootstrap .d-flex usa display:flex!important, así que forzamos none con !important.
+          it.style.setProperty('display', 'none', 'important');
+        }
+      } catch(e) {
+        it.style.display = show ? '' : 'none';
+      }
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (btn && (!btn.getAttribute || !btn.getAttribute('data-kind'))){
+      if (btn.closest) btn = btn.closest('#notifKindTabs [data-kind]');
+    }
+    if (!btn || !btn.getAttribute || !btn.getAttribute('data-kind')) return;
+    if (!btn.closest || !btn.closest('#notifKindTabs')) return;
+    e.preventDefault();
+    var kind = btn.getAttribute('data-kind') || 'ALL';
+    try{
+      document.querySelectorAll('#notifKindTabs .nav-link').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+    }catch(_){}
+    applyKindFilter(kind);
+  });
+
   function postForm(url, data){
     return fetch(url, {
       method: 'POST',
@@ -205,6 +266,7 @@
       if (list && list.querySelectorAll('.js-notif-item').length === 0){
         list.outerHTML = '<div class="text-muted">Sin notificaciones activas</div>';
       }
+      try { applyKindFilter(currentKind); } catch(_) {}
     }).catch(function(){
       btn.disabled = false;
       if (window.showToast) window.showToast('Error de conexión al marcar como visualizada.', 'danger');

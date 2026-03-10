@@ -5,18 +5,21 @@
     <h1 class="h4 mb-0">Nueva cobranza</h1>
     <div class="text-muted small">Registrá pagos y/o notas de crédito para un pedido pendiente.</div>
   </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('main.cobranzas_pendientes') }}">Pendientes</a>
+  </div>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
-    <form id="cobForm" method="post" action="{{ url_for('main.nueva_cobranza_create') }}" enctype="multipart/form-data">
+    <form method="post" action="{{ url_for('main.nueva_cobranza_create') }}" enctype="multipart/form-data" id="cobForm" autocomplete="off">
       <div class="row g-3">
         <div class="col-12 col-lg-4">
           <label class="form-label">Cliente</label>
           <select class="form-select" name="client_id" id="clientSelect" required>
             <option value="">Seleccionar...</option>
             {% for c in clientes %}
-              <option value="{{ c.id }}">{{ c.apellido }} {{ c.nombre }}</option>
+              <option value="{{ c.id }}">{{ c.apellido }}</option>
             {% endfor %}
           </select>
         </div>
@@ -40,24 +43,37 @@
 
       <div class="row g-3">
         <div class="col-12 col-lg-3">
-          <label class="form-label">Fecha pedido</label>
-          <input class="form-control" id="orderCreatedAt" type="text" readonly>
+          <label class="form-label">Fecha factura</label>
+          <input class="form-control" id="orderCreatedAt" name="order_created_at" type="text" data-datepicker placeholder="DD/MM/AAAA">
         </div>
         <div class="col-12 col-lg-3">
           <label class="form-label">Entrega efectiva</label>
-          <input class="form-control" id="orderEntrega" type="text" readonly>
+          <input class="form-control" id="orderEntrega" name="order_fecha_entrega_efectiva" type="text" data-datepicker placeholder="DD/MM/AAAA">
         </div>
         <div class="col-12 col-lg-3">
           <label class="form-label">Vencimiento</label>
-          <input class="form-control" id="orderVenc" type="text" readonly>
+          <input class="form-control" id="orderVenc" name="order_fecha_pago_estimada" type="text" data-datepicker placeholder="DD/MM/AAAA">
         </div>
         <div class="col-12 col-lg-3">
           <label class="form-label">Monto</label>
-          <input class="form-control" id="orderMonto" type="text" readonly>
+          <input class="form-control js-only-number" id="orderMonto" name="order_monto" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Nota de crédito</label>
+          <input class="form-control js-only-number" id="orderNc" name="order_credit_note" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Retenciones</label>
+          <input class="form-control js-only-number" id="orderRet" name="order_retenciones" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label">Saldo histórico</label>
+          <input class="form-control js-only-number" id="companySaldoInput" name="company_saldo_historico" type="text" inputmode="decimal" placeholder="-" autocomplete="off">
+          <input type="hidden" id="companySaldoComputed" value="">
         </div>
         <div class="col-12">
           <label class="form-label">Nota / descripción</label>
-          <textarea class="form-control" id="orderDesc" rows="4" readonly></textarea>
+          <textarea class="form-control" id="orderDesc" name="order_notes" rows="4"></textarea>
         </div>
       </div>
 
@@ -68,9 +84,20 @@
       </div>
 
       <style>
-        .pm-wrap{ display:flex; flex-wrap:wrap; gap:1rem; }
-        .pm-card{ flex: 1 1 240px; min-width:240px; }
+        .pm-wrap{ display:grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap:1rem; }
+        @media (max-width: 991.98px){ .pm-wrap{ grid-template-columns: 1fr; } }
         .pm-card .form-control, .pm-card .form-select{ font-size:.95rem; }
+        .pm-extras{ border: 1px dashed rgba(0,0,0,.15); border-radius: .5rem; padding: .5rem; background: rgba(0,0,0,.02); }
+        .pm-extra-item{ border: 1px solid rgba(0,0,0,.10); border-radius: .5rem; padding: .5rem; background: #fff; }
+        .pm-extra-row{ display:flex; align-items:end; gap:.5rem; flex-wrap:wrap; }
+        .pm-extra-row .pm-col-amount{ width: 104px; min-width: 104px; }
+        .pm-extra-row .pm-col-date{ width: 132px; min-width: 132px; }
+        .pm-extra-row .pm-col-file{ width: 160px; min-width: 160px; }
+        .pm-extra-row .pm-col-actions{ margin-left:auto; display:flex; gap:.4rem; flex-wrap:wrap; justify-content:flex-end; }
+        .pm-extra-readonly input[type="file"]{ pointer-events:none; }
+        @media (max-width: 575.98px){
+          .pm-extra-row .pm-col-actions{ width: 100%; justify-content: flex-start; }
+        }
       </style>
 
       <div class="pm-wrap">
@@ -83,12 +110,19 @@
             <div class="row g-2">
               <div class="col-12">
                 <label class="form-label mb-1">Monto</label>
-                <input class="form-control" name="pm_efectivo_amount" inputmode="decimal" placeholder="0.00" disabled>
+                <input class="form-control js-only-number" name="pm_efectivo_amount" inputmode="decimal" placeholder="0,00" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Fecha</label>
-                <input class="form-control" name="pm_efectivo_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+                <input class="form-control" name="pm_efectivo_date" type="text" data-datepicker placeholder="DD-MM-AAAA" autocomplete="off" disabled>
               </div>
+            </div>
+            <div class="pm-extras mt-2" data-prefix="pm_efectivo">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="small text-muted">Agregados</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary pm-add" data-prefix="pm_efectivo" disabled>Agregar</button>
+              </div>
+              <div class="pm-extras-list mt-2"></div>
             </div>
           </div>
         </div>
@@ -96,45 +130,59 @@
         <div class="card pm-card">
           <div class="card-body">
             <div class="form-check mb-2">
-              <input class="form-check-input pm-enable" type="checkbox" id="pmTransf" data-prefix="pm_transferencia" data-requires-attach="1">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmTransf" data-prefix="pm_transferencia">
               <label class="form-check-label" for="pmTransf">Transferencia</label>
             </div>
             <div class="row g-2">
               <div class="col-12">
                 <label class="form-label mb-1">Monto</label>
-                <input class="form-control" name="pm_transferencia_amount" inputmode="decimal" placeholder="0.00" disabled>
+                <input class="form-control js-only-number" name="pm_transferencia_amount" inputmode="decimal" placeholder="0,00" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Fecha</label>
-                <input class="form-control" name="pm_transferencia_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+                <input class="form-control" name="pm_transferencia_date" type="text" data-datepicker placeholder="DD-MM-AAAA" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Adjunto</label>
                 <input class="form-control" type="file" name="pm_transferencia_attachment" disabled>
               </div>
             </div>
+            <div class="pm-extras mt-2" data-prefix="pm_transferencia">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="small text-muted">Agregados</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary pm-add" data-prefix="pm_transferencia" disabled>Agregar</button>
+              </div>
+              <div class="pm-extras-list mt-2"></div>
+            </div>
           </div>
         </div>
 
         <div class="card pm-card">
           <div class="card-body">
             <div class="form-check mb-2">
-              <input class="form-check-input pm-enable" type="checkbox" id="pmEcheq" data-prefix="pm_echeq" data-requires-attach="1">
+              <input class="form-check-input pm-enable" type="checkbox" id="pmEcheq" data-prefix="pm_echeq">
               <label class="form-check-label" for="pmEcheq">E-cheq</label>
             </div>
             <div class="row g-2">
               <div class="col-12">
                 <label class="form-label mb-1">Monto</label>
-                <input class="form-control" name="pm_echeq_amount" inputmode="decimal" placeholder="0.00" disabled>
+                <input class="form-control js-only-number" name="pm_echeq_amount" inputmode="decimal" placeholder="0,00" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Fecha</label>
-                <input class="form-control" name="pm_echeq_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+                <input class="form-control" name="pm_echeq_date" type="text" data-datepicker placeholder="DD-MM-AAAA" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Adjunto</label>
                 <input class="form-control" type="file" name="pm_echeq_attachment" disabled>
               </div>
+            </div>
+            <div class="pm-extras mt-2" data-prefix="pm_echeq">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="small text-muted">Agregados</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary pm-add" data-prefix="pm_echeq" disabled>Agregar</button>
+              </div>
+              <div class="pm-extras-list mt-2"></div>
             </div>
           </div>
         </div>
@@ -148,16 +196,23 @@
             <div class="row g-2">
               <div class="col-12">
                 <label class="form-label mb-1">Monto</label>
-                <input class="form-control" name="pm_cheque_terceros_amount" inputmode="decimal" placeholder="0.00" disabled>
+                <input class="form-control js-only-number" name="pm_cheque_terceros_amount" inputmode="decimal" placeholder="0,00" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Fecha</label>
-                <input class="form-control" name="pm_cheque_terceros_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+                <input class="form-control" name="pm_cheque_terceros_date" type="text" data-datepicker placeholder="DD-MM-AAAA" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Imagen (opcional)</label>
-                <input class="form-control" type="file" name="pm_cheque_terceros_attachment" disabled>
+                <input class="form-control" type="file" name="pm_cheque_terceros_attachment" accept=".pdf,image/*" autocomplete="off" disabled>
               </div>
+            </div>
+            <div class="pm-extras mt-2" data-prefix="pm_cheque_terceros">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="small text-muted">Agregados</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary pm-add" data-prefix="pm_cheque_terceros" disabled>Agregar</button>
+              </div>
+              <div class="pm-extras-list mt-2"></div>
             </div>
           </div>
         </div>
@@ -171,31 +226,88 @@
             <div class="row g-2">
               <div class="col-12">
                 <label class="form-label mb-1">Monto</label>
-                <input class="form-control" name="pm_cheque_propio_amount" inputmode="decimal" placeholder="0.00" disabled>
+                <input class="form-control js-only-number" name="pm_cheque_propio_amount" inputmode="decimal" placeholder="0,00" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Fecha</label>
-                <input class="form-control" name="pm_cheque_propio_date" type="text" data-datepicker placeholder="DD-MM-AAAA" disabled>
+                <input class="form-control" name="pm_cheque_propio_date" type="text" data-datepicker placeholder="DD-MM-AAAA" autocomplete="off" disabled>
               </div>
               <div class="col-12">
                 <label class="form-label mb-1">Imagen (opcional)</label>
-                <input class="form-control" type="file" name="pm_cheque_propio_attachment" disabled>
+                <input class="form-control" type="file" name="pm_cheque_propio_attachment" accept=".pdf,image/*" autocomplete="off" disabled>
               </div>
+            </div>
+            <div class="pm-extras mt-2" data-prefix="pm_cheque_propio">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="small text-muted">Agregados</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary pm-add" data-prefix="pm_cheque_propio" disabled>Agregar</button>
+              </div>
+              <div class="pm-extras-list mt-2"></div>
             </div>
           </div>
         </div>
       </div>
 
+      <div id="cobResumen" class="alert alert-info mt-3 mb-0 d-none" role="alert"></div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="fw-semibold">Borrador</div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCopyBorrador">Copiar</button>
+          </div>
+          <textarea class="form-control" id="borradorTxt" rows="10" readonly></textarea>
+        </div>
+      </div>
+
+      <div class="modal fade" id="overpayModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+              <h5 class="modal-title">Confirmar excedente</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <p class="mb-0" id="overpayModalMsg"></p>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+              <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="overpayModalConfirmBtn">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <input type="hidden" name="draft" id="draftFlag" value="0">
+      <input type="hidden" name="confirm_overpay" id="confirmOverpay" value="0">
+      <input type="hidden" name="order_id_override" id="orderIdOverride" value="">
+      <input type="hidden" name="draft_id" id="draftId" value="">
+
       <div class="d-flex justify-content-end gap-2 mt-3">
         <a class="btn btn-light" href="{{ url_for('main.deudas_pendientes') }}">Cancelar</a>
+        <button class="btn btn-outline-secondary" type="button" id="btnSaveDraft">Guardar borrador</button>
         <button class="btn btn-primary" type="submit">Guardar cobranza</button>
       </div>
     </form>
   </div>
 </div>
 
+{% if draft_data %}
+<script id="draftData" type="application/json">{{ draft_data|tojson }}</script>
+{% endif %}
+
 <script>
 (function(){
+  var draft = null;
+  try {
+    var el = document.getElementById('draftData');
+    if (el && el.textContent) {
+      draft = JSON.parse(el.textContent);
+    }
+  } catch(e) {
+    draft = null;
+  }
+
   function ensureFlatpickrLoaded(cb){
     try {
       if (window.flatpickr) {
@@ -233,6 +345,32 @@
     } catch(e) {}
   }
 
+  function _saveSaldoHistorico(){
+    var clientId = (clientSel && clientSel.value) ? String(clientSel.value) : '';
+    var companyId = (companySel && companySel.value) ? String(companySel.value) : '';
+    var saldoInp = null;
+    var saldoComputed = null;
+    try { saldoInp = document.getElementById('companySaldoInput'); } catch(e0) { saldoInp = null; }
+    try { saldoComputed = document.getElementById('companySaldoComputed'); } catch(e1) { saldoComputed = null; }
+    if (!clientId || !companyId || !saldoInp) return;
+    var desired = parseMoney(saldoInp.value);
+    var computed = parseMoney(saldoComputed && saldoComputed.value);
+    try {
+      var fd = new FormData();
+      fd.append('client_id', clientId);
+      fd.append('company_id', companyId);
+      fd.append('desired_total', String(desired));
+      fd.append('computed_total', String(computed));
+      fetch('/api/cobranzas/saldo_historico', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(){
+          try { if (orderMonto) orderMonto.dataset.companyDiffTotal = String(desired); } catch(e2) {}
+          updateResumen();
+        })
+        .catch(function(){});
+    } catch(e) {}
+  }
+
   function fmtDateDMY(iso){
     try{
       const s = String(iso || '').trim();
@@ -267,17 +405,621 @@
     }
   }
 
+  function setMoneyInputValue(inp, raw){
+    try {
+      if (!inp) return;
+      if (raw == null || raw === '') { inp.value = ''; return; }
+      var n = Number(raw);
+      if (!isNaN(n) && Math.abs(n) < 0.0000001) { inp.value = ''; return; }
+      inp.value = fmtMoney(parseMoney(raw));
+    } catch(e){
+      try { inp.value = String(raw || ''); } catch(_) {}
+    }
+  }
+
+  function parseMoney(v){
+    try{
+      var s = String(v || '').trim();
+      if (!s) return 0;
+      s = s.replace(/\s+/g,'');
+      // soportar: 1234.56 / 1234,56 / 1.234,56
+      if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) {
+        s = s.replace(/\./g,'').replace(',', '.');
+      } else if (s.indexOf(',') !== -1) {
+        s = s.replace(',', '.');
+      } else if (s.indexOf('.') !== -1) {
+        // Si hay puntos y NO hay coma: puede ser miles (2.300 / 1.245.340)
+        try {
+          var parts = s.split('.');
+          var allDigits = parts.every(function(p){ return /^\d+$/.test(p); });
+          var last = parts[parts.length - 1] || '';
+          if (allDigits && (parts.length > 2 || last.length === 3)) {
+            s = parts.join('');
+          }
+        } catch(e0) {}
+      }
+      s = s.replace(/[^0-9.\-]/g,'');
+      var n = Number(s);
+      return isNaN(n) ? 0 : n;
+    }catch(e){
+      return 0;
+    }
+  }
+
   const clientSel = document.getElementById('clientSelect');
   const companySel = document.getElementById('companySelect');
   const orderSel = document.getElementById('orderSelect');
+
+  try {
+    if (form) {
+      form.setAttribute('autocomplete', 'off');
+    }
+  } catch(_) {}
+
+  // Si el usuario vuelve a esta pantalla con el botón "Atrás", el navegador puede restaurar inputs (BFCache)
+  // y re-enviar montos viejos al guardar, duplicando pagos. Forzar reset al volver.
+  try {
+    window.addEventListener('pageshow', function(ev){
+      try {
+        if (ev && ev.persisted) {
+          resetMovements();
+          clearHistoricalPayments();
+        }
+      } catch(_) {}
+    });
+  } catch(_) {}
 
   const orderCreatedAt = document.getElementById('orderCreatedAt');
   const orderEntrega = document.getElementById('orderEntrega');
   const orderVenc = document.getElementById('orderVenc');
   const orderMonto = document.getElementById('orderMonto');
+  const orderNc = document.getElementById('orderNc');
+  const orderRet = document.getElementById('orderRet');
   const orderDesc = document.getElementById('orderDesc');
 
+  try {
+    var saldoInp2 = document.getElementById('companySaldoInput');
+    if (saldoInp2) {
+      saldoInp2.addEventListener('input', function(){ try { formatMoneyLive(saldoInp2); } catch(_) {} updateResumen(); });
+      saldoInp2.addEventListener('change', function(){ _saveSaldoHistorico(); });
+      saldoInp2.addEventListener('blur', function(){ _saveSaldoHistorico(); });
+    }
+  } catch(_) {}
+
   const pmEnables = document.querySelectorAll('.pm-enable');
+  const pmCfg = {
+    pm_efectivo: { method: 'EFECTIVO', attach: false },
+    pm_transferencia: { method: 'TRANSFERENCIA', attach: true },
+    pm_echeq: { method: 'E-CHEQ', attach: true },
+    pm_cheque_terceros: { method: 'CHEQUE_TERCEROS', attach: true },
+    pm_cheque_propio: { method: 'CHEQUE_PROPIO', attach: true }
+  };
+
+  function methodToPrefix(method){
+    method = String(method || '').trim().toUpperCase();
+    method = method.replace(/[-\s]+/g, '_');
+    var found = null;
+    try {
+      Object.keys(pmCfg).forEach(function(prefix){
+        try {
+          var m = String(pmCfg[prefix] && pmCfg[prefix].method ? pmCfg[prefix].method : '').trim().toUpperCase();
+          m = m.replace(/[-\s]+/g, '_');
+          if (m === method) found = prefix;
+        } catch(e0) {}
+      });
+    } catch(e) {}
+    return found;
+  }
+
+  function extrasWrap(prefix){
+    try { return document.querySelector('.pm-extras[data-prefix="' + prefix + '"]'); } catch(e) { return null; }
+  }
+  function extrasList(prefix){
+    var w = extrasWrap(prefix);
+    if (!w) return null;
+    return w.querySelector('.pm-extras-list');
+  }
+  function setExtrasEnabled(prefix, enabled){
+    var w = extrasWrap(prefix);
+    if (!w) return;
+    try {
+      w.querySelectorAll('button.pm-add').forEach(function(btn){ btn.disabled = !enabled; });
+    } catch(e) {}
+    try {
+      w.querySelectorAll('input,button').forEach(function(el){
+        if (el.classList && el.classList.contains('pm-add')) return;
+        if (el.classList && el.classList.contains('pm-remove')) return;
+        if (el.tagName === 'BUTTON') return;
+        try {
+          var hist = el.closest && el.closest('.pm-extra-item[data-historical="1"]');
+          if (hist) {
+            el.disabled = true;
+            return;
+          }
+        } catch(_) {}
+        el.disabled = !enabled;
+      });
+    } catch(e) {}
+  }
+
+  function clearFixedPmInputs(prefix){
+    try {
+      var a = document.querySelector('[name="' + String(prefix) + '_amount"]');
+      if (a) a.value = '';
+    } catch(_) {}
+    try {
+      var d = document.querySelector('[name="' + String(prefix) + '_date"]');
+      if (d) d.value = '';
+      if (d && d._flatpickr) {
+        try { d._flatpickr.setDate('', true); } catch(e0) {}
+      }
+    } catch(_) {}
+    try {
+      var n = document.querySelector('[name="' + String(prefix) + '_notes"]');
+      if (n) n.value = '';
+    } catch(_) {}
+    try {
+      var f = document.querySelector('[name="' + String(prefix) + '_attachment"]');
+      if (f) {
+        try { f.value = ''; } catch(e1) {}
+      }
+    } catch(_) {}
+  }
+  function clearExtras(prefix){
+    var list = extrasList(prefix);
+    if (!list) return;
+    try { list.innerHTML = ''; } catch(e) {}
+  }
+
+  function clearHistoricalPayments(){
+    try {
+      Object.keys(pmCfg).forEach(function(prefix){
+        var list = extrasList(prefix);
+        if (!list) return;
+        try {
+          Array.from(list.querySelectorAll('.pm-extra-item[data-historical="1"]')).forEach(function(it){
+            try { it.remove(); } catch(e0) {}
+          });
+        } catch(e1) {}
+      });
+    } catch(e) {}
+  }
+
+  function addHistoricalPayment(prefix, p){
+    var cfg = pmCfg[prefix];
+    if (!cfg) return;
+    var list = extrasList(prefix);
+    if (!list) return;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'pm-extra-item pm-extra-readonly mb-2';
+    wrap.setAttribute('data-prefix', prefix);
+    wrap.setAttribute('data-historical', '1');
+
+    var label = '';
+    var isVoided = false;
+    try {
+      var dt = (p && (p.due_date || p.created_at)) ? String(p.due_date || p.created_at) : '';
+      label = dt ? ('(' + fmtDateDMY(dt) + ')') : '';
+    } catch(e0) { label = ''; }
+    try {
+      isVoided = !!(p && p.voided_at);
+    } catch(e0v) { isVoided = false; }
+
+    if (isVoided) {
+      return;
+    }
+
+    wrap.innerHTML = ''
+      + '<div class="pm-extra-row">'
+      + '  <div class="small text-muted" style="min-width:52px">Hist.</div>'
+      + '  <div class="pm-col-amount">'
+      + '    <input class="form-control form-control-sm js-only-number" name="row_amount" type="text" data-method="' + String(prefix) + '" inputmode="decimal" placeholder="0,00" autocomplete="off" disabled>'
+      + '  </div>'
+      + '  <div class="pm-col-date">'
+      + '    <input class="form-control form-control-sm" name="row_due_date" type="text" placeholder="DD/MM/AAAA" disabled>'
+      + '  </div>'
+      + (cfg.attach ? ('<div class="pm-col-file" data-file-slot="1"></div>') : '')
+      + '  <div class="pm-col-actions">'
+      + (isVoided ? ('<span class="badge bg-secondary">Anulado</span>') : '')
+      + '    <span class="small text-muted">' + label + '</span>'
+      + (isVoided ? '' : ('<button type="button" class="btn btn-sm btn-outline-danger pm-void" data-payment-id="' + String(p && p.id ? p.id : '') + '">Anular</button>'))
+      + '  </div>'
+      + '</div>';
+
+    list.appendChild(wrap);
+
+    try {
+      var amt = wrap.querySelector('.pm-col-amount input');
+      if (amt) amt.value = fmtMoney(parseMoney(p && p.amount));
+    } catch(e1) {}
+    try {
+      var dtInp = wrap.querySelector('.pm-col-date input');
+      if (dtInp) {
+        var dtv = (p && (p.due_date || p.created_at)) ? String(p.due_date || p.created_at) : '';
+        dtInp.value = dtv ? fmtDateDMY(dtv) : '';
+      }
+    } catch(e2) {}
+    try {
+      if (cfg.attach) {
+        var slot = wrap.querySelector('[data-file-slot="1"]');
+        if (slot) {
+          var url = p && p.attachment_url ? String(p.attachment_url) : '';
+          if (url) {
+            slot.innerHTML = '<a class="small" href="' + url + '" target="_blank" rel="noopener">Ver</a>';
+          } else {
+            slot.innerHTML = '<span class="small text-muted">-</span>';
+          }
+        }
+      }
+    } catch(e3) {}
+
+    try {
+      var voidBtn = wrap.querySelector('button.pm-void');
+      if (voidBtn) {
+        voidBtn.addEventListener('click', function(){
+          var pid = voidBtn.getAttribute('data-payment-id');
+          if (!pid) return;
+          try { voidBtn.disabled = true; } catch(_) {}
+          var fd = new FormData();
+          fetch('/cobranzas/pagos/' + encodeURIComponent(pid) + '/anular', {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin'
+          })
+            .then(function(r){
+              if (!r || !r.ok) throw new Error('HTTP_' + (r ? r.status : '0'));
+              return r.json();
+            })
+            .then(function(resp){
+              if (resp && resp.ok) {
+                try { if (window.showToast) window.showToast('Pago anulado', 'success'); } catch(_) {}
+                try { if (orderSel && orderSel.value) loadHistoricalPayments(String(orderSel.value)); } catch(_) {}
+                // Refrescar datos del pedido (pendiente/remaining) desde backend y recomputar resumen
+                try {
+                  var cid = (clientSel && clientSel.value) ? String(clientSel.value) : '';
+                  var coid = (companySel && companySel.value) ? String(companySel.value) : '';
+                  var oid = (orderSel && orderSel.value) ? String(orderSel.value) : '';
+                  if (cid && coid && oid) {
+                    fetch(`/api/cobranzas/pedidos_pendientes?client_id=${encodeURIComponent(cid)}&company_id=${encodeURIComponent(coid)}`)
+                      .then(function(r){ return r.json(); })
+                      .then(function(rows){
+                        try {
+                          pendingOrders = rows || [];
+                          // Si el pedido ya no está pendiente, mantenerlo en el select pero limpiar datos
+                          try {
+                            if (orderSel && oid && !Array.from(orderSel.options).some(function(o){ return String(o.value) === String(oid); })) {
+                              var opt = document.createElement('option');
+                              opt.value = String(oid);
+                              opt.textContent = '#' + String(oid);
+                              orderSel.appendChild(opt);
+                            }
+                          } catch(eo) {}
+                        } catch(ep) {}
+
+                        try { fillOrderInfo(oid); } catch(_) {}
+                        try { updateResumen(); } catch(_) {}
+                        try { updateBorrador(); } catch(_) {}
+                      })
+                      .catch(function(){
+                        try { updateResumen(); } catch(_) {}
+                        try { updateBorrador(); } catch(_) {}
+                      });
+                  } else {
+                    try { updateResumen(); } catch(_) {}
+                    try { updateBorrador(); } catch(_) {}
+                  }
+                } catch(eRefresh) {
+                  try { updateResumen(); } catch(_) {}
+                  try { updateBorrador(); } catch(_) {}
+                }
+              } else {
+                try { if (window.showToast) window.showToast('No se pudo anular el pago', 'danger'); } catch(_) {}
+              }
+            })
+            .catch(function(){
+              try { if (window.showToast) window.showToast('Error al anular el pago', 'danger'); } catch(_) {}
+            })
+            .finally(function(){
+              try { voidBtn.disabled = false; } catch(_) {}
+            });
+        });
+      }
+    } catch(e_void) {}
+  }
+
+  var _histPaymentsReqId = 0;
+  function loadHistoricalPayments(orderIdVal){
+    _histPaymentsReqId = (_histPaymentsReqId || 0) + 1;
+    var reqId = _histPaymentsReqId;
+    clearHistoricalPayments();
+    if (!orderIdVal) return;
+    fetch(`/api/cobranzas/pagos_por_pedido?order_id=${encodeURIComponent(orderIdVal)}`)
+      .then(r => {
+        if (!r || !r.ok) throw new Error('HTTP_' + (r ? r.status : '0'));
+        return r.json();
+      })
+      .then(rows => {
+        if (reqId !== _histPaymentsReqId) return;
+        clearHistoricalPayments();
+        var added = 0;
+        var receivedMethods = [];
+        var basePaidNew = 0;
+        var baseCreditNew = 0;
+        (rows || []).forEach(function(p){
+          try {
+            var kind = String(p && p.kind ? p.kind : '').trim().toUpperCase();
+            if (kind === 'DRAFT') return;
+            var isVoided = false;
+            try { isVoided = !!(p && p.voided_at); } catch(_) { isVoided = false; }
+            if (isVoided) return;
+
+            var methodRaw = '';
+            try { methodRaw = String(p && p.method ? p.method : '').trim(); } catch(e_m) { methodRaw = ''; }
+            if (methodRaw) {
+              try { receivedMethods.push(methodRaw); } catch(_) {}
+            }
+
+            try {
+              var amtN = Number(p && p.amount != null ? p.amount : 0);
+              if (isNaN(amtN)) amtN = 0;
+              if (kind === 'PAYMENT') {
+                var m2 = String(methodRaw || '').trim().toUpperCase();
+                if (m2 && (m2 === 'NC' || m2 === 'RETENCION')) {
+                  // no-op
+                } else {
+                  basePaidNew += Math.abs(amtN);
+                }
+              }
+              if (kind === 'CREDIT_NOTE' || String(methodRaw || '').trim().toUpperCase() === 'NC') {
+                baseCreditNew += Math.abs(amtN);
+              }
+            } catch(_) {}
+
+            if (!methodRaw) return;
+
+            var prefix = methodToPrefix(methodRaw);
+            if (!prefix) return;
+
+            // No auto-habilitar el medio de pago por tener historial.
+            // Si el navegador autocompleta inputs, y nosotros habilitamos el checkbox automáticamente,
+            // esos valores se vuelven a enviar al guardar y se duplican pagos.
+            // El historial se muestra siempre; para cargar un pago nuevo el usuario debe tildar el checkbox.
+            try { clearFixedPmInputs(prefix); } catch(_) {}
+
+            addHistoricalPayment(prefix, p);
+            added++;
+          } catch(e0) {}
+        });
+
+        try {
+          if (orderMonto && orderMonto.dataset) {
+            orderMonto.dataset.basePaid = String(basePaidNew || 0);
+            orderMonto.dataset.baseCredit = String(baseCreditNew || 0);
+            var basePedido = parseMoney(orderMonto.dataset.basePedido || orderMonto.value || '0');
+            var rem = Number(basePedido || 0) - Number(basePaidNew || 0) - Number(baseCreditNew || 0);
+            orderMonto.dataset.baseRemaining = String(rem || 0);
+          }
+        } catch(_) {}
+
+        try { updateBorrador(); } catch(e_b0) {}
+        try { updateResumen(); } catch(e_b1) {}
+
+        try {
+          if ((rows || []).length === 0) {
+            if (window.showToast) window.showToast('Este pedido no tiene pagos previos guardados.', 'info');
+          } else if (added === 0) {
+            var uniq = [];
+            try {
+              (receivedMethods || []).map(function(x){ return String(x || ''); }).forEach(function(m){
+                m = m.trim();
+                if (!m) return;
+                if (uniq.indexOf(m) === -1) uniq.push(m);
+              });
+            } catch(eu) {}
+            if (window.showToast) window.showToast('Se encontraron pagos previos pero no se pudieron mostrar. Métodos: ' + (uniq.join(', ') || '-'), 'warning');
+          }
+        } catch(e2) {}
+      })
+      .catch((e) => {
+        if (reqId !== _histPaymentsReqId) return;
+        try {
+          if (window.showToast) window.showToast('No se pudieron cargar los pagos previos del pedido. Reintentá o refrescá la página.', 'warning');
+        } catch(_) {}
+      });
+  }
+
+  // Autosave borrador: cuando ya hay Cliente + Empresa
+  var _autosaveTimer = null;
+  var _autosaveInFlight = false;
+  function _shouldAutosave(){
+    try {
+      if (!form) return false;
+      if (!clientSel || !companySel) return false;
+      if (!String(clientSel.value || '').trim()) return false;
+      if (!String(companySel.value || '').trim()) return false;
+      return true;
+    } catch(e) { return false; }
+  }
+
+  function _scheduleAutosave(){
+    if (!_shouldAutosave()) return;
+    try { if (_autosaveTimer) clearTimeout(_autosaveTimer); } catch(e0) {}
+    _autosaveTimer = setTimeout(function(){
+      _autosaveTimer = null;
+      _doAutosave();
+    }, 900);
+  }
+
+  function _doAutosave(){
+    if (!_shouldAutosave()) return;
+    if (_autosaveInFlight) return;
+    _autosaveInFlight = true;
+    try {
+      var fd = new FormData(form);
+      fd.set('draft', '1');
+      // no autosave si viene como submit real
+      try { fd.set('confirm_overpay', '0'); } catch(_) {}
+      try {
+        var did = (draftId && String(draftId.value || '').trim()) || '';
+        if (did) fd.set('draft_id', did);
+      } catch(e2) {}
+
+      fetch(form.getAttribute('action') || window.location.pathname, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin'
+      })
+        .then(function(r){
+          if (!r || !r.ok) throw new Error('HTTP_' + (r ? r.status : '0'));
+          return r.json();
+        })
+        .then(function(data){
+          try {
+            if (data && typeof data.draft_id !== 'undefined' && draftId) {
+              draftId.value = data.draft_id ? String(data.draft_id) : '';
+            }
+          } catch(e3) {}
+        })
+        .catch(function(){})
+        .finally(function(){ _autosaveInFlight = false; });
+    } catch(e1) {
+      _autosaveInFlight = false;
+    }
+  }
+
+  // disparar autosave al seleccionar empresa/cliente y al editar inputs relevantes
+  try {
+    if (clientSel) clientSel.addEventListener('change', function(){ try { if (orderIdOverride) orderIdOverride.value = ''; } catch(_) {} try { if (draftId) draftId.value = ''; } catch(_) {} _scheduleAutosave(); });
+    if (companySel) companySel.addEventListener('change', function(){ try { if (orderIdOverride) orderIdOverride.value = ''; } catch(_) {} try { if (draftId) draftId.value = ''; } catch(_) {} _scheduleAutosave(); });
+  } catch(_) {}
+
+  document.addEventListener('input', function(e){
+    var t = e.target;
+    if (!t) return;
+    // cambios típicos que deben disparar autosave
+    if (t.id === 'orderMonto' || t.id === 'orderNc' || t.id === 'orderRet' || t.id === 'orderDesc') {
+      _scheduleAutosave();
+      return;
+    }
+    if (t.name && (t.name.endsWith('_amount') || t.name.endsWith('_date') || t.name === 'row_amount' || t.name === 'row_due_date' || t.name === 'row_notes')) {
+      _scheduleAutosave();
+      return;
+    }
+  });
+  function addExtraItem(prefix, preset, startEdit){
+    var cfg = pmCfg[prefix];
+    if (!cfg) return;
+    var list = extrasList(prefix);
+    if (!list) return;
+
+    var idx = (list.querySelectorAll('.pm-extra-item').length || 0) + 1;
+    var wrap = document.createElement('div');
+    wrap.className = 'pm-extra-item pm-extra-readonly mb-2';
+    wrap.setAttribute('data-prefix', prefix);
+    wrap.innerHTML = ''
+      + '<input type="hidden" name="row_kind" value="PAYMENT">'
+      + '<input type="hidden" name="row_method" value="' + String(cfg.method) + '">' 
+      + '<div class="pm-extra-row">'
+      + '  <div class="small text-muted" style="min-width:52px">#' + idx + '</div>'
+      + '  <div class="pm-col-amount">'
+      + '    <input class="form-control form-control-sm js-only-number" name="row_amount" data-method="' + String(prefix) + '" inputmode="decimal" placeholder="0,00" autocomplete="off" readonly>'
+      + '  </div>'
+      + '  <div class="pm-col-date">'
+      + '    <input class="form-control form-control-sm" name="row_due_date" type="text" data-datepicker placeholder="DD/MM/AAAA" readonly>'
+      + '  </div>'
+      + (cfg.attach ? ('<div class="pm-col-file" data-file-slot="1"></div>') : '')
+      + '  <div class="pm-col-actions">'
+      + '    <button type="button" class="btn btn-sm btn-outline-secondary pm-edit">Editar</button>'
+      + '    <button type="button" class="btn btn-sm btn-outline-primary pm-save d-none">Guardar</button>'
+      + '    <button type="button" class="btn btn-sm btn-outline-danger pm-remove">Eliminar</button>'
+      + '  </div>'
+      + '</div>';
+
+    list.appendChild(wrap);
+    try {
+      var enabled = false;
+      var chk = document.querySelector('.pm-enable[data-prefix="' + prefix + '"]');
+      if (chk) enabled = !!chk.checked;
+      setExtrasEnabled(prefix, enabled);
+    } catch(e) {}
+
+    try {
+      var removeBtn = wrap.querySelector('button.pm-remove');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', function(){
+          try { wrap.remove(); } catch(e) {}
+          try {
+            var list2 = extrasList(prefix);
+            if (list2) {
+              Array.from(list2.querySelectorAll('.pm-extra-item')).forEach(function(it, i){
+                var t = it.querySelector('.small.text-muted');
+                if (t) t.textContent = '#' + (i + 1);
+              });
+            }
+          } catch(e2) {}
+          updateResumen();
+          updateBorrador();
+        });
+      }
+    } catch(e3) {}
+
+    try {
+      var btnEdit = wrap.querySelector('button.pm-edit');
+      var btnSave = wrap.querySelector('button.pm-save');
+      var amountInp = wrap.querySelector('input[name="row_amount"]');
+      var dateInp = wrap.querySelector('input[name="row_due_date"]');
+      var fileInp = wrap.querySelector('input[name="row_attachment"]');
+      if (btnEdit && btnSave && amountInp && dateInp) {
+        btnEdit.addEventListener('click', function(){
+          try { wrap.classList.remove('pm-extra-readonly'); } catch(e0) {}
+          try { amountInp.readOnly = false; } catch(e1) {}
+          try { dateInp.readOnly = false; } catch(e2) {}
+          try { if (fileInp) fileInp.style.pointerEvents = ''; } catch(e3) {}
+          try { btnEdit.classList.add('d-none'); btnSave.classList.remove('d-none'); } catch(e4) {}
+          try { amountInp.focus(); } catch(e5) {}
+        });
+        btnSave.addEventListener('click', function(){
+          try { amountInp.value = fmtMoney(parseMoney(amountInp.value)); } catch(e6) {}
+          try { amountInp.readOnly = true; } catch(e7) {}
+          try { dateInp.readOnly = true; } catch(e8) {}
+          try { wrap.classList.add('pm-extra-readonly'); } catch(e9) {}
+          try { btnSave.classList.add('d-none'); btnEdit.classList.remove('d-none'); } catch(e10) {}
+          updateResumen();
+          updateBorrador();
+        });
+      }
+    } catch(e7) {}
+
+    try {
+      ensureFlatpickrLoaded(function(){
+        try { wrap.querySelectorAll('[data-datepicker]').forEach(initDatepicker); } catch(e4) {}
+      });
+    } catch(e5) {}
+
+    try {
+      if (preset && preset.amount) {
+        var amt = wrap.querySelector('input[name="row_amount"]');
+        if (amt) amt.value = fmtMoney(parseMoney(preset.amount));
+      }
+      if (preset && preset.date) {
+        var dt = wrap.querySelector('input[name="row_due_date"][data-datepicker]');
+        if (dt) {
+          try { initDatepicker(dt); } catch(_) {}
+          setDateValue(dt, preset.date);
+        }
+      }
+    } catch(e6) {}
+
+    try {
+      if (startEdit) {
+        var b = wrap.querySelector('button.pm-edit');
+        if (b) b.click();
+      }
+    } catch(e8) {}
+  }
 
   let pendingOrders = [];
 
@@ -286,7 +1028,20 @@
     orderEntrega.value = '';
     orderVenc.value = '';
     orderMonto.value = '';
+    if (orderNc) orderNc.value = '';
+    if (orderRet) orderRet.value = '';
     orderDesc.value = '';
+    try { 
+      // limpiar datasets base
+      if (orderMonto && orderMonto.dataset) {
+        delete orderMonto.dataset.basePedido;
+        delete orderMonto.dataset.basePaid;
+        delete orderMonto.dataset.baseCredit;
+        delete orderMonto.dataset.baseRemaining;
+        delete orderMonto.dataset.companyRemainingTotal;
+        delete orderMonto.dataset.companyDiffTotal;
+      }
+    } catch(e) {}
   }
 
   function resetMovements(){
@@ -303,6 +1058,9 @@
         }
         try { inp.required = false; } catch(e) {}
       });
+      try {
+        Object.keys(pmCfg).forEach(function(prefix){ clearExtras(prefix); setExtrasEnabled(prefix, false); });
+      } catch(e0) {}
       ensureFlatpickrLoaded(function(){
         try { document.querySelectorAll('[data-datepicker]').forEach(initDatepicker); } catch(e) {}
       });
@@ -339,17 +1097,55 @@
     resetMovements();
     if (!clientId || !companyIdVal) return;
 
+    try {
+      fetch(`/api/cobranzas/saldo_historico?client_id=${encodeURIComponent(clientId)}&company_id=${encodeURIComponent(companyIdVal)}`)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          try {
+            var saldoInp = document.getElementById('companySaldoInput');
+            var saldoComputed = document.getElementById('companySaldoComputed');
+            var computed = Number(data && data.computed_total != null ? data.computed_total : 0);
+            var desired = Number(data && data.desired_total != null ? data.desired_total : 0);
+            if (isNaN(computed)) computed = 0;
+            if (isNaN(desired)) desired = 0;
+            if (saldoComputed) saldoComputed.value = String(computed || 0);
+            try { if (orderMonto) orderMonto.dataset.companyDiffTotal = String(desired || 0); } catch(e0) {}
+            try { if (orderMonto) orderMonto.dataset.companyDiffTotalCalc = String(computed || 0); } catch(e1) {}
+            if (saldoInp) {
+              setMoneyInputValue(saldoInp, desired);
+              try { formatMoneyLive(saldoInp); } catch(_) {}
+            }
+            updateResumen();
+          } catch(e_initSaldo) {}
+        })
+        .catch(function(){});
+    } catch(eSaldo) {}
+
     fetch(`/api/cobranzas/pedidos_pendientes?client_id=${encodeURIComponent(clientId)}&company_id=${encodeURIComponent(companyIdVal)}`)
       .then(r => r.json())
       .then(rows => {
         pendingOrders = rows || [];
         pendingOrders.forEach(o => {
-          const label = `#${o.order_id} - ${o.tipo_comprobante || '-'} - ${fmtMoney(o.monto)} - Venc: ${o.fecha_pago_estimada || '-'}`;
+          const label = `#${o.order_id} - ${(fmtDateDMY(o.order_date) || '-') } - ${fmtMoney(o.monto)}`;
           const opt = document.createElement('option');
           opt.value = String(o.order_id);
           opt.textContent = label;
           orderSel && orderSel.appendChild(opt);
         });
+
+        // No autoseleccionar ningún pedido: el usuario debe elegirlo explícitamente.
+        try {
+          if (orderSel) {
+            orderSel.value = '';
+            orderSel.selectedIndex = 0;
+          }
+        } catch(_) {}
+        try { clearOrderInfo(); } catch(_) {}
+        try { resetMovements(); } catch(_) {}
+        try {
+          var box = document.getElementById('cobResumen');
+          if (box) { box.classList.add('d-none'); box.textContent = ''; }
+        } catch(_) {}
       })
       .catch(() => {});
   }
@@ -359,14 +1155,384 @@
     if (!o){
       clearOrderInfo();
       resetMovements();
+      try {
+        var box = document.getElementById('cobResumen');
+        if (box) { box.classList.add('d-none'); box.textContent = ''; }
+      } catch(e) {}
       return;
     }
-    orderCreatedAt.value = fmtDateDMY(o.created_at || '');
-    orderEntrega.value = fmtDateDMY(o.fecha_entrega_efectiva || '');
-    orderVenc.value = fmtDateDMY(o.fecha_pago_estimada || '');
-    orderMonto.value = fmtMoney(o.monto);
+    setDateValue(orderCreatedAt, o.order_date || '');
+    setDateValue(orderEntrega, o.fecha_entrega_efectiva || '');
+    setDateValue(orderVenc, o.fecha_pago_estimada || '');
+    setMoneyInputValue(orderMonto, o.monto);
+    if (orderNc) orderNc.value = '';
+    if (orderRet) orderRet.value = '';
+    try {
+      // Guardar info del pedido para el resumen
+      orderMonto.dataset.basePedido = String(o.monto != null ? o.monto : '0');
+      orderMonto.dataset.basePaid = String(o.total_paid != null ? o.total_paid : '0');
+      orderMonto.dataset.baseCredit = String(o.total_credit != null ? o.total_credit : '0');
+      orderMonto.dataset.baseRemaining = String(o.remaining != null ? o.remaining : '0');
+      orderMonto.dataset.companyRemainingTotal = String(o.company_remaining_total != null ? o.company_remaining_total : '0');
+      orderMonto.dataset.companyDiffTotal = String(o.company_diff_total != null ? o.company_diff_total : '0');
+    } catch(e) {}
     const desc = [o.nota, o.descripcion].filter(Boolean).join('\n\n');
     orderDesc.value = desc;
+    updateResumen();
+    try { loadHistoricalPayments(o.order_id); } catch(e_hist1) {}
+  }
+
+  function sanitizeNumericInput(el){
+    if (!el) return;
+    try{
+      var v = String(el.value || '');
+      // permitir dígitos + separadores decimal/miles
+      v = v.replace(/[^0-9.,]/g, '');
+      el.value = v;
+    }catch(e){}
+  }
+
+  function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+
+  function setCaretByDigitIndex(formattedValue, digitIndex){
+    if (digitIndex <= 0) return 0;
+    var count = 0;
+    for (var i = 0; i < formattedValue.length; i++) {
+      if (/\d/.test(formattedValue.charAt(i))) {
+        count++;
+        if (count >= digitIndex) return i + 1;
+      }
+    }
+    return formattedValue.length;
+  }
+
+  function fmtThousandsInt(intDigits){
+    if (!intDigits) return '';
+    intDigits = String(intDigits).replace(/^0+(?!$)/,'');
+    return intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+
+  function formatMoneyLive(el){
+    if (!el) return;
+    var sel = (typeof el.selectionStart === 'number') ? el.selectionStart : null;
+    var digitsBefore = null;
+    if (sel != null) {
+      try { digitsBefore = onlyDigits((el.value || '').slice(0, sel)).length; } catch(e) { digitsBefore = null; }
+    }
+
+    var v = String(el.value || '');
+    // Sanear: permitir solo dígitos + '.' + ','
+    v = v.replace(/[^0-9.,]/g, '');
+
+    // Usar ',' como separador decimal (máx 2). Ignorar '.' ingresados (miles).
+    var hasComma = v.indexOf(',') !== -1;
+    var parts = v.split(',');
+    var intPart = onlyDigits(parts[0] || '');
+    var decPart = hasComma ? onlyDigits((parts[1] || '')).slice(0, 2) : '';
+    var formatted = fmtThousandsInt(intPart);
+    if (hasComma) {
+      formatted += ',' + decPart;
+      // permitir coma sola mientras el usuario la escribe
+      if (!decPart && /,$/.test(v)) {
+        formatted = fmtThousandsInt(intPart) + ',';
+      }
+    }
+
+    if (formatted === el.value) return;
+    el.value = formatted;
+    if (digitsBefore != null) {
+      var caret = setCaretByDigitIndex(formatted, digitsBefore);
+      try { el.setSelectionRange(caret, caret); } catch(e) {}
+    }
+  }
+
+  function updateResumen(){
+    var box = document.getElementById('cobResumen');
+    if (!box) return;
+    var saldoInp = null;
+    try { saldoInp = document.getElementById('companySaldoInput'); } catch(eh) { saldoInp = null; }
+    var totalPedido = parseMoney(orderMonto && orderMonto.value);
+    var totalPagos = 0;
+    try{
+      document.querySelectorAll('[name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(inp){
+        totalPagos += Math.abs(parseMoney(inp.value));
+      });
+    }catch(e){}
+
+    var nowNc = 0;
+    var nowRet = 0;
+    try { nowNc = Math.abs(parseMoney(orderNc && orderNc.value)); } catch(e) { nowNc = 0; }
+    try { nowRet = Math.abs(parseMoney(orderRet && orderRet.value)); } catch(e) { nowRet = 0; }
+
+    // Si el pedido ya tenía pagos/NC previas, mostrar saldo real antes/después
+    var basePedido = 0;
+    var basePaid = 0;
+    var baseCredit = 0;
+    var baseRemaining = null;
+    var compTotal = null;
+    var compDiff = null;
+    try {
+      basePedido = parseMoney(orderMonto && (orderMonto.dataset.basePedido || orderMonto.value));
+      basePaid = parseMoney(orderMonto && (orderMonto.dataset.basePaid || '0'));
+      baseCredit = parseMoney(orderMonto && (orderMonto.dataset.baseCredit || '0'));
+      baseRemaining = parseMoney(orderMonto && (orderMonto.dataset.baseRemaining || '0'));
+      compTotal = parseMoney(orderMonto && (orderMonto.dataset.companyRemainingTotal || '0'));
+      compDiff = parseMoney(orderMonto && (orderMonto.dataset.companyDiffTotal || (saldoInp ? saldoInp.value : '0') || '0'));
+    } catch(e) {
+      basePedido = totalPedido;
+      basePaid = 0;
+      baseCredit = 0;
+      baseRemaining = null;
+      compTotal = null;
+      compDiff = null;
+    }
+
+    // Diferencias de otros pedidos YA cobrados (saldo a favor/en contra histórico)
+    var companyAdj = 0;
+    try {
+      companyAdj = Number(compDiff || 0);
+      if (isNaN(companyAdj)) companyAdj = 0;
+    } catch(ea) { companyAdj = 0; }
+
+    // Lógica:
+    // Deuda neta = Factura - (NC previas + NC ahora) - Retenciones
+    // Pendiente final = Deuda neta - (Pagos previos + Pagos ahora)
+    // Deuda neta del pedido ajustada por saldo previo del cliente-empresa (otros pedidos)
+    var deudaNeta = (basePedido || totalPedido) - baseCredit - nowNc - nowRet + companyAdj;
+    var pendienteFinal = deudaNeta - basePaid - totalPagos;
+
+    // si no hay nada seleccionado/cargado, ocultar
+    if (!totalPedido && !totalPagos && !nowNc && !nowRet && !basePaid && !baseCredit && !(companyAdj && Math.abs(companyAdj) > 0.009)){
+      box.classList.add('d-none');
+      box.textContent = '';
+      return;
+    }
+
+    function pushPart(arr, label, val){
+      try {
+        if (val == null) return;
+        var n = Number(val);
+        if (isNaN(n)) return;
+        if (Math.abs(n) <= 0.009) return;
+        arr.push(label + ': $ ' + fmtMoney(n));
+      } catch(e) {}
+    }
+
+    var headerPedido = (basePedido || totalPedido);
+    var parts = [];
+    parts.push('Pedido: $ ' + fmtMoney(headerPedido));
+    try {
+      if (companyAdj < -0.009) parts.push('Saldo previo a favor: $ ' + fmtMoney(Math.abs(companyAdj)));
+      else if (companyAdj > 0.009) parts.push('Saldo previo pendiente: $ ' + fmtMoney(companyAdj));
+    } catch(eax) {}
+    pushPart(parts, 'Ya pagado', basePaid);
+    pushPart(parts, 'NC previas', baseCredit);
+    pushPart(parts, 'Pagos ahora', totalPagos);
+    pushPart(parts, 'Retenciones', nowRet);
+    pushPart(parts, 'NC ahora', nowNc);
+    pushPart(parts, 'Deuda neta', deudaNeta);
+    var txt = parts.join(' | ');
+    if (pendienteFinal > 0.009) {
+      box.className = 'alert alert-warning mt-3 mb-0';
+      txt += ' | Pendiente: $ ' + fmtMoney(pendienteFinal);
+    } else if (pendienteFinal < -0.009) {
+      box.className = 'alert alert-info mt-3 mb-0';
+      txt += ' | Excedente: $ ' + fmtMoney(Math.abs(pendienteFinal));
+    } else {
+      box.className = 'alert alert-success mt-3 mb-0';
+      txt += ' | OK: Cierra el total';
+    }
+
+    try {
+      if (saldoInp) {
+        try {
+          saldoInp.classList.remove('text-success');
+          saldoInp.classList.remove('text-danger');
+        } catch(e0) {}
+        if (!(companySel && companySel.value)) {
+          // no-op
+        } else if (companyAdj > 0.009) {
+          try { saldoInp.classList.add('text-danger'); } catch(e1) {}
+        } else if (companyAdj < -0.009) {
+          try { saldoInp.classList.add('text-success'); } catch(e2) {}
+        }
+      }
+    } catch(e) {}
+
+    box.textContent = txt;
+    box.classList.remove('d-none');
+  }
+
+  function updateBorrador(){
+    var out = null;
+    try { out = document.getElementById('borradorTxt'); } catch(e0) { out = null; }
+    if (!out) return;
+
+    var clientTxt = '';
+    var companyTxt = '';
+    try {
+      if (clientSel && clientSel.selectedOptions && clientSel.selectedOptions[0]) {
+        clientTxt = String(clientSel.selectedOptions[0].textContent || '').trim();
+      }
+    } catch(e1) {}
+    try {
+      if (companySel && companySel.selectedOptions && companySel.selectedOptions[0]) {
+        companyTxt = String(companySel.selectedOptions[0].textContent || '').trim();
+      }
+    } catch(e2) {}
+
+    function sumInputs(selector){
+      var total = 0;
+      try {
+        document.querySelectorAll(selector).forEach(function(inp){
+          total += Math.abs(parseMoney(inp.value));
+        });
+      } catch(e) { total = 0; }
+      return total;
+    }
+
+    function sumByMethod(prefixKey){
+      var total = 0;
+      try {
+        // incluir también históricos (disabled)
+        document.querySelectorAll('[data-method="' + prefixKey + '"]').forEach(function(inp){
+          total += Math.abs(parseMoney(inp.value));
+        });
+      } catch(e0) {}
+      try {
+        var main = document.querySelector('[name="' + prefixKey + '_amount"]');
+        if (main && !main.disabled) total += Math.abs(parseMoney(main.value));
+      } catch(e1) {}
+      return total;
+    }
+
+    var monto = parseMoney(orderMonto && orderMonto.value);
+    var montoBase = 0;
+    var companyAdj = 0;
+    try { montoBase = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.basePedido || '')); } catch(_) { montoBase = 0; }
+    try { companyAdj = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.companyDiffTotal || '')); } catch(_) { companyAdj = 0; }
+    if (!montoBase && monto) montoBase = monto;
+    var nc = 0;
+    var ret = 0;
+    try { nc = Math.abs(parseMoney(orderNc && orderNc.value)); } catch(e3) { nc = 0; }
+    try { ret = Math.abs(parseMoney(orderRet && orderRet.value)); } catch(e4) { ret = 0; }
+
+    var efectivo = sumByMethod('pm_efectivo');
+    var transferencia = sumByMethod('pm_transferencia');
+    var echeq = sumByMethod('pm_echeq');
+    var chqTerc = 0;
+    var chqProp = 0;
+    try { chqTerc = sumByMethod('pm_cheque_terceros'); } catch(e5) { chqTerc = 0; }
+    try { chqProp = sumByMethod('pm_cheque_propio'); } catch(e6) { chqProp = 0; }
+
+    // Para cheques, además listar (monto y fecha) de los agregados
+    function listChequeLines(prefixLabel, prefixKey){
+      var lines = [];
+      try {
+        // main fields
+        var a = document.querySelector('[name="' + prefixKey + '_amount"]:not([disabled])');
+        var d = document.querySelector('[name="' + prefixKey + '_date"]:not([disabled])');
+        if (a && String(a.value||'').trim()) {
+          var dt = d ? String(d.value||'').trim() : '';
+          lines.push(prefixLabel + ' (' + fmtMoney(parseMoney(a.value)) + (dt ? (' - ' + fmtDateDMY(dt)) : '') + ')');
+        }
+      } catch(e7) {}
+      try {
+        // extras rows live in .pm-extras-list; locate by data-prefix
+        var list = extrasList(prefixKey);
+        if (list) {
+          Array.from(list.querySelectorAll('.pm-extra-item')).forEach(function(it){
+            var amt = it.querySelector('input[name="row_amount"]');
+            var dt = it.querySelector('input[name="row_due_date"]');
+            if (amt && String(amt.value||'').trim()) {
+              var dtv = dt ? String(dt.value||'').trim() : '';
+              lines.push(prefixLabel + ' (' + fmtMoney(parseMoney(amt.value)) + (dtv ? (' - ' + fmtDateDMY(dtv)) : '') + ')');
+            }
+          });
+        }
+      } catch(e8) {}
+      return lines;
+    }
+
+    function listMethodAmounts(prefixKey){
+      var vals = [];
+      try {
+        document.querySelectorAll('[data-method="' + prefixKey + '"]').forEach(function(inp){
+          var v = Math.abs(parseMoney(inp.value));
+          if (v > 0.009) vals.push(v);
+        });
+      } catch(e0) {}
+      try {
+        var main = document.querySelector('[name="' + prefixKey + '_amount"]');
+        if (main && !main.disabled) {
+          var v2 = Math.abs(parseMoney(main.value));
+          if (v2 > 0.009) vals.push(v2);
+        }
+      } catch(e1) {}
+      return vals;
+    }
+
+    var lines = [];
+    lines.push('Dep ' + (clientTxt || '-') + ' - ' + (companyTxt || '-'));
+    lines.push('');
+
+    // Monto (pedido + ajuste de saldo histórico si existe)
+    lines.push('Monto:');
+    if (Math.abs(montoBase) > 0.009) lines.push('$' + fmtMoney(montoBase));
+    if (Math.abs(companyAdj) > 0.009) lines.push('$' + fmtMoney(companyAdj));
+    var montoTotal = (montoBase || 0) + (companyAdj || 0);
+    if (Math.abs(montoTotal) > 0.009) lines.push('(TOTAL $' + fmtMoney(montoTotal) + ')');
+    lines.push('');
+
+    // Retenciones
+    if (ret > 0.009) {
+      lines.push('(Retenciones):');
+      lines.push('$' + fmtMoney(ret));
+      lines.push('(TOTAL $' + fmtMoney(ret) + ')');
+      lines.push('');
+    }
+
+    // Nota de crédito (si existe)
+    if (nc > 0.009) {
+      lines.push('(Nota de crédito):');
+      lines.push('$' + fmtMoney(nc));
+      lines.push('(TOTAL $' + fmtMoney(nc) + ')');
+      lines.push('');
+    }
+
+    // E-cheqs
+    var echeqItems = listMethodAmounts('pm_echeq');
+    if (echeqItems.length) {
+      lines.push('Echeqs:');
+      echeqItems.forEach(function(v){ lines.push('$' + fmtMoney(v)); });
+      lines.push('(TOTAL $' + fmtMoney(echeq) + ')');
+      lines.push('');
+    } else if (echeq > 0.009) {
+      lines.push('Echeqs:');
+      lines.push('$' + fmtMoney(echeq));
+      lines.push('(TOTAL $' + fmtMoney(echeq) + ')');
+      lines.push('');
+    }
+
+    // Otros medios
+    if (efectivo > 0.009) lines.push('Efectivo $' + fmtMoney(efectivo));
+    if (transferencia > 0.009) lines.push('Transferencia $' + fmtMoney(transferencia));
+
+    // Cheques físicos (detalle monto/fecha)
+    var chqTercLines = listChequeLines('Cheque físico tercero', 'pm_cheque_terceros');
+    var chqPropLines = listChequeLines('Cheque físico propio', 'pm_cheque_propio');
+    if (chqTercLines.length) {
+      chqTercLines.forEach(function(l){ lines.push(l); });
+    } else if (chqTerc > 0.009) {
+      lines.push('Cheque físico tercero $' + fmtMoney(chqTerc));
+    }
+    if (chqPropLines.length) {
+      chqPropLines.forEach(function(l){ lines.push(l); });
+    } else if (chqProp > 0.009) {
+      lines.push('Cheque físico propio $' + fmtMoney(chqProp));
+    }
+
+    out.value = lines.join('\n');
   }
 
   function applyPmEnabled(prefix, enabled, requiresAttach){
@@ -437,6 +1603,8 @@
 
   orderSel?.addEventListener('change', () => {
     const oid = (orderSel && orderSel.value) ? String(orderSel.value) : '';
+    try { if (orderIdOverride) orderIdOverride.value = ''; } catch(_) {}
+    try { if (draftId) draftId.value = ''; } catch(_) {}
     fillOrderInfo(oid);
   });
 
@@ -445,10 +1613,348 @@
       const prefix = ch.getAttribute('data-prefix');
       const req = ch.getAttribute('data-requires-attach') === '1';
       applyPmEnabled(prefix, ch.checked, req);
+      try { setExtrasEnabled(prefix, ch.checked); } catch(e) {}
+      updateResumen();
     });
   });
 
+  document.querySelectorAll('button.pm-add').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var prefix = btn.getAttribute('data-prefix');
+      var amtInp = null;
+      var dateInp = null;
+      var fileInp = null;
+      try { amtInp = document.querySelector('[name="' + prefix + '_amount"]'); } catch(e0) { amtInp = null; }
+      try { dateInp = document.querySelector('[name="' + prefix + '_date"][data-datepicker]'); } catch(e1) { dateInp = null; }
+      try { fileInp = document.querySelector('[name="' + prefix + '_attachment"]'); } catch(e2) { fileInp = null; }
+
+      var amt = amtInp ? String(amtInp.value || '').trim() : '';
+      var dt = dateInp ? String(dateInp.value || '').trim() : '';
+      var has = !!(amt || dt || (fileInp && fileInp.files && fileInp.files.length));
+
+      // Crear renglón y setear monto/fecha
+      addExtraItem(prefix, { amount: amt, date: dt }, !has);
+
+      // Si hay adjunto seleccionado, mover ese input al renglón agregado y reponer uno nuevo arriba
+      try {
+        if (fileInp && fileInp.files && fileInp.files.length) {
+          var list = extrasList(prefix);
+          var lastItem = list ? list.querySelector('.pm-extra-item:last-child') : null;
+          var slot = lastItem ? lastItem.querySelector('[data-file-slot="1"]') : null;
+          if (lastItem && slot) {
+            var parent = fileInp.parentNode;
+            var next = fileInp.nextSibling;
+            var fresh = document.createElement('input');
+            fresh.type = 'file';
+            fresh.name = prefix + '_attachment';
+            fresh.className = fileInp.className;
+            try { fresh.disabled = !!fileInp.disabled; } catch(e7) {}
+            if (parent) parent.insertBefore(fresh, next);
+
+            fileInp.name = 'row_attachment';
+            try { fileInp.classList.add('form-control-sm'); } catch(e8) {}
+            try { fileInp.disabled = false; } catch(e9) {}
+            slot.appendChild(fileInp);
+          }
+        }
+      } catch(e10) {}
+
+      // Limpiar campos superiores
+      try { if (amtInp) amtInp.value = ''; } catch(e11) {}
+      try {
+        if (dateInp) {
+          if (dateInp._flatpickr) { try { dateInp._flatpickr.clear(); } catch(_) {} }
+          dateInp.value = '';
+        }
+      } catch(e12) {}
+
+      updateResumen();
+    });
+  });
+
+  document.addEventListener('input', function(e){
+    var t = e.target;
+    if (t && t.classList && t.classList.contains('js-only-number')) {
+      sanitizeNumericInput(t);
+      // Miles en vivo (sin esperar blur)
+      formatMoneyLive(t);
+    }
+    if (t && t.id === 'orderMonto') {
+      // Si el usuario edita el monto del pedido, reflejarlo en el dataset usado por confirmación
+      try {
+        if (orderMonto && orderMonto.dataset) {
+          orderMonto.dataset.basePedido = String(parseMoney(orderMonto.value || '0') || 0);
+        }
+      } catch(e0) {}
+    }
+    if (t && t.name && (t.name.endsWith('_amount') || t.name === 'row_amount' || t.id === 'orderMonto' || t.id === 'orderNc' || t.id === 'orderRet')) {
+      updateResumen();
+      updateBorrador();
+    }
+  });
+
+  document.addEventListener('focus', function(e){
+    var t = e.target;
+    if (t && t.classList && t.classList.contains('js-only-number')) {
+      try {
+        if (String(t.value || '').trim()) {
+          setTimeout(function(){ try { t.select(); } catch(_) {} }, 0);
+        }
+      } catch(_) {}
+    }
+  }, true);
+
+  document.addEventListener('blur', function(e){
+    var t = e.target;
+    if (!t) return;
+    if (t && t.name && (t.name.endsWith('_amount') || t.name === 'row_amount')) {
+      try {
+        if (String(t.value || '').trim()) {
+          t.value = fmtMoney(parseMoney(t.value));
+        }
+      } catch(_) {}
+      updateResumen();
+    }
+    if (t && t.id === 'orderMonto') {
+      try {
+        if (String(t.value || '').trim()) {
+          t.value = fmtMoney(parseMoney(t.value));
+        } else {
+          t.value = '';
+        }
+      } catch(_) {}
+      updateResumen();
+    }
+    if (t && (t.id === 'orderNc' || t.id === 'orderRet')) {
+      try {
+        if (String(t.value || '').trim()) {
+          t.value = fmtMoney(parseMoney(t.value));
+        } else {
+          t.value = '';
+        }
+      } catch(_) {}
+      updateResumen();
+      updateBorrador();
+    }
+  }, true);
+
+  var btnCopy = document.getElementById('btnCopyBorrador');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', function(){
+      try {
+        var out = document.getElementById('borradorTxt');
+        if (!out) return;
+        var txt = String(out.value || '');
+        if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt);
+          return;
+        }
+      } catch(e0) {}
+      try {
+        var out2 = document.getElementById('borradorTxt');
+        if (!out2) return;
+        out2.focus();
+        out2.select();
+        document.execCommand('copy');
+      } catch(e1) {}
+    });
+  }
+
+  var btnDraft = document.getElementById('btnSaveDraft');
+  var draftFlag = document.getElementById('draftFlag');
+  var confirmOverpay = document.getElementById('confirmOverpay');
+  var form = document.getElementById('cobForm');
+  var orderIdOverride = document.getElementById('orderIdOverride');
+  var draftId = document.getElementById('draftId');
+  if (btnDraft && draftFlag && form){
+    btnDraft.addEventListener('click', function(){
+      try { form._isDraftSubmit = true; } catch(e0) {}
+      draftFlag.value = '1';
+      form.submit();
+    });
+  }
+
+  if (form && draftFlag){
+    form.addEventListener('submit', function(ev){
+      try {
+        if (form._skipOverpayConfirm === true) {
+          form._skipOverpayConfirm = false;
+          return;
+        }
+      } catch(e0) {}
+      // si el submit NO fue por 'Guardar borrador', asegurar draft=0
+      try {
+        if (form._isDraftSubmit === true) {
+          draftFlag.value = '1';
+        } else {
+          draftFlag.value = '0';
+        }
+      } catch(e_d0) {
+        draftFlag.value = '0';
+      }
+      try { form._isDraftSubmit = false; } catch(e_d1) {}
+      try { if (confirmOverpay) confirmOverpay.value = '0'; } catch(e) {}
+      updateResumen();
+
+      // Si queda saldo a favor (excedente), pedir confirmación antes de guardar (solo si NO es borrador)
+      try {
+        if (draftFlag.value === '1') return;
+        // Usar el monto ACTUAL del input; dataset.basePedido puede estar desactualizado si el usuario lo editó.
+        var basePedido = parseMoney(orderMonto && (orderMonto.value || orderMonto.dataset.basePedido || '0'));
+        var basePaid = parseMoney(orderMonto && (orderMonto.dataset.basePaid || '0'));
+        var baseCredit = parseMoney(orderMonto && (orderMonto.dataset.baseCredit || '0'));
+        var compDiff = parseMoney(orderMonto && (orderMonto.dataset.companyDiffTotal || '0'));
+        var companyAdj = 0;
+        try {
+          companyAdj = Number(compDiff || 0);
+          if (isNaN(companyAdj)) companyAdj = 0;
+        } catch(ea) { companyAdj = 0; }
+        var totalPagos = 0;
+        document.querySelectorAll('[name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(inp){ totalPagos += Math.abs(parseMoney(inp.value)); });
+        var nowNc = Math.abs(parseMoney(orderNc && orderNc.value));
+        var nowRet = Math.abs(parseMoney(orderRet && orderRet.value));
+        var deudaNeta = basePedido - baseCredit - nowNc - nowRet + companyAdj;
+        var pendienteFinal = deudaNeta - basePaid - totalPagos;
+        if (pendienteFinal < -0.009) {
+          ev.preventDefault();
+          try {
+            var msg = document.getElementById('overpayModalMsg');
+            if (msg) msg.textContent = 'Hay saldo a favor (excedente) de $ ' + fmtMoney(Math.abs(pendienteFinal)) + '. ¿Querés guardar igual?';
+            var modalEl = document.getElementById('overpayModal');
+            var btn = document.getElementById('overpayModalConfirmBtn');
+            if (!modalEl || !btn || !(window.bootstrap && window.bootstrap.Modal)) {
+              // fallback
+              if (window.showToast) window.showToast('Hay excedente. Confirmá para guardar.', 'warning');
+              return;
+            }
+            if (form._overpayBound !== true) {
+              btn.addEventListener('click', function(){
+                try { if (confirmOverpay) confirmOverpay.value = '1'; } catch(e0) {}
+                try {
+                  var inst = window.bootstrap.Modal.getInstance(modalEl);
+                  if (inst) inst.hide();
+                } catch(e1) {}
+                try { form._skipOverpayConfirm = true; } catch(e2) {}
+                form.submit();
+              });
+              form._overpayBound = true;
+            }
+            var bsModal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+            bsModal.show();
+          } catch(e5) {}
+          return;
+        }
+      } catch(e) {}
+    });
+  }
+
   resetMovements();
+  ensureFlatpickrLoaded(function(){
+    try { document.querySelectorAll('[data-datepicker]').forEach(initDatepicker); } catch(e) {}
+  });
+  updateResumen();
+
+  // Precargar borrador si viene desde /cobranzas/pendientes
+  try {
+    function waitUntil(condFn, timeoutMs){
+      timeoutMs = timeoutMs || 6000;
+      return new Promise(function(resolve){
+        var start = Date.now();
+        var t = setInterval(function(){
+          var ok = false;
+          try { ok = !!condFn(); } catch(e) { ok = false; }
+          if (ok) {
+            clearInterval(t);
+            resolve(true);
+            return;
+          }
+          if ((Date.now() - start) > timeoutMs) {
+            clearInterval(t);
+            resolve(false);
+          }
+        }, 80);
+      });
+    }
+
+    if (draft && draft.client_id && clientSel) {
+      clientSel.value = String(draft.client_id);
+      setCompanies(String(draft.client_id));
+      waitUntil(function(){
+        try {
+          if (!draft.company_id || !companySel) return false;
+          return Array.from(companySel.options || []).some(function(o){ return String(o.value) === String(draft.company_id); });
+        } catch(e){ return false; }
+      }, 8000).then(function(){
+        try {
+          if (draft.company_id && companySel) {
+            companySel.value = String(draft.company_id);
+            setPendingOrders(String(draft.client_id), String(draft.company_id));
+          }
+        } catch(e2) {}
+        return waitUntil(function(){
+          try {
+            if (!draft.order_id || !orderSel) return false;
+            return Array.from(orderSel.options || []).some(function(o){ return String(o.value) === String(draft.order_id); });
+          } catch(e){ return false; }
+        }, 9000);
+      }).then(function(){
+        try {
+          if (draft.order_id && orderSel) {
+            orderSel.value = String(draft.order_id);
+            fillOrderInfo(String(draft.order_id));
+          }
+        } catch(e3) {}
+
+        try {
+          if (draft.order_created_at) setDateValue(orderCreatedAt, draft.order_created_at);
+          if (draft.order_fecha_entrega_efectiva != null) setDateValue(orderEntrega, draft.order_fecha_entrega_efectiva);
+          if (draft.order_fecha_pago_estimada != null) setDateValue(orderVenc, draft.order_fecha_pago_estimada);
+          if (draft.order_monto != null) setMoneyInputValue(orderMonto, draft.order_monto);
+          if (orderNc && draft.order_credit_note != null) setMoneyInputValue(orderNc, draft.order_credit_note);
+          if (orderRet && draft.order_retenciones != null) setMoneyInputValue(orderRet, draft.order_retenciones);
+          if (draft.order_notes != null) orderDesc.value = String(draft.order_notes || '');
+        } catch(e4) {}
+
+        try {
+          var pm = (draft.pm || {});
+          Object.keys(pm).forEach(function(prefix){
+            var cfg = pm[prefix] || {};
+            var amt = String(cfg.amount || '').trim();
+            var dt = String(cfg.date || '').trim();
+            if (!amt && !dt) return;
+            var chk = document.querySelector('.pm-enable[data-prefix="' + prefix + '"]');
+            if (chk) {
+              chk.checked = true;
+              applyPmEnabled(prefix, true, false);
+            }
+            var amtInp = document.querySelector('[name="' + prefix + '_amount"]');
+            if (amtInp && amt) { setMoneyInputValue(amtInp, amt); }
+            var dateInp = document.querySelector('[name="' + prefix + '_date"][data-datepicker]');
+            if (dateInp && dt) {
+              try { initDatepicker(dateInp); } catch(e5) {}
+              setDateValue(dateInp, dt);
+            }
+          });
+        } catch(e6) {}
+
+        try {
+          var rows = (draft.rows || []);
+          (rows || []).forEach(function(r){
+            var prefix = String(r.prefix || '').trim();
+            if (!prefix || !pmCfg[prefix]) return;
+            var chk = document.querySelector('.pm-enable[data-prefix="' + prefix + '"]');
+            if (chk && !chk.checked) {
+              chk.checked = true;
+              applyPmEnabled(prefix, true, false);
+            }
+            addExtraItem(prefix, { amount: r.amount, date: r.date });
+          });
+        } catch(e7) {}
+
+        try { updateResumen(); } catch(e8) {}
+      });
+    }
+  } catch(e) {}
 })();
 </script>
 {% endblock %}

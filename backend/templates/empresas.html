@@ -10,15 +10,24 @@
   .descuento-group .input-group-text { min-width: 28px; justify-content: center; padding-left: .45rem; padding-right: .45rem; }
   .descuento-group .form-control { min-width: 0; width: 70px; }
   .js-company-sort{ cursor:pointer; user-select:none; }
+
+  @media (max-width: 575.98px) {
+    .empresa-search-input { min-width: 0; max-width: none; width: 100%; }
+    .btn-create-company { width: 100%; }
+  }
 </style>
-<div class="d-flex justify-content-between align-items-center mb-3 mt-3">
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
   <div>
     <h1 class="h4 mb-1 empresas-title">Legajo de Empresas</h1>
-    <input type="text" id="empresaSearch" class="form-control form-control-sm empresa-search-input" placeholder="Buscar por marca o razón social">
+    <form method="get" class="d-flex flex-column flex-sm-row gap-2">
+      <input type="text" id="empresaSearch" name="q" value="{{ q or '' }}" class="form-control form-control-sm empresa-search-input" placeholder="Buscar por marca o razón social">
+      <input type="hidden" name="page" value="1">
+      <input type="hidden" name="per_page" value="{{ per_page or 10 }}">
+    </form>
   </div>
   <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary btn-create-company">+ Crear Empresa</a>
 </div>
-<div class="card">
+<div class="card table-sticky-card">
   <div class="card-body p-0">
     <div class="desktop-table">
       <style>
@@ -36,8 +45,8 @@
         /* Evitar wraps dentro del grupo de botones */
         .btn-group.flex-nowrap .btn { white-space: nowrap; }
       </style>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0 table-tight" id="empresas-table">
+      <div class="table-responsive table-mobile-cards">
+        <table class="table table-hover align-middle mb-0 table-tight table-sticky" id="empresas-table">
         <thead class="table-light">
           <tr>
             <th class="js-company-sort" data-sort-key="marca">Marca</th>
@@ -302,6 +311,20 @@
         {% endfor %}
         </tbody>
         </table>
+        {% if not show_all %}
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+          <div class="text-muted small">
+            Página {{ page or 1 }}
+          </div>
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_prev else '' }}"
+               href="{{ url_for('main.empresas', q=q, page=(page-1), per_page=per_page) }}">Anterior</a>
+            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_next else '' }}"
+               href="{{ url_for('main.empresas', q=q, page=(page+1), per_page=per_page) }}">Siguiente</a>
+            <a class="btn btn-sm btn-outline-dark" href="{{ url_for('main.empresas', q=q, all=1) }}">Ver todos</a>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </div>
     <div class="mobile-cards"></div>
@@ -310,37 +333,33 @@
 <script>
 (function(){
   var input = document.getElementById('empresaSearch');
-  var tbody = document.querySelector('#empresas-table tbody');
-  var rows = tbody ? Array.from(tbody.children).filter(function(n){ return n && n.tagName === 'TR'; }) : [];
-  function norm(str){
-    str = (str || '').toString().toLowerCase();
-    try {
-      // Quitar diacríticos (acentos) y unificar apóstrofes comunes
-      str = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    } catch (e) {}
-    // Unificar apóstrofes (', ´, `, ’, etc.) y también permitir búsqueda sin apóstrofe
-    str = str.replace(/[\u2018\u2019\u201B\u2032\u00B4\u0060\u02B9\u02BB\uFF07']/g, "'");
-    return str;
-  }
-  function applySearch(){
-    var q = norm(input && input.value || '');
-    var qNoApos = q.replace(/'/g, '');
-    rows.forEach(function(tr){
-      var marca = norm(tr.getAttribute('data-marca') || '');
-      var razon = norm(tr.getAttribute('data-razon') || '');
-      var marcaNoApos = marca.replace(/'/g, '');
-      var razonNoApos = razon.replace(/'/g, '');
-      var match = !q ||
-        marca.indexOf(q) !== -1 || razon.indexOf(q) !== -1 ||
-        marcaNoApos.indexOf(qNoApos) !== -1 || razonNoApos.indexOf(qNoApos) !== -1;
-      tr.style.display = match ? '' : 'none';
-    });
+  var form = input ? input.closest('form') : null;
+  var t = null;
+
+  function setHidden(name, value){
+    if (!form) return;
+    var inp = form.querySelector('input[name="' + name + '"]');
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = name;
+      form.appendChild(inp);
+    }
+    inp.value = value;
   }
 
-  if (input){
-    input.addEventListener('input', applySearch);
+  function submitNow(){
+    if (!form) return;
+    setHidden('page', '1');
+    form.submit();
   }
-  applySearch();
+
+  function debounceSubmit(){
+    if (t) clearTimeout(t);
+    t = setTimeout(submitNow, 300);
+  }
+
+  if (input) input.addEventListener('input', debounceSubmit);
 })();
 </script>
 <script>
@@ -835,5 +854,56 @@
     window.addEventListener('load', reopenModal);
   }
 })();
+</script>
+<script>
+  (function(){
+    function closest(el, sel){
+      try { return el && el.closest ? el.closest(sel) : null; } catch(e){ return null; }
+    }
+    function safeHideDropdown(fromEl){
+      try {
+        var dd = closest(fromEl, '.dropdown');
+        if (!dd) return;
+        var toggle = dd.querySelector('[data-bs-toggle="dropdown"]');
+        if (!toggle) return;
+        if (window.bootstrap && window.bootstrap.Dropdown){
+          try { window.bootstrap.Dropdown.getOrCreateInstance(toggle).hide(); } catch(e0) {}
+        }
+      } catch(e) {}
+    }
+    function moveModalToBody(modalEl){
+      try {
+        if (!modalEl || modalEl.parentElement === document.body) return;
+        document.body.appendChild(modalEl);
+      } catch(e) {}
+    }
+    function showModal(modalEl){
+      try {
+        if (!modalEl) return;
+        if (window.bootstrap && window.bootstrap.Modal){
+          window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        } else {
+          modalEl.classList.add('show');
+          modalEl.style.display = 'block';
+        }
+      } catch(e) {}
+    }
+
+    document.addEventListener('click', function(e){
+      try {
+        var btn = e.target && e.target.closest ? e.target.closest('button[data-bs-toggle="modal"][data-bs-target^="#links"]') : null;
+        if (!btn) return;
+        var sel = btn.getAttribute('data-bs-target');
+        if (!sel) return;
+        var modalEl = document.querySelector(sel);
+        if (!modalEl) return;
+        e.preventDefault();
+        try { e.stopImmediatePropagation(); } catch(e0) { try { e.stopPropagation(); } catch(e1) {} }
+        safeHideDropdown(btn);
+        moveModalToBody(modalEl);
+        setTimeout(function(){ showModal(modalEl); }, 0);
+      } catch(err) {}
+    }, true);
+  })();
 </script>
 {% endblock %}

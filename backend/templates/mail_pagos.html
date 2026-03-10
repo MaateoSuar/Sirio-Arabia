@@ -1,0 +1,208 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h4 mb-0">Mail Pagos</h1>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form id="mpFilter" class="row g-2 align-items-end" method="get" action="{{ url_for('main.mail_pagos') }}">
+      {% set from_val = from_val if from_val is defined else '' %}
+      {% set to_val = to_val if to_val is defined else '' %}
+      <input type="hidden" name="from" id="mpFrom" value="{{ from_val }}">
+      <input type="hidden" name="to" id="mpTo" value="{{ to_val }}">
+
+      <div class="col-12 col-md-4">
+        <label class="form-label">Empresa</label>
+        <select class="form-select" name="company_id" id="mpCompany">
+          <option value="">Todas</option>
+          {% for c in companies %}
+            <option value="{{ c.id }}" {{ 'selected' if company_id and (company_id|int)==(c.id|int) else '' }}>{{ c.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-12 col-md-4">
+        <label class="form-label">Período</label>
+        <div class="input-group">
+          <input type="text" class="form-control" id="mpDateRange" readonly value="{{ (from_val ~ ' to ' ~ to_val) if from_val and to_val else '' }}">
+          <button class="btn btn-outline-secondary" type="button" id="mpClearRange">×</button>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-4">
+        <button class="btn btn-outline-primary" type="submit">Generar</button>
+      </div>
+    </form>
+
+    <div class="text-muted small mt-2">
+      Se envía a <code>Empresa.mail_pago</code> (separar múltiples con coma). Para envío real configurar <code>GMAIL_USER</code> y <code>GMAIL_PASSWORD</code>. Con <code>MAIL_FAKE=1</code> no envía, solo loguea.
+    </div>
+  </div>
+</div>
+
+{% if not mails %}
+  <div class="text-muted">No hay datos para el período/empresa seleccionados.</div>
+{% else %}
+  {% for m in mails %}
+    <div class="card mb-3" data-company-id="{{ m.company_id }}">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">{{ m.company }}</h2>
+          <div class="text-muted">Total: $ {{ '{:,.2f}'.format(m.total or 0)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }}</div>
+        </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Para</label>
+            <input class="form-control" value="{{ m.to }}" readonly>
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label">Asunto</label>
+            <input class="form-control js-mp-subject" value="{{ m.subject }}">
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary js-mp-copy">Copiar</button>
+          <button type="button" class="btn btn-sm btn-primary js-mp-send">Enviar</button>
+          <span class="text-muted small js-mp-status"></span>
+        </div>
+
+        <input type="hidden" class="js-mp-body-text" value="{{ m.body_text|e }}">
+        <textarea class="d-none js-mp-body-html">{{ m.body_html|e }}</textarea>
+
+        <div class="mt-3">
+          <div class="text-muted small mb-1">Preview</div>
+          <iframe class="w-100 border rounded" style="min-height:340px; background:#fff" srcdoc="{{ m.body_html|e }}"></iframe>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% endif %}
+
+<script>
+(function(){
+  function mountRange(){
+    try {
+      var input = document.getElementById('mpDateRange');
+      var fromH = document.getElementById('mpFrom');
+      var toH = document.getElementById('mpTo');
+      if (!input || !fromH || !toH) return;
+
+      var fp = flatpickr(input, {
+        mode: 'range',
+        dateFormat: 'Y-m-d',
+        allowInput: false,
+        disableMobile: true,
+        onChange: function(selectedDates, dateStr){
+          try {
+            var parts = (dateStr || '').split(' to ');
+            fromH.value = (parts[0] || '').trim();
+            toH.value = (parts[1] || '').trim();
+          } catch(e) {}
+        }
+      });
+      window.__mpRangePicker = fp;
+
+      var clearBtn = document.getElementById('mpClearRange');
+      if (clearBtn) {
+        clearBtn.addEventListener('click', function(){
+          try { fromH.value = ''; toH.value = ''; } catch(e) {}
+          try { if (window.__mpRangePicker) window.__mpRangePicker.clear(); } catch(e2) {}
+          try { input.value = ''; } catch(e3) {}
+        });
+      }
+    } catch(e) {}
+  }
+
+  if (typeof window.flatpickr === 'function') {
+    mountRange();
+  } else {
+    try {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+      s.onload = mountRange;
+      document.head.appendChild(s);
+      var l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+      document.head.appendChild(l);
+    } catch(e2) {}
+  }
+})();
+</script>
+
+<script>
+(function(){
+  async function sendMail(card){
+    var st = card.querySelector('.js-mp-status');
+    if (st) st.textContent = 'Enviando...';
+    var companyId = card.getAttribute('data-company-id');
+    var subject = (card.querySelector('.js-mp-subject') || {}).value || '';
+    var bodyText = (card.querySelector('.js-mp-body-text') || {}).value || '';
+    var bodyHtml = (card.querySelector('.js-mp-body-html') || {}).value || '';
+
+    var fd = new FormData();
+    fd.append('company_id', companyId);
+    fd.append('subject', subject);
+    fd.append('body_text', bodyText);
+    fd.append('body_html', bodyHtml);
+
+    var endpoint = "{{ url_for('main.mail_pagos_enviar') }}";
+    try {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin'
+      });
+      var data = null;
+      try { data = await resp.json(); } catch(e) { data = { ok: resp.ok }; }
+      if (!data || !data.ok) {
+        if (st) st.textContent = (data && data.error) ? data.error : 'Error enviando mail';
+        return;
+      }
+      if (st) st.textContent = data.fake ? 'OK (MAIL_FAKE)' : 'Enviado';
+    } catch(e) {
+      if (st) st.textContent = 'Error de conexión';
+    }
+  }
+
+  async function copyMail(card){
+    var subject = (card.querySelector('.js-mp-subject') || {}).value || '';
+    var bodyText = (card.querySelector('.js-mp-body-text') || {}).value || '';
+    var st = card.querySelector('.js-mp-status');
+    var txt = 'ASUNTO: ' + subject + '\n\n' + bodyText;
+    try {
+      await navigator.clipboard.writeText(txt);
+      if (st) st.textContent = 'Copiado';
+    } catch(e) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = txt;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        if (st) st.textContent = 'Copiado';
+      } catch(e2) {
+        if (st) st.textContent = 'No se pudo copiar';
+      }
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target;
+    if (!btn) return;
+    var card = btn.closest ? btn.closest('[data-company-id]') : null;
+    if (!card) return;
+    if (btn.classList.contains('js-mp-send')) {
+      sendMail(card);
+    }
+    if (btn.classList.contains('js-mp-copy')) {
+      copyMail(card);
+    }
+  });
+})();
+</script>
+{% endblock %}

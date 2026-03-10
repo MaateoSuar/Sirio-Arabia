@@ -77,7 +77,10 @@
             <option value="">-</option>
             <option value="EFECTIVO" {{ 'selected' if fpd=='EFECTIVO' else '' }}>Efectivo</option>
             <option value="TRANSFERENCIA" {{ 'selected' if fpd=='TRANSFERENCIA' else '' }}>Transferencia</option>
-            <option value="CHEQUE" {{ 'selected' if fpd=='CHEQUE' else '' }}>Cheque</option>
+            <option value="E-CHEQ" {{ 'selected' if fpd=='E-CHEQ' else '' }}>E-cheq</option>
+            <option value="CHEQUE_TERCEROS" {{ 'selected' if fpd=='CHEQUE_TERCEROS' else '' }}>Cheque Físico Terceros</option>
+            <option value="CHEQUE_PROPIO" {{ 'selected' if fpd=='CHEQUE_PROPIO' else '' }}>Cheque Físico Propio</option>
+            <option value="CHEQUE" {{ 'selected' if fpd=='CHEQUE' else '' }}>Cheque (genérico)</option>
             <option value="NO_SE_SABE" {{ 'selected' if fpd=='NO_SE_SABE' else '' }}>No se sabe</option>
           </select>
         </div>
@@ -89,8 +92,8 @@
               <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-collapse" aria-expanded="false" aria-controls="cmp-mails-collapse">Seleccionar mails</button>
             </div>
             <div id="cmp-mails-collapse" class="collapse mt-2">
-              <div class="d-flex gap-2 mb-2">
-                <input type="email" class="form-control form-control-sm" id="new_cmp_mail_input" placeholder="Agregar mail" style="max-width:260px">
+              <div class="d-flex flex-column flex-sm-row gap-2 mb-2">
+                <input type="email" class="form-control form-control-sm flex-grow-1" id="new_cmp_mail_input" placeholder="Agregar mail">
                 <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddCmpMail">Agregar</button>
               </div>
               <div id="cmp-mails-alert" class="mt-1"></div>
@@ -107,29 +110,31 @@
           </div>
         </div>
         <div class="col-md-6">
-          {% if company %}<input type="hidden" id="company_mail_pago_raw" value="{{ company.mail_pago or '' }}">{% endif %}
-          <div class="mt-3">
-            <div class="d-flex align-items-center justify-content-between">
-              <label class="form-label m-0">Mails de pagos</label>
-              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-pago-collapse" aria-expanded="false" aria-controls="cmp-mails-pago-collapse">Seleccionar mails</button>
-            </div>
-            <div id="cmp-mails-pago-collapse" class="collapse mt-2">
-              <div class="d-flex gap-2 mb-2">
-                <input type="email" class="form-control form-control-sm" id="new_cmp_mail_pago_input" placeholder="Agregar mail" style="max-width:260px">
-                <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddCmpMailPago">Agregar</button>
+          {% if is_admin %}
+            {% if company %}<input type="hidden" id="company_mail_pago_raw" value="{{ company.mail_pago or '' }}">{% endif %}
+            <div class="mt-3">
+              <div class="d-flex align-items-center justify-content-between">
+                <label class="form-label m-0">Mails de pagos</label>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-pago-collapse" aria-expanded="false" aria-controls="cmp-mails-pago-collapse">Seleccionar mails</button>
               </div>
-              <div id="cmp-mails-pago-alert" class="mt-1"></div>
-              <div id="cmp-mails-pago-checklist" class="border rounded p-2" style="max-height:200px; overflow:auto"></div>
-              <div class="d-flex justify-content-end mt-2">
-                <button type="button" id="btnConfirmarCmpMailsPago" class="btn btn-sm btn-primary">Confirmar selección</button>
+              <div id="cmp-mails-pago-collapse" class="collapse mt-2">
+                <div class="d-flex flex-column flex-sm-row gap-2 mb-2">
+                  <input type="email" class="form-control form-control-sm flex-grow-1" id="new_cmp_mail_pago_input" placeholder="Agregar mail">
+                  <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddCmpMailPago">Agregar</button>
+                </div>
+                <div id="cmp-mails-pago-alert" class="mt-1"></div>
+                <div id="cmp-mails-pago-checklist" class="border rounded p-2" style="max-height:200px; overflow:auto"></div>
+                <div class="d-flex justify-content-end mt-2">
+                  <button type="button" id="btnConfirmarCmpMailsPago" class="btn btn-sm btn-primary">Confirmar selección</button>
+                </div>
+              </div>
+              <div class="mt-2">
+                <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
+                <div id="cmp-mails-pago-selected" class="mt-1"></div>
+                <div id="cmp-mails-pago-hidden"></div>
               </div>
             </div>
-            <div class="mt-2">
-              <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
-              <div id="cmp-mails-pago-selected" class="mt-1"></div>
-              <div id="cmp-mails-pago-hidden"></div>
-            </div>
-          </div>
+          {% endif %}
         </div>
         {% if company %}
         <div class="col-12 mt-4">
@@ -162,8 +167,9 @@
           <div id="clients-selected-wrapper" class="mt-3">
             <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Clientes confirmados</div>
             <div id="clients-selected" class="mt-1">
-              {% if company and company.links %}
-                {% for l in company.links %}
+              {% set _links = (visible_links if visible_links is defined else []) %}
+              {% if _links %}
+                {% for l in _links %}
                   <span class="badge badge-client me-1 mb-1" data-client-id="{{ l.client_id }}">
                     {{ l.client.apellido }}
                     <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-client-del" data-client-id="{{ l.client_id }}">×</button>
@@ -174,44 +180,46 @@
               {% endif %}
             </div>
             <div id="clients-hidden">
-              {% if company and company.links %}
-                {% for l in company.links %}
+              {% if _links %}
+                {% for l in _links %}
                   <input type="hidden" name="client_ids" value="{{ l.client_id }}">
                 {% endfor %}
               {% endif %}
             </div>
           </div>
-          <div class="table-responsive border rounded mt-2">
-            <table class="table table-sm mb-0 align-middle js-sortable-table">
-              <thead>
-                <tr>
-                  <th data-sort="text">Cliente</th>
-                  <th data-sort="text">Estado</th>
-                  <th data-sort="text">Comprobante</th>
-                  <th class="text-end">Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% if company.links %}
-                  {% for l in company.links %}
-                    <tr>
-                      <td>{{ l.client.apellido if l.client else '-' }} {{ l.client.nombre if l.client else '' }}</td>
-                      <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
-                      <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
-                      <td class="text-end">
-                        {% if l.client %}
-                          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=l.client.id) }}">Ver legajo</a>
-                        {% else %}
-                          <span class="text-muted">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                {% else %}
-                  <tr><td colspan="4" class="text-center text-muted">Sin clientes vinculados</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
+          <div class="desktop-table">
+            <div class="table-responsive border rounded mt-2">
+              <table class="table table-sm mb-0 align-middle js-sortable-table">
+                <thead>
+                  <tr>
+                    <th data-sort="text">Cliente</th>
+                    <th data-sort="text">Estado</th>
+                    <th data-sort="text">Comprobante</th>
+                    <th class="text-end">Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% if _links %}
+                    {% for l in _links %}
+                      <tr>
+                        <td>{{ l.client.apellido if l.client else '-' }} {{ l.client.nombre if l.client else '' }}</td>
+                        <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
+                        <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
+                        <td class="text-end">
+                          {% if l.client %}
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.clientes_edit_view', client_id=l.client.id) }}">Ver legajo</a>
+                          {% else %}
+                            <span class="text-muted">—</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  {% else %}
+                    <tr><td colspan="4" class="text-center text-muted">Sin clientes vinculados</td></tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
         {% endif %}
@@ -225,6 +233,7 @@
             <i class="bi bi-chevron-right"></i>
           </div>
         </div>
+
         <div class="col-12 collapse" id="empresaRecomCollapse">
           <div class="row g-3 mt-1">
             <div class="col-12">
@@ -239,6 +248,22 @@
                 </div>
                 <div class="card-body">
                   <div id="recom_pedido_preview" class="form-control" style="min-height:120px; background:#fffef7; overflow:auto;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <input type="hidden" name="nota_pedido" id="recom_nota_pedido" value="{{ company.nota_pedido or '' if company else '' }}">
+              <div class="card shadow-sm">
+                <div class="card-header bg-light d-flex align-items-center justify-content-between">
+                  <strong>Nota de Pedido</strong>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary js-recom-edit" data-field="nota_pedido"><i class="bi bi-journal-text"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary js-recom-copy" data-field="nota_pedido"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="recom_nota_pedido_preview" class="form-control" style="min-height:120px; background:#fffef7; overflow:auto;"></div>
                 </div>
               </div>
             </div>
@@ -260,9 +285,50 @@
             </div>
           </div>
         </div>
+
+        {% if company %}
+        <div class="col-12 mt-4">
+          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaProductosCollapse" aria-expanded="false" aria-controls="empresaProductosCollapse">
+            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
+              Planilla de productos
+              <small class="text-muted" style="font-size:.85rem;">(CSV / XLSX)</small>
+            </h3>
+            <i class="bi bi-chevron-right"></i>
+          </div>
+        </div>
+        <div class="col-12 collapse" id="empresaProductosCollapse">
+          <div class="card shadow-sm mt-2">
+            <div class="card-body">
+              <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-8">
+                  <label class="form-label">Subir planilla</label>
+                  <input class="form-control" type="file" name="sheet" accept=".csv,.xlsx" required form="productSheetUploadForm">
+                </div>
+                <div class="col-12 col-md-4 d-flex gap-2">
+                  <button class="btn btn-primary w-100" type="submit" form="productSheetUploadForm">Subir</button>
+                  <a class="btn btn-outline-secondary w-100" href="{{ url_for('main.empresas_productos_view', company_id=company.id) }}">Ver</a>
+                </div>
+              </div>
+              <div class="text-muted small mt-2">
+                {% set last_sheet = (company.product_sheets|sort(attribute='uploaded_at', reverse=True)|first) if company.product_sheets else none %}
+                {% if last_sheet %}
+                  Última subida: <strong>{{ last_sheet.filename }}</strong>
+                  {% if last_sheet.uploaded_at %} ({{ last_sheet.uploaded_at.strftime('%d/%m/%Y %H:%M') }}){% endif %}
+                {% else %}
+                  Aún no hay planillas cargadas.
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
       </div>
       </div>
     </form>
+
+    {% if company %}
+    <form id="productSheetUploadForm" method="post" enctype="multipart/form-data" action="{{ url_for('main.empresas_productos_upload', company_id=company.id) }}"></form>
+    {% endif %}
 
     <div class="modal fade" id="recomNotasModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
@@ -528,7 +594,7 @@
     </div>
       </div>
 
-      <div class="mt-4 d-flex justify-content-end gap-2">
+      <div class="mt-4 d-grid gap-2 d-sm-flex justify-content-sm-end">
         <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
         <button class="btn btn-primary" type="submit" form="empresa-form">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
       </div>
@@ -570,7 +636,6 @@
       return String(html || '').trim();
     }
   }
-
   function htmlToPlainWithBullets(html){
     try{
       var tmp = document.createElement('div');
@@ -591,13 +656,16 @@
   }
 
   var hidPedido = document.getElementById('recom_pedido');
+  var hidNotaPedido = document.getElementById('recom_nota_pedido');
   var hidDesc = document.getElementById('recom_desc');
   var prevPedido = document.getElementById('recom_pedido_preview');
+  var prevNotaPedido = document.getElementById('recom_nota_pedido_preview');
   var prevDesc = document.getElementById('recom_desc_preview');
-  if (!hidPedido || !hidDesc || !prevPedido || !prevDesc) return;
+  if (!hidPedido || !hidNotaPedido || !hidDesc || !prevPedido || !prevNotaPedido || !prevDesc) return;
 
   function renderPreviews(){
     prevPedido.innerHTML = escapeHtml(htmlToText(hidPedido.value)) || '<span class="text-muted">(Vacío)</span>';
+    prevNotaPedido.innerHTML = escapeHtml(htmlToText(hidNotaPedido.value)) || '<span class="text-muted">(Vacío)</span>';
     prevDesc.innerHTML = escapeHtml(htmlToText(hidDesc.value)) || '<span class="text-muted">(Vacío)</span>';
   }
   renderPreviews();
@@ -610,14 +678,21 @@
   var modal = (modalEl && window.bootstrap && window.bootstrap.Modal) ? window.bootstrap.Modal.getOrCreateInstance(modalEl) : null;
   var cancelBtn = modalEl ? modalEl.querySelector('[data-bs-dismiss="modal"]') : null;
 
-  var currentField = null; // 'pedido' | 'desc'
+  var currentField = null; // 'pedido' | 'nota_pedido' | 'desc'
   function openModal(field){
     currentField = field;
-    if (titleEl) titleEl.textContent = field === 'pedido' ? 'Pedido estándar recomendado' : 'Descripción';
+    if (titleEl) {
+      if (field === 'pedido') titleEl.textContent = 'Pedido estándar recomendado';
+      else if (field === 'nota_pedido') titleEl.textContent = 'Nota de Pedido';
+      else titleEl.textContent = 'Descripción';
+    }
     if (editor) {
-      var val = (field === 'pedido' ? hidPedido.value : hidDesc.value) || '';
-      editor.innerHTML = val;
-      editor.focus();
+      var val = '';
+      if (field === 'pedido') val = hidPedido.value;
+      else if (field === 'nota_pedido') val = hidNotaPedido.value;
+      else val = hidDesc.value;
+      editor.innerHTML = val || '';
+      try { editor.focus(); } catch(e) {}
     }
     if (modal) modal.show();
     else if (modalEl){
@@ -644,7 +719,6 @@
     }
   }
 
-  // Si Bootstrap no engancha, permitir cerrar con X/Cancelar/backdrop/Esc
   try {
     if (modalEl) {
       modalEl.addEventListener('click', function(ev){
@@ -691,6 +765,7 @@
       if (!currentField) return;
       var html = editor ? (editor.innerHTML || '') : '';
       if (currentField === 'pedido') hidPedido.value = html;
+      else if (currentField === 'nota_pedido') hidNotaPedido.value = html;
       else hidDesc.value = html;
       renderPreviews();
       closeModal();
@@ -708,7 +783,10 @@
     if (btnCopy){
       e.preventDefault();
       var field = btnCopy.getAttribute('data-field');
-      var raw = field === 'pedido' ? hidPedido.value : hidDesc.value;
+      var raw = '';
+      if (field === 'pedido') raw = hidPedido.value;
+      else if (field === 'nota_pedido') raw = hidNotaPedido.value;
+      else raw = hidDesc.value;
       var plain = htmlToPlainWithBullets(raw);
       try {
         if (navigator.clipboard && window.ClipboardItem) {

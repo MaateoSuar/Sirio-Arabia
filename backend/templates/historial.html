@@ -2,161 +2,122 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Historial de Pedidos</h1>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('main.historial_eliminados') }}">Eliminados</a>
+  </div>
 </div>
-<div class="card">
+<div class="card table-sticky-card">
   <div class="card-body p-0">
     <div class="desktop-table">
       <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
+        <table class="table table-hover align-middle mb-0 table-sticky" id="historial-table">
         <thead class="table-light">
           <tr>
-            <th>Fecha pedido</th>
-            <th>Cliente</th>
-            <th>Empresa</th>
-            <th>Nota</th>
-            <th>Descripción</th>
-            <th>Fotografía</th>
-            <th>Entrega efectiva</th>
-            <th>Cobro efectivo</th>
-            <th>Status</th>
-            <th class="text-end">Acciones</th>
+            <th class="js-hist-sort" data-sort-key="pedido" style="cursor:pointer; user-select:none;">Fecha pedido</th>
+            <th class="js-hist-sort" data-sort-key="cliente" style="cursor:pointer; user-select:none;">Cliente</th>
+            <th class="js-hist-sort" data-sort-key="empresa" style="cursor:pointer; user-select:none;">Empresa</th>
+            <th>Tipo</th>
+            <th class="text-end">Monto</th>
+            <th class="js-hist-sort" data-sort-key="entrega" style="cursor:pointer; user-select:none;">Fecha entrega</th>
+            <th class="js-hist-sort" data-sort-key="cobro" style="cursor:pointer; user-select:none;">Fecha cobro</th>
+            <th class="text-end">Ver detalles</th>
           </tr>
         </thead>
         <tbody>
         {% for o in orders %}
           <tr>
-            <td>{{ o.created_at.strftime('%d/%m/%Y') }}</td>
-            <td>{{ o.client.apellido }} {{ o.client.nombre }}</td>
-            <td>{{ o.company.nombre }}</td>
-            <td class="text-truncate" style="max-width: 200px">{{ o.nota }}</td>
-            <td class="text-truncate" style="max-width: 280px">{{ o.descripcion }}</td>
-            <td>
-              {% set fotos = o.attachments or [] %}
-              {% if fotos %}
-                {% set first = fotos[0] %}
-                <div class="d-inline-flex align-items-center gap-1">
-                  <img src="{{ first.url }}" alt="Foto pedido" class="img-thumbnail" style="width:56px;height:56px;object-fit:cover;cursor:pointer" data-bs-toggle="modal" data-bs-target="#photos{{ o.id }}">
-                  {% if fotos|length > 1 %}
-                    <a class="badge bg-secondary text-decoration-none" href="#" data-bs-toggle="modal" data-bs-target="#photos{{ o.id }}">+{{ fotos|length - 1 }}</a>
-                  {% endif %}
-                </div>
-                <div class="modal fade" id="photos{{ o.id }}" tabindex="-1" aria-hidden="true">
-                  <div class="modal-dialog modal-dialog-centered modal-lg">
-                    <div class="modal-content">
-                      <div class="modal-header">
-                        <h5 class="modal-title">Fotos del pedido #{{ o.id }}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                      </div>
-                      <div class="modal-body p-0">
-                        <div id="carousel{{ o.id }}" class="carousel slide" data-bs-ride="carousel">
-                          <div class="carousel-inner">
-                            {% for a in fotos %}
-                              <div class="carousel-item {% if loop.first %}active{% endif %}">
-                                <img src="{{ a.url }}" class="d-block w-100" alt="Foto {{ loop.index }}" style="max-height:70vh;object-fit:contain;background:#000">
-                              </div>
-                            {% endfor %}
-                          </div>
-                          {% if fotos|length > 1 %}
-                          <button class="carousel-control-prev" type="button" data-bs-target="#carousel{{ o.id }}" data-bs-slide="prev">
-                            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-                            <span class="visually-hidden">Anterior</span>
-                          </button>
-                          <button class="carousel-control-next" type="button" data-bs-target="#carousel{{ o.id }}" data-bs-slide="next">
-                            <span class="carousel-control-next-icon" aria-hidden="true"></span>
-                            <span class="visually-hidden">Siguiente</span>
-                          </button>
-                          {% endif %}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              {% else %}
-                <span class="text-muted">-</span>
-              {% endif %}
+            <td>{{ o.created_at.strftime('%d/%m/%Y') if o.created_at else '-' }}</td>
+            <td>{{ (o.client.apellido ~ ' ' ~ o.client.nombre) if o.client else '-' }}</td>
+            <td>{{ o.company.nombre if o.company else '-' }}</td>
+            <td>{{ o.tipo_comprobante or '-' }}</td>
+            <td class="text-end">
+              {% set amt = (o.precio_final if o.precio_final is not none else (o.logistics.precio if o.logistics and o.logistics.precio is not none else (o.collection.monto if o.collection and o.collection.monto is not none else none))) %}
+              {{ amt if amt is not none else '-' }}
             </td>
             <td>{{ o.logistics.fecha_entrega_efectiva.strftime('%d/%m/%Y') if o.logistics and o.logistics.fecha_entrega_efectiva else '-' }}</td>
             <td>{{ o.collection.fecha_cobro_efectiva.strftime('%d/%m/%Y') if o.collection and o.collection.fecha_cobro_efectiva else '-' }}</td>
-            <td>
-              {% if o.collection and o.collection.fecha_cobro_efectiva %}
-                Cobrado
-              {% elif o.logistics and o.logistics.fecha_entrega_efectiva %}
-                A cobrar
-              {% else %}
-                Enviado
-              {% endif %}
-            </td>
             <td class="text-end">
-              <div class="btn-group btn-group-sm" role="group">
-                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editOrder{{ o.id }}" title="Editar">
-                  <i class="bi bi-pencil-square"></i>
-                </button>
-                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ o.id }}" title="Eliminar">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#orderDetails{{ o.id }}">Ver</button>
 
-              <div class="modal fade" id="editOrder{{ o.id }}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog">
+              <div class="modal fade" id="orderDetails{{ o.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg">
                   <div class="modal-content">
                     <div class="modal-header">
-                      <h5 class="modal-title">Editar Pedido #{{ o.id }}</h5>
+                      <h5 class="modal-title">Pedido #{{ o.id }} - Detalles</h5>
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <form method="post" action="{{ url_for('main.pedidos_edit', order_id=o.id) }}">
-                      <div class="modal-body row g-3 text-start">
+                    <form id="histForm{{ o.id }}" method="post" action="{{ url_for('main.historial_update', order_id=o.id) }}">
+                      <input type="hidden" name="return_to" value="{{ return_to }}">
+                      <div class="modal-body">
+                      <div class="row g-3">
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Fecha pedido</label>
+                          <input type="text" class="form-control" value="{{ o.created_at.strftime('%Y-%m-%d') if o.created_at else '' }}" disabled>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Cliente</label>
+                          <input type="text" class="form-control" value="{{ (o.client.apellido ~ ' ' ~ o.client.nombre) if o.client else '' }}" disabled>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Empresa</label>
+                          <input type="text" class="form-control" value="{{ o.company.nombre if o.company else '' }}" disabled>
+                        </div>
+
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Sucursal</label>
+                          <input type="text" class="form-control" value="{{ o.sucursal or '' }}" disabled>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Tipo</label>
+                          <input type="text" class="form-control" value="{{ o.tipo_comprobante or '' }}" disabled>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Forma de pago</label>
+                          <input type="text" class="form-control" value="{{ (o.forma_pago.value if o.forma_pago else '') ~ (' ' ~ (o.forma_pago_detalle or '') if (o.forma_pago_detalle) else '') }}" disabled>
+                        </div>
+
                         <div class="col-12">
                           <label class="form-label">Nota</label>
-                          <input name="nota" class="form-control" value="{{ o.nota }}">
+                          <input name="nota" class="form-control" value="{{ o.nota or '' }}">
                         </div>
                         <div class="col-12">
                           <label class="form-label">Descripción</label>
-                          <textarea name="descripcion" class="form-control" rows="4">{{ o.descripcion }}</textarea>
+                          <textarea name="descripcion" class="form-control" rows="4">{{ o.descripcion or '' }}</textarea>
                         </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Precio final</label>
-                          <div class="input-group">
-                            <span class="input-group-text">$</span>
-                            <input id="pfDisp{{ o.id }}" type="text" class="form-control js-currency" data-hidden="pfHid{{ o.id }}" value="{{ o.precio_final or '' }}" autocomplete="off" inputmode="numeric">
-                            <input type="hidden" name="precio_final" id="pfHid{{ o.id }}" value="{{ o.precio_final or '' }}">
-                          </div>
-                        </div>
-                        <div class="col-md-6">
-                          <label class="form-label">Forma de pago</label>
-                          <select name="forma_pago" class="form-select">
-                            <option value="">-</option>
-                            <option value="EFECTIVO" {{ 'selected' if o.forma_pago and o.forma_pago.value=='EFECTIVO' else '' }}>Efectivo</option>
-                            <option value="CHEQUE" {{ 'selected' if o.forma_pago and o.forma_pago.value=='CHEQUE' else '' }}>Cheque</option>
-                            <option value="TRANSFERENCIA" {{ 'selected' if o.forma_pago and o.forma_pago.value=='TRANSFERENCIA' else '' }}>Transferencia</option>
-                            <option value="NO_SE_SABE" {{ 'selected' if o.forma_pago and o.forma_pago.value=='NO_SE_SABE' else '' }}>No se sabe</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div class="modal-footer">
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-                        <button class="btn btn-primary" type="submit">Guardar</button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              </div>
 
-              <div class="modal fade" id="delOrder{{ o.id }}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog">
-                  <div class="modal-content">
-                    <div class="modal-header">
-                      <h5 class="modal-title">Eliminar Pedido</h5>
-                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body text-center">
-                      ¿Confirmas eliminar el pedido?
-                    </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Fecha entrega efectiva</label>
+                          <input type="date" class="form-control" name="fecha_entrega_efectiva" value="{{ o.logistics.fecha_entrega_efectiva.date().isoformat() if o.logistics and o.logistics.fecha_entrega_efectiva else '' }}">
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Fecha cobro efectiva</label>
+                          <input type="date" class="form-control" name="fecha_cobro_efectiva" value="{{ o.collection.fecha_cobro_efectiva.date().isoformat() if o.collection and o.collection.fecha_cobro_efectiva else '' }}">
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Monto</label>
+                          <input type="text" class="form-control js-currency" data-hidden="montoHid{{ o.id }}" value="{{ o.precio_final or '' }}" autocomplete="off" inputmode="numeric">
+                          <input type="hidden" name="monto" id="montoHid{{ o.id }}" value="{{ o.precio_final or '' }}">
+                        </div>
+                      </div>
+                      <textarea class="d-none" id="histOrderCopy{{ o.id }}">Pedido #{{ o.id }}
+Fecha pedido: {{ o.created_at.strftime('%d/%m/%Y') if o.created_at else '-' }}
+Cliente: {{ (o.client.apellido ~ ' ' ~ o.client.nombre) if o.client else '-' }}
+Empresa: {{ o.company.nombre if o.company else '-' }}
+Sucursal: {{ o.sucursal or '-' }}
+Tipo: {{ o.tipo_comprobante or '-' }}
+Forma de pago: {{ (o.forma_pago.value if o.forma_pago else '-') ~ (' ' ~ (o.forma_pago_detalle or '') if (o.forma_pago_detalle) else '') }}
+Monto: {{ amt if amt is not none else '-' }}
+Entrega efectiva: {{ o.logistics.fecha_entrega_efectiva.strftime('%d/%m/%Y') if o.logistics and o.logistics.fecha_entrega_efectiva else '-' }}
+Cobro efectivo: {{ o.collection.fecha_cobro_efectiva.strftime('%d/%m/%Y') if o.collection and o.collection.fecha_cobro_efectiva else '-' }}
+Nota: {{ o.nota or '' }}
+Descripción: {{ o.descripcion or '' }}</textarea>
+                      </div>
                     <div class="modal-footer">
-                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-                      <form method="post" action="{{ url_for('main.pedidos_delete', order_id=o.id) }}">
-                        <button class="btn btn-danger">Eliminar</button>
-                      </form>
+                      <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+                      <button type="button" class="btn btn-outline-primary" data-copy-target="#histOrderCopy{{ o.id }}">Copiar</button>
+                      <button class="btn btn-primary" type="submit" form="histForm{{ o.id }}">Guardar</button>
                     </div>
+                    </form>
                   </div>
                 </div>
               </div>
@@ -169,6 +130,20 @@
         </table>
       </div>
     </div>
+    {% if not show_all %}
+    <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+      <div class="text-muted small">
+        Página {{ page or 1 }}
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_prev else '' }}"
+           href="{{ url_for('main.historial', sort=sort, dir=direction, page=(page-1), per_page=per_page) }}">Anterior</a>
+        <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_next else '' }}"
+           href="{{ url_for('main.historial', sort=sort, dir=direction, page=(page+1), per_page=per_page) }}">Siguiente</a>
+        <a class="btn btn-sm btn-outline-dark" href="{{ url_for('main.historial', sort=sort, dir=direction, all=1) }}">Ver todos</a>
+      </div>
+    </div>
+    {% endif %}
     <div class="mobile-cards"></div>
   </div>
 </div>
@@ -184,6 +159,75 @@
     el.addEventListener('input', syncRaw);
     el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
     syncFormat(); syncRaw();
+  });
+})();
+</script>
+<script>
+(function(){
+  async function copyText(text){
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch(e) {}
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch(e) {
+      return false;
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target && e.target.closest ? e.target.closest('[data-copy-target]') : null;
+    if (!btn) return;
+    var sel = btn.getAttribute('data-copy-target');
+    if (!sel) return;
+    var el = document.querySelector(sel);
+    if (!el) return;
+    copyText(el.value || el.textContent || '');
+  });
+})();
+</script>
+<script>
+(function(){
+  function setParam(url, key, value){
+    var u = new URL(url, window.location.origin);
+    if (value === null || value === undefined || value === '') u.searchParams.delete(key);
+    else u.searchParams.set(key, String(value));
+    return u.pathname + '?' + u.searchParams.toString();
+  }
+
+  function handleSort(key){
+    try {
+      var u = new URL(window.location.href);
+      var curKey = (u.searchParams.get('sort') || 'pedido');
+      var curDir = (u.searchParams.get('dir') || 'desc');
+      var nextDir = 'asc';
+      if (curKey === key) nextDir = (curDir === 'asc') ? 'desc' : 'asc';
+      u.searchParams.set('sort', key);
+      u.searchParams.set('dir', nextDir);
+      u.searchParams.set('page', '1');
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    } catch(e) {}
+  }
+
+  document.querySelectorAll('th.js-hist-sort').forEach(function(th){
+    th.addEventListener('click', function(e){
+      e.preventDefault();
+      var key = th.getAttribute('data-sort-key');
+      if (!key) return;
+      handleSort(key);
+    });
   });
 })();
 </script>

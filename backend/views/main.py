@@ -1,7 +1,11 @@
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, abort, send_file
 from flask import current_app
+from flask import session
 from datetime import date, datetime, timedelta
 from io import BytesIO
+from urllib.parse import urlparse
+from urllib.parse import urlencode
+from typing import Optional
 import smtplib
 from email.message import EmailMessage
 try:
@@ -10,117 +14,1151 @@ except Exception:
     ZoneInfo = None
 import os
 import requests
+import json
 from ..extensions import db
-from ..models import Client, Company, ClientCompanyLink, RelationStatus, Order, LogisticsStatus, Collection, CollectionPayment, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, ClientAlertState
-from sqlalchemy import func, text, or_
+from ..models import Client, Company, ClientCompanyLink, ClientCompanyBalance, RelationStatus, Order, LogisticsStatus, Collection, CollectionPayment, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, CompanyProductSheet, ClientAlertState, CommissionState, AppUser, CollectionDraft, OrderDraft
+from sqlalchemy import func, text, or_, and_
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import selectinload
+from flask_login import current_user
+
+from ..utils.company_products import parse_dynamic_table, read_dataframe_from_bytes, validate_filename
 
 bp = Blueprint("main", __name__)
 
 
-def _compute_alerts_for_all_clients(now_dt: datetime):
-    alerts = []
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
-    for c in clients:
-        try:
-            state_rows = ClientAlertState.query.filter_by(client_id=c.id).all()
-        except OperationalError:
-            # DB aún no migrada (por ejemplo SQLite sin columnas nuevas)
-            state_rows = []
-        state_map = {(s.order_id, s.kind): s for s in state_rows}
+_MODULES = [
+    "dashboard",
+    "calendario",
+    "clientes",
+    "empresas",
+    "pedidos",
+    "status",
+    "nueva_cobranza",
+    "deudas",
+    "historial",
+    "crm",
+    "comisiones",
+    "mail_pagos",
+    "usuarios",
+]
 
-        for o in (c.orders or []):
-            comp_name = o.company.nombre if o.company else "-"
 
-            def _is_muted(kind: str) -> bool:
-                st = state_map.get((o.id, kind))
-                if not st:
-                    return False
-                if st.dismissed_at:
-                    return True
-                if st.snoozed_until and st.snoozed_until > now_dt:
-                    return True
-                return False
+@bp.app_context_processor
+def inject_permission_helpers():
+    return {
+        "can_view": _can_view_module,
+    }
 
-            # Mercadería
-            lg = getattr(o, "logistics", None)
-            due = None
-            if lg and not lg.fecha_entrega_efectiva:
-                due = lg.fecha_entrega_estimada
-            if not due and o.demora_despacho_promedio_dias is not None:
+
+def _get_effective_user_obj():
+    try:
+        uid = _effective_user_id()
+    except Exception:
+        uid = None
+    if not uid:
+        return None
+    try:
+        return AppUser.query.get(int(uid))
+    except Exception:
+        return None
+
+
+def _parse_permissions_json(raw: str) -> dict:
+    try:
+        s = (raw or "").strip()
+        if not s:
+            return {}
+        obj = json.loads(s)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+
+def _can_view_module(module_key: str) -> bool:
+    module_key = (module_key or "").strip()
+    if not module_key:
+        return True
+
+    # Admin (sin soporte) ve todo.
+    try:
+        if _has_global_access():
+            return True
+    except Exception:
+        pass
+
+    u = _get_effective_user_obj()
+    if u is None:
+        return False
+
+    # Admin impersonando: respetar permisos del usuario impersonado.
+    perms = _parse_permissions_json(getattr(u, "permissions_json", None))
+    v = perms.get(module_key)
+    if v is None:
+        # Por default: permitir módulos base; restringir los admin-only.
+        if module_key in {"usuarios", "mail_pagos"}:
+            return False
+        return True
+    return bool(v)
+
+
+def _endpoint_to_module(endpoint: str) -> str:
+    ep = (endpoint or "").strip()
+    if not ep.startswith("main."):
+        return ""
+    name = ep.split(".", 1)[1]
+    mapping = {
+        "index": "dashboard",
+        "calendario": "calendario",
+        "clientes": "clientes",
+        "clientes_edit_view": "clientes",
+        "empresas": "empresas",
+        "empresas_edit_view": "empresas",
+        "empresas_productos_view": "empresas",
+        "pedidos": "pedidos",
+        "pedido_nuevo": "pedidos",
+        "status": "status",
+        "nueva_cobranza": "nueva_cobranza",
+        "deudas_pendientes": "deudas",
+        "historial": "historial",
+        "crm": "crm",
+        "comisiones": "comisiones",
+        "mail_pagos": "mail_pagos",
+        "usuarios": "usuarios",
+    }
+    return mapping.get(name, "")
+
+
+@bp.before_app_request
+def enforce_module_permissions():
+    try:
+        if not getattr(current_user, "is_authenticated", False):
+            return None
+        ep = request.endpoint or ""
+        mod = _endpoint_to_module(ep)
+        if not mod:
+            return None
+        if not _can_view_module(mod):
+            abort(403)
+    except Exception:
+        return None
+    return None
+
+
+def _fmt_money_es(v: float) -> str:
+    try:
+        n = float(v or 0.0)
+    except Exception:
+        n = 0.0
+    s = f"{n:,.2f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _get_company_mail_to(company: Company) -> list:
+    raw = (getattr(company, "mail_pago", None) or "").strip()
+    if not raw:
+        return []
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+def _send_email(subject: str, to_all: list, body_text: str, body_html: Optional[str] = None):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    from_addr = os.getenv("GMAIL_FROM") or os.getenv("GMAIL_USER")
+    if not from_addr:
+        raise RuntimeError("Configurar GMAIL_USER o GMAIL_FROM en variables de entorno")
+    msg["From"] = from_addr
+    msg["To"] = ", ".join([m for m in (to_all or []) if m])
+    msg.set_content(body_text or "")
+    if body_html:
+        msg.add_alternative(body_html, subtype="html")
+
+    mail_fake = (os.getenv("MAIL_FAKE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if mail_fake:
+        print("[mail_pagos] MAIL_FAKE activo - no se envía mail real")
+        print("[mail_pagos] From:", msg["From"], "To:", msg["To"])
+        print("[mail_pagos] Subject:", msg["Subject"])
+        return {"ok": True, "fake": True}
+
+    gmail_user = os.getenv("GMAIL_USER")
+    gmail_password = os.getenv("GMAIL_PASSWORD")
+    if not gmail_user or not gmail_password:
+        raise RuntimeError("Configurar GMAIL_USER y GMAIL_PASSWORD en variables de entorno")
+
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as smtp:
+        smtp.starttls()
+        smtp.login(gmail_user, gmail_password)
+        smtp.send_message(msg)
+    return {"ok": True}
+
+
+@bp.get("/mail_pagos")
+def mail_pagos():
+    _require_admin()
+    company_id = request.args.get("company_id", type=int)
+    desde = request.args.get("from")
+    hasta = request.args.get("to")
+    d_from = _parse_datetime_like(desde) if (desde or "").strip() else None
+    d_to = _parse_datetime_like(hasta) if (hasta or "").strip() else None
+    try:
+        if d_to is not None:
+            d_to = d_to + timedelta(days=1)
+    except Exception:
+        pass
+
+    companies = Company.query.order_by(Company.nombre).all()
+
+    q = (
+        CollectionPayment.query
+        .join(Order, CollectionPayment.order_id == Order.id)
+        .join(Company, Order.company_id == Company.id)
+        .filter(CollectionPayment.kind.in_(["PAYMENT", "CREDIT_NOTE"]))
+        .options(
+            selectinload(CollectionPayment.order).selectinload(Order.client),
+            selectinload(CollectionPayment.order).selectinload(Order.company),
+        )
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Order.owner_user_id == uid)
+    if company_id:
+        q = q.filter(Order.company_id == company_id)
+    if d_from is not None:
+        q = q.filter(CollectionPayment.created_at >= d_from)
+    if d_to is not None:
+        q = q.filter(CollectionPayment.created_at < d_to)
+
+    rows = q.order_by(Company.nombre.asc(), CollectionPayment.created_at.asc()).all()
+
+    user_map = {}
+    try:
+        user_ids = []
+        for p in rows:
+            try:
+                oid = int(getattr(getattr(p, "order", None), "owner_user_id", None) or 0)
+            except Exception:
+                oid = 0
+            if oid > 0:
+                user_ids.append(oid)
+        if user_ids:
+            for u in AppUser.query.filter(AppUser.id.in_(list(set(user_ids)))).all():
                 try:
-                    due = o.created_at + timedelta(days=int(o.demora_despacho_promedio_dias or 0))
+                    user_map[int(u.id)] = (getattr(u, "username", None) or f"Usuario {u.id}")
                 except Exception:
-                    due = None
-            if due and now_dt > due and not _is_muted("MERCADERIA"):
-                overdue_days = (now_dt - due).days
-                def _fmt_date(dt):
-                    try:
-                        return dt.strftime("%Y-%m-%d") if dt else ""
-                    except Exception:
-                        return ""
-                def _fmt_money(v):
-                    try:
-                        return str(float(v)) if v is not None else ""
-                    except Exception:
-                        return ""
-                alerts.append({
-                    "client_id": c.id,
-                    "client_name": f"{c.apellido} {c.nombre}",
-                    "company_id": o.company_id,
-                    "order_id": o.id,
-                    "kind": "MERCADERIA",
-                    "severity": "warning" if overdue_days <= 2 else "danger",
-                    "company": comp_name,
-                    "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
-                    "st_has_logistics": True if lg else False,
-                    "st_fecha_compra": _fmt_date(getattr(lg, "fecha_compra", None)) if lg else "",
-                    "st_entrega_estimada": _fmt_date(getattr(lg, "fecha_entrega_estimada", None)) if lg else "",
-                    "st_entrega_efectiva": _fmt_date(getattr(lg, "fecha_entrega_efectiva", None)) if lg else "",
-                    "st_precio": _fmt_money(getattr(lg, "precio", None)) if lg else "",
-                })
+                    pass
+    except Exception:
+        user_map = {}
 
-            # Cobranzas
-            col = getattr(o, "collection", None)
-            if col and not col.fecha_cobro_efectiva:
-                pay_due = col.fecha_pago_estimada
-                if not pay_due and o.company and o.company.plazo_pago_promedio_dias is not None:
+    from collections import defaultdict
+    grouped = defaultdict(lambda: defaultdict(list))
+    totals_by_company = defaultdict(float)
+    totals_by_user = defaultdict(lambda: defaultdict(float))
+
+    for p in rows:
+        o = getattr(p, "order", None)
+        comp_obj = getattr(o, "company", None) if o else None
+        comp_name = (getattr(comp_obj, "nombre", None) or "-") if comp_obj else "-"
+
+        uid = None
+        try:
+            uid = int(getattr(o, "owner_user_id", None) or 0) if o else 0
+        except Exception:
+            uid = 0
+        user_label = user_map.get(uid) if uid else None
+        user_label = user_label or "Sin usuario"
+
+        client = getattr(o, "client", None) if o else None
+        client_name = " ".join([x for x in [getattr(client, "apellido", None), getattr(client, "nombre", None)] if x]) or "-"
+        order_id = getattr(o, "id", None) if o else None
+
+        kind = (getattr(p, "kind", "") or "").strip().upper()
+        amt = 0.0
+        try:
+            amt = float(getattr(p, "amount", 0) or 0)
+        except Exception:
+            amt = 0.0
+        signed = abs(amt)
+        if kind == "CREDIT_NOTE":
+            signed = -abs(amt)
+
+        pay_date = None
+        # Mostrar fecha efectiva del pago (due_date) y fallback a created_at
+        pay_date = None
+        try:
+            dt_eff = getattr(p, "due_date", None) or getattr(p, "created_at", None)
+            pay_date = dt_eff.date().isoformat() if dt_eff else None
+        except Exception:
+            pay_date = None
+
+        method = (getattr(p, "method", None) or "")
+
+        row_obj = {
+            "payment_id": getattr(p, "id", None),
+            "order_id": order_id,
+            "client": client_name,
+            "date": pay_date,
+            "kind": kind,
+            "method": method,
+            "amount": float(signed or 0.0),
+        }
+        grouped[comp_name][user_label].append(row_obj)
+        totals_by_company[comp_name] += float(signed or 0.0)
+        totals_by_user[comp_name][user_label] += float(signed or 0.0)
+
+    # Construir mails por empresa
+    mails = []
+    for comp in companies:
+        if company_id and int(getattr(comp, "id", 0) or 0) != int(company_id):
+            continue
+        comp_name = (getattr(comp, "nombre", None) or "-")
+        if comp_name not in grouped:
+            continue
+        to_all = _get_company_mail_to(comp)
+        subject = f"Pagos {comp_name}"
+        if d_from and d_to:
+            try:
+                subject = f"Pagos {comp_name} ({(d_from.date().isoformat())} a {(d_to - timedelta(days=1)).date().isoformat()})"
+            except Exception:
+                pass
+
+        # Texto
+        lines = []
+        lines.append("RESUMEN DE PAGOS")
+        lines.append(f"Empresa: {comp_name}")
+        if d_from or d_to:
+            try:
+                lines.append(f"Período: {(d_from.date().isoformat() if d_from else '-') } a {( (d_to - timedelta(days=1)).date().isoformat() if d_to else '-') }")
+            except Exception:
+                pass
+        lines.append("")
+        for user_label, entries in grouped[comp_name].items():
+            lines.append(f"Usuario: {user_label}")
+            for r in entries:
+                amt_s = _fmt_money_es(r.get("amount") or 0)
+                lines.append(f"- {r.get('date') or ''} | Pedido {r.get('order_id') or ''} | {r.get('client') or ''} | {r.get('kind') or ''} {r.get('method') or ''} | $ {amt_s}")
+            lines.append(f"Subtotal {user_label}: $ {_fmt_money_es(totals_by_user[comp_name].get(user_label) or 0)}")
+            lines.append("")
+        lines.append(f"TOTAL {comp_name}: $ {_fmt_money_es(totals_by_company.get(comp_name) or 0)}")
+        body_text = "\n".join(lines)
+
+        # HTML
+        html_parts = []
+        html_parts.append("<html><body style=\"font-family:Arial,Helvetica,sans-serif; font-size:14px;\">")
+        html_parts.append(f"<h2 style=\"margin:0 0 8px 0;\">Resumen de pagos</h2>")
+        html_parts.append(f"<div><strong>Empresa:</strong> {comp_name}</div>")
+        if d_from or d_to:
+            try:
+                html_parts.append(f"<div><strong>Período:</strong> {(d_from.date().isoformat() if d_from else '-')} a {((d_to - timedelta(days=1)).date().isoformat() if d_to else '-')}</div>")
+            except Exception:
+                pass
+        html_parts.append("<hr style=\"border:none;border-top:1px solid #ddd;margin:12px 0;\"/>")
+        for user_label, entries in grouped[comp_name].items():
+            html_parts.append(f"<h3 style=\"margin:14px 0 6px 0; font-size:15px;\">Usuario: {user_label}</h3>")
+            html_parts.append("<table style=\"border-collapse:collapse; width:100%;\" border=\"1\" cellpadding=\"6\">")
+            html_parts.append("<thead><tr style=\"background:#f3f4f6;\"><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Tipo</th><th>Método</th><th style=\"text-align:right;\">Monto</th></tr></thead>")
+            html_parts.append("<tbody>")
+            for r in entries:
+                amt_s = _fmt_money_es(r.get("amount") or 0)
+                html_parts.append(
+                    "<tr>"
+                    f"<td>{r.get('date') or ''}</td>"
+                    f"<td>{r.get('order_id') or ''}</td>"
+                    f"<td>{r.get('client') or ''}</td>"
+                    f"<td>{r.get('kind') or ''}</td>"
+                    f"<td>{r.get('method') or ''}</td>"
+                    f"<td style=\"text-align:right;\">$ {amt_s}</td>"
+                    "</tr>"
+                )
+            html_parts.append("</tbody></table>")
+            html_parts.append(f"<div style=\"margin-top:6px;\"><strong>Subtotal {user_label}:</strong> $ {_fmt_money_es(totals_by_user[comp_name].get(user_label) or 0)}</div>")
+        html_parts.append("<hr style=\"border:none;border-top:1px solid #ddd;margin:12px 0;\"/>")
+        html_parts.append(f"<div style=\"font-size:16px;\"><strong>TOTAL {comp_name}:</strong> $ {_fmt_money_es(totals_by_company.get(comp_name) or 0)}</div>")
+        html_parts.append("</body></html>")
+        body_html = "".join(html_parts)
+
+        mails.append({
+            "company_id": int(getattr(comp, "id", 0) or 0),
+            "company": comp_name,
+            "to": ", ".join(to_all),
+            "subject": subject,
+            "body_text": body_text,
+            "body_html": body_html,
+            "total": float(totals_by_company.get(comp_name) or 0),
+        })
+
+    return render_template(
+        "mail_pagos.html",
+        active="mail_pagos",
+        companies=companies,
+        company_id=company_id,
+        from_val=(d_from.date().isoformat() if d_from else (desde or "")),
+        to_val=((d_to - timedelta(days=1)).date().isoformat() if d_to else (hasta or "")),
+        mails=mails,
+    )
+
+
+@bp.post("/mail_pagos/enviar")
+def mail_pagos_enviar():
+    _require_admin()
+    company_id = request.form.get("company_id", type=int)
+    subject = (request.form.get("subject") or "").strip()
+    body_html = (request.form.get("body_html") or "").strip()
+    body_text = (request.form.get("body_text") or "").strip()
+    if not company_id:
+        return jsonify({"ok": False, "error": "company_id requerido"}), 400
+    if not subject:
+        return jsonify({"ok": False, "error": "subject requerido"}), 400
+    comp = Company.query.get_or_404(int(company_id))
+    to_all = _get_company_mail_to(comp)
+    if not to_all:
+        return jsonify({"ok": False, "error": "La empresa no tiene mail_pago configurado"}), 400
+
+    try:
+        res = _send_email(subject=subject, to_all=to_all, body_text=body_text or "(sin texto)", body_html=body_html or None)
+        return jsonify({"ok": True, **(res or {})})
+    except Exception as e:
+        err_text = str(e) or "Error desconocido enviando el mail"
+        if "Network is unreachable" in err_text:
+            err_text = "No se pudo conectar al servidor de correo (sin conexión o bloqueado)."
+        return jsonify({"ok": False, "error": err_text}), 500
+
+
+def _has_global_access() -> bool:
+    try:
+        if not current_user.is_authenticated:
+            return False
+        if not getattr(current_user, "is_admin", False):
+            return False
+        # Si está en modo soporte (impersonación), NO es acceso global.
+        return not bool(session.get("impersonate_user_id"))
+    except Exception:
+        return False
+
+
+def _effective_user_id():
+    if not getattr(current_user, "is_authenticated", False):
+        return None
+
+    try:
+        if getattr(current_user, "is_admin", False):
+            imp = session.get("impersonate_user_id")
+            if imp:
+                try:
+                    return int(imp)
+                except Exception:
+                    return None
+    except Exception:
+        pass
+    try:
+        return int(getattr(current_user, "id", None))
+    except Exception:
+        return None
+
+
+def _require_owner(obj):
+    if obj is None:
+        return
+    if _has_global_access():
+        return
+    uid = _effective_user_id()
+    try:
+        if uid is None:
+            abort(403)
+        if getattr(obj, "owner_user_id", None) != uid:
+            abort(403)
+    except Exception:
+        abort(403)
+
+
+def _only_digits(v: str) -> str:
+    return "".join([ch for ch in (v or "") if ch.isdigit()])
+
+
+def _parse_money_like(raw: str) -> float:
+    s = (raw or "").strip()
+    if not s:
+        return 0.0
+    s = s.replace(" ", "")
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    else:
+        if "." in s:
+            try:
+                parts = s.split(".")
+                all_digits = all((p.isdigit() or p == "") for p in parts)
+                last = parts[-1] if parts else ""
+                if all_digits and (len(parts) > 2 or len(last) == 3):
+                    s = "".join(parts)
+            except Exception:
+                pass
+    s = "".join([ch for ch in s if (ch.isdigit() or ch in [".", "-"])])
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def _balance_owner_user_id():
+    try:
+        return _effective_user_id()
+    except Exception:
+        return None
+
+
+def _safe_filter_not_voided(q):
+    """Railway/Postgres: tolerar faltante de columna collection_payment.voided_at.
+
+    Si la columna no existe todavía, el filtro dispara UndefinedColumn. Reintentamos sin filtro.
+    """
+    try:
+        return q.filter(CollectionPayment.voided_at.is_(None))
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return q
+
+
+@bp.get("/api/cobranzas/saldo_historico")
+def api_cobranzas_get_saldo_historico():
+    client_id = request.args.get("client_id", type=int)
+    company_id = request.args.get("company_id", type=int)
+    if not client_id or not company_id:
+        return jsonify({"ok": True, "computed_total": 0.0, "adjustment": 0.0, "desired_total": 0.0})
+
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
+
+    # computed_total: SOLO diferencias de pedidos ya cobrados (saldo a favor/en contra histórico)
+    computed_total = 0.0
+    try:
+        q_orders = Order.query.filter(Order.client_id == client_id).filter(Order.company_id == company_id)
+        q_orders = q_orders.filter(Order.deleted_at.is_(None))
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is not None:
+                q_orders = q_orders.filter(Order.owner_user_id == uid)
+
+        for o in q_orders.all():
+            col = Collection.query.filter_by(order_id=o.id).first()
+            cobrado = bool(col is not None and getattr(col, "fecha_cobro_efectiva", None) is not None)
+            if not cobrado:
+                continue
+
+            monto_val = 0.0
+            try:
+                candidates = []
+                if col is not None and getattr(col, "monto", None) is not None:
+                    candidates.append(float(col.monto))
+                if getattr(o, "precio_final", None) is not None:
+                    candidates.append(float(o.precio_final))
+                lg = getattr(o, "logistics", None)
+                if lg is not None and getattr(lg, "precio", None) is not None:
+                    candidates.append(float(lg.precio))
+                for v in candidates:
+                    if v is not None and v > 0:
+                        monto_val = float(v)
+                        break
+                if monto_val == 0.0 and candidates:
+                    monto_val = float(candidates[0] or 0.0)
+            except Exception:
+                monto_val = 0.0
+
+            total_paid = 0.0
+            total_credit = 0.0
+            try:
+                for p in (
+                    CollectionPayment.query
+                    .filter_by(order_id=o.id)
+                    .filter(CollectionPayment.kind != "DRAFT")
+                    .filter(CollectionPayment.voided_at.is_(None))
+                    .all()
+                ):
+                    kind = (getattr(p, "kind", "") or "").strip().upper()
+                    amt = float(getattr(p, "amount", 0) or 0)
+                    if kind == "CREDIT_NOTE":
+                        total_credit += abs(amt)
+                    elif kind == "PAYMENT":
+                        total_paid += abs(amt)
+            except Exception:
+                total_paid = 0.0
+                total_credit = 0.0
+
+            remaining = float(monto_val or 0.0) - float(total_paid or 0.0) - float(total_credit or 0.0)
+            if abs(float(remaining or 0.0)) >= 1000.0:
+                computed_total += float(remaining or 0.0)
+    except Exception:
+        computed_total = 0.0
+
+    adjustment = 0.0
+    try:
+        uid = _balance_owner_user_id()
+        bal = (
+            ClientCompanyBalance.query
+            .filter_by(owner_user_id=uid, client_id=client_id, company_id=company_id)
+            .first()
+        )
+        if bal is not None and getattr(bal, "balance_adjustment", None) is not None:
+            adjustment = float(bal.balance_adjustment or 0.0)
+    except Exception:
+        adjustment = 0.0
+
+    desired_total = float(computed_total or 0.0) + float(adjustment or 0.0)
+    return jsonify({
+        "ok": True,
+        "computed_total": float(computed_total or 0.0),
+        "adjustment": float(adjustment or 0.0),
+        "desired_total": float(desired_total or 0.0),
+    })
+
+
+@bp.post("/api/cobranzas/saldo_historico")
+def api_cobranzas_set_saldo_historico():
+    client_id = request.form.get("client_id", type=int)
+    company_id = request.form.get("company_id", type=int)
+    desired_total_raw = (request.form.get("desired_total") or "").strip()
+    computed_raw = (request.form.get("computed_total") or "").strip()
+    if not client_id or not company_id:
+        abort(400)
+
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
+
+    desired_total = _parse_money_like(desired_total_raw)
+    computed_total = _parse_money_like(computed_raw)
+    adjustment = float(desired_total or 0.0) - float(computed_total or 0.0)
+
+    uid = _balance_owner_user_id()
+    row = (
+        ClientCompanyBalance.query
+        .filter_by(owner_user_id=uid, client_id=client_id, company_id=company_id)
+        .first()
+    )
+    if row is None:
+        row = ClientCompanyBalance(owner_user_id=uid, client_id=client_id, company_id=company_id)
+        db.session.add(row)
+    try:
+        row.balance_adjustment = float(adjustment or 0.0)
+    except Exception:
+        row.balance_adjustment = 0
+    db.session.commit()
+    return jsonify({"ok": True, "adjustment": float(adjustment or 0.0)})
+
+
+def _require_admin():
+    try:
+        if not current_user.is_authenticated:
+            abort(403)
+        if not getattr(current_user, "is_admin", False):
+            abort(403)
+    except Exception:
+        abort(403)
+
+
+@bp.get("/usuarios")
+def usuarios():
+    _require_admin()
+    users = AppUser.query.order_by(AppUser.username.asc()).all()
+    imp_id = session.get("impersonate_user_id")
+    try:
+        imp_id = int(imp_id) if imp_id else None
+    except Exception:
+        imp_id = None
+
+    perms_map = {}
+    try:
+        for u in users:
+            try:
+                perms_map[int(u.id)] = _parse_permissions_json(getattr(u, "permissions_json", None))
+            except Exception:
+                continue
+    except Exception:
+        perms_map = {}
+    # Módulos disponibles para permisos (simple y explícito)
+    mod_labels = {
+        "dashboard": "Dashboard",
+        "calendario": "Calendario",
+        "clientes": "Clientes",
+        "empresas": "Empresas",
+        "pedidos": "Pedidos",
+        "status": "Status Mercadería",
+        "nueva_cobranza": "Nuevas cobranzas",
+        "deudas": "Deudas pendientes",
+        "historial": "Historial",
+        "crm": "CRM",
+        "comisiones": "Comisiones",
+        "mail_pagos": "Mail Pagos",
+        "usuarios": "Usuarios (admin)",
+    }
+    return render_template(
+        "usuarios.html",
+        active="usuarios",
+        users=users,
+        impersonate_user_id=imp_id,
+        modules=_MODULES,
+        module_labels=mod_labels,
+        perms_map=perms_map,
+    )
+
+
+@bp.post("/usuarios/<int:user_id>/permisos")
+def usuarios_set_permisos(user_id: int):
+    _require_admin()
+    u = AppUser.query.get_or_404(user_id)
+    allowed = set(request.form.getlist("modules"))
+    data = {}
+    for m in _MODULES:
+        data[m] = (m in allowed)
+    try:
+        u.permissions_json = json.dumps(data, ensure_ascii=False)
+    except Exception:
+        u.permissions_json = None
+    db.session.commit()
+    return redirect(url_for("main.usuarios"))
+
+
+@bp.post("/usuarios/<int:user_id>/soporte")
+def usuarios_soporte(user_id: int):
+    _require_admin()
+    # No permitir impersonar a uno mismo
+    try:
+        if int(getattr(current_user, "id", 0) or 0) == int(user_id):
+            session.pop("impersonate_user_id", None)
+            return redirect(url_for("main.usuarios"))
+    except Exception:
+        pass
+    u = AppUser.query.get_or_404(user_id)
+    session["impersonate_user_id"] = int(u.id)
+    return redirect(url_for("main.index"))
+
+
+@bp.post("/usuarios/salir_soporte")
+def usuarios_salir_soporte():
+    _require_admin()
+    session.pop("impersonate_user_id", None)
+    return redirect(url_for("main.usuarios"))
+
+
+def _parse_amount_like(s: str):
+    s = (s or "").strip()
+    if s == "":
+        return None
+    s = s.replace(" ", "")
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    else:
+        if "," in s:
+            s = s.replace(",", ".")
+        else:
+            parts = s.split(".")
+            # Si hay puntos y el último grupo tiene 3 dígitos, asumir miles (p.ej. 3.040 o 1.245.340)
+            # y eliminar los puntos. Esto evita que float("3.040") se convierta en 3.04.
+            try:
+                if len(parts) > 1:
+                    last = parts[-1]
+                    if last.isdigit() and len(last) == 3 and all(p.isdigit() for p in parts):
+                        s = "".join(parts)
+                    elif len(parts) > 2:
+                        # múltiples puntos (sin coma): casi seguro miles
+                        if all(p.isdigit() for p in parts):
+                            s = "".join(parts)
+            except Exception:
+                pass
+    try:
+        return float(s)
+    except Exception:
+        try:
+            digits = _only_digits(s)
+            return float(digits) if digits != "" else None
+        except Exception:
+            return None
+
+
+def _parse_date_like(raw: str):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    # ISO date
+    try:
+        if "-" in raw:
+            return date.fromisoformat(raw)
+    except Exception:
+        pass
+    # DD/MM/YYYY
+    try:
+        if "/" in raw:
+            parts = [p.strip() for p in raw.split("/")]
+            if len(parts) == 3:
+                dd = int(parts[0])
+                mm = int(parts[1])
+                yyyy = int(parts[2])
+                return date(yyyy, mm, dd)
+    except Exception:
+        pass
+    # DDMMYYYY
+    try:
+        digits = _only_digits(raw)
+        if len(digits) == 8:
+            dd = int(digits[0:2])
+            mm = int(digits[2:4])
+            yyyy = int(digits[4:8])
+            return date(yyyy, mm, dd)
+    except Exception:
+        pass
+    return None
+
+
+def _parse_datetime_like(raw: str):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    # Full ISO datetime or ISO date
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        pass
+    # If it looks like a date-only in other formats, normalize to midnight.
+    try:
+        d = _parse_date_like(raw)
+        if d:
+            return datetime(d.year, d.month, d.day)
+    except Exception:
+        pass
+    return None
+
+
+def _compute_alerts_for_all_clients(
+    now_dt: datetime,
+    include_delivery_alerts: bool = False,
+    include_inactivity_alerts: bool = False,
+):
+    # Alertas activas = entregas vencidas + cobranzas vencidas.
+    # Se respeta el estado del usuario en ClientAlertState (dismissed/snoozed).
+    KIND_ENT = "ENTREGA_ATRASADA"
+    KIND_COB = "COBRANZA_ATRASADA"
+    KIND_INACT = "EMPRESA_INACTIVA"
+
+    # Las alertas se calculan desde Status Mercadería (LogisticsStatus) y Deudas (Collection).
+    # Si aparece una alerta para un par Cliente–Empresa sin registro en ClientCompanyLink,
+    # se crea el vínculo para mantener consistencia (sin depender del status).
+
+    def _ensure_link(client_id: int, company_id: int):
+        try:
+            if not client_id or not company_id:
+                return
+            lnk = ClientCompanyLink.query.filter_by(client_id=int(client_id), company_id=int(company_id)).first()
+            if lnk is not None:
+                return
+            db.session.add(ClientCompanyLink(client_id=int(client_id), company_id=int(company_id), status=RelationStatus.TRABAJA, comprobante_tipo="FACTURA"))
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+    def _muted_keys():
+        muted = set()
+        try:
+            qst = ClientAlertState.query
+            if not _has_global_access():
+                uid = _effective_user_id()
+                if uid is None:
+                    return set()
+                qst = qst.filter(ClientAlertState.owner_user_id == uid)
+            qst = qst.filter(
+                (ClientAlertState.dismissed_at.isnot(None))
+                | (ClientAlertState.snoozed_until.isnot(None))
+            )
+            for st in qst.all():
+                try:
+                    if st.dismissed_at is not None:
+                        muted.add((int(st.client_id), int(st.order_id), str(st.kind)))
+                        continue
+                    if st.snoozed_until is not None and st.snoozed_until > now_dt:
+                        muted.add((int(st.client_id), int(st.order_id), str(st.kind)))
+                        continue
+                except Exception:
+                    continue
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            return set()
+        return muted
+
+    muted = _muted_keys()
+    alerts = []
+
+    if include_delivery_alerts:
+        try:
+            # En la app, la entrega efectiva puede quedar registrada en LogisticsStatus o en Collection.
+            q_ent = (
+                LogisticsStatus.query
+                .join(Order, LogisticsStatus.order_id == Order.id)
+                .outerjoin(Collection, Collection.order_id == Order.id)
+                .join(Client, Order.client_id == Client.id)
+                .join(Company, Order.company_id == Company.id)
+                .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+                .filter(Collection.fecha_entrega_efectiva.is_(None))
+                .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
+                .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+                .filter(Order.deleted_at.is_(None))
+            )
+            if not _has_global_access():
+                uid = _effective_user_id()
+                if uid is not None:
+                    q_ent = q_ent.filter(Order.owner_user_id == uid)
+            for lg in q_ent.all():
+                o = getattr(lg, "order", None)
+                if not o or not getattr(o, "client", None):
+                    continue
+                try:
+                    _ensure_link(int(o.client_id), int(o.company_id))
+                except Exception:
+                    pass
+                try:
+                    key = (int(o.client_id), int(o.id), KIND_ENT)
+                except Exception:
+                    continue
+                if key in muted:
+                    continue
+                client_name = f"{o.client.apellido} {o.client.nombre}" if o.client else "-"
+                comp_name = (o.company.nombre if getattr(o, "company", None) else "-")
+                alerts.append({
+                    "client_id": int(o.client_id),
+                    "client_name": client_name,
+                    "order_id": int(o.id),
+                    "kind": KIND_ENT,
+                    "message": "Entrega atrasada",
+                    "severity": "danger",
+                    "company": comp_name,
+                })
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            pass
+
+    try:
+        # Considerar "cobrado" si tiene fecha_cobro_efectiva o si ya hay pagos PAYMENT cargados.
+        paid_order_ids = []
+        try:
+            paid_q = (
+                db.session.query(CollectionPayment.order_id)
+                .join(Order, CollectionPayment.order_id == Order.id)
+                .filter(CollectionPayment.kind.in_(["PAYMENT", "CREDIT_NOTE"]))
+            )
+            try:
+                paid_q = _safe_filter_not_voided(paid_q)
+            except Exception:
+                pass
+            if not _has_global_access():
+                uid = _effective_user_id()
+                if uid is not None:
+                    paid_q = paid_q.filter(Order.owner_user_id == uid)
+            paid_order_ids = [int(r[0]) for r in (paid_q.distinct().all() or []) if r and r[0]]
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            paid_order_ids = []
+
+        q_cob = (
+            Collection.query
+            .join(Order, Collection.order_id == Order.id)
+            .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
+            .join(Client, Order.client_id == Client.id)
+            .join(Company, Order.company_id == Company.id)
+            .filter(Collection.fecha_cobro_efectiva.is_(None))
+            .filter(Collection.fecha_pago_estimada.isnot(None))
+            .filter(Collection.fecha_pago_estimada < now_dt)
+            # Alinear con /deudas (ATRASADO): solo alertar si está ENTREGADO.
+            .filter(
+                (Collection.fecha_entrega_efectiva.isnot(None))
+                | (LogisticsStatus.fecha_entrega_efectiva.isnot(None))
+            )
+            .filter(Order.deleted_at.is_(None))
+        )
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is not None:
+                q_cob = q_cob.filter(Order.owner_user_id == uid)
+        if paid_order_ids:
+            q_cob = q_cob.filter(~Order.id.in_(paid_order_ids))
+        for coll in q_cob.all():
+            o = getattr(coll, "order", None)
+            if not o or not getattr(o, "client", None):
+                continue
+
+            # Alinear con /api/cobranzas/pedidos_pendientes: si ya está saldado (por pagos/NC), no alertar.
+            try:
+                monto_val = 0.0
+                has_monto = False
+                try:
+                    candidates = []
+                    if getattr(coll, "monto", None) is not None:
+                        candidates.append(float(coll.monto))
+                    if getattr(o, "precio_final", None) is not None:
+                        candidates.append(float(o.precio_final))
+                    lg = getattr(o, "logistics", None)
+                    if lg is not None and getattr(lg, "precio", None) is not None:
+                        candidates.append(float(lg.precio))
+                    for v in candidates:
+                        if v is not None and v > 0:
+                            monto_val = float(v)
+                            has_monto = True
+                            break
+                    if (monto_val or 0.0) <= 0 and candidates:
+                        # Si hay candidatos pero ninguno > 0, tratar como "sin monto".
+                        monto_val = 0.0
+                        has_monto = False
+                except Exception:
+                    monto_val = float(getattr(coll, "monto", 0) or 0)
+                    has_monto = bool((monto_val or 0.0) > 0)
+
+                total_paid = 0.0
+                total_credit = 0.0
+                qpay = (
+                    CollectionPayment.query
+                    .filter_by(order_id=o.id)
+                    .filter(CollectionPayment.kind != "DRAFT")
+                )
+                try:
+                    qpay = _safe_filter_not_voided(qpay)
+                except Exception:
+                    pass
+                for p in qpay.all():
+                    kind = (getattr(p, "kind", "") or "").strip().upper()
+                    amt = float(getattr(p, "amount", 0) or 0)
+                    if kind == "CREDIT_NOTE":
+                        total_credit += abs(amt)
+                    elif kind == "PAYMENT":
+                        total_paid += abs(amt)
+                remaining = float(monto_val or 0.0) - float(total_paid or 0.0) - float(total_credit or 0.0)
+                # Si no tiene monto aún, igual debe alertar por vencimiento (coincidir con Deudas).
+                if has_monto and remaining <= 0.009:
+                    continue
+            except Exception:
+                pass
+
+            try:
+                _ensure_link(int(o.client_id), int(o.company_id))
+            except Exception:
+                pass
+            try:
+                key = (int(o.client_id), int(o.id), KIND_COB)
+            except Exception:
+                continue
+            if key in muted:
+                continue
+            client_name = f"{o.client.apellido} {o.client.nombre}" if o.client else "-"
+            comp_name = (o.company.nombre if getattr(o, "company", None) else "-")
+            alerts.append({
+                "client_id": int(o.client_id),
+                "client_name": client_name,
+                "order_id": int(o.id),
+                "kind": KIND_COB,
+                "message": "Cobranza atrasada",
+                "severity": "warning",
+                "company": comp_name,
+            })
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        pass
+
+    if include_inactivity_alerts:
+        try:
+            # Empresa sin compras (por cliente-empresa) desde hace 60+ días.
+            # Se usa el último order_id como ancla para poder reutilizar ClientAlertState (visto/posponer).
+            cutoff = now_dt - timedelta(days=60)
+            q_last = (
+                db.session.query(
+                    Order.client_id.label("client_id"),
+                    Order.company_id.label("company_id"),
+                    func.max(Order.created_at).label("last_dt"),
+                    func.max(Order.id).label("last_order_id"),
+                )
+                .filter(Order.deleted_at.is_(None))
+                .group_by(Order.client_id, Order.company_id)
+            )
+            if not _has_global_access():
+                uid = _effective_user_id()
+                if uid is not None:
+                    q_last = q_last.filter(Order.owner_user_id == uid)
+            rows = q_last.all()
+            if rows:
+                client_ids = sorted({int(r.client_id) for r in rows if r and r.client_id})
+                company_ids = sorted({int(r.company_id) for r in rows if r and r.company_id})
+                clients_map = {}
+                companies_map = {}
+                try:
+                    if client_ids:
+                        cq = Client.query.filter(Client.id.in_(client_ids))
+                        if not _has_global_access():
+                            uid = _effective_user_id()
+                            if uid is not None:
+                                cq = cq.filter(Client.owner_user_id == uid)
+                        clients_map = {c.id: c for c in cq.all()}
+                except Exception:
+                    clients_map = {}
+                try:
+                    if company_ids:
+                        companies_map = {c.id: c for c in Company.query.filter(Company.id.in_(company_ids)).all()}
+                except Exception:
+                    companies_map = {}
+
+                for r in rows:
                     try:
-                        plazo_days = None
-                        if getattr(o, "plazo_pago_dias", None) is not None:
-                            plazo_days = int(o.plazo_pago_dias or 0)
-                        else:
-                            plazo_days = int(o.company.plazo_pago_promedio_dias or 0)
-                        pay_due = o.created_at + timedelta(days=plazo_days)
+                        last_dt = getattr(r, "last_dt", None)
+                        if not last_dt or last_dt >= cutoff:
+                            continue
+                        client_id = int(getattr(r, "client_id", 0) or 0)
+                        company_id = int(getattr(r, "company_id", 0) or 0)
+                        last_order_id = int(getattr(r, "last_order_id", 0) or 0)
+                        if not client_id or not company_id or not last_order_id:
+                            continue
+                        key = (client_id, last_order_id, KIND_INACT)
+                        if key in muted:
+                            continue
+
+                        cl = clients_map.get(client_id)
+                        co = companies_map.get(company_id)
+                        client_name = f"{cl.apellido} {cl.nombre}" if cl else "-"
+                        comp_name = (getattr(co, "nombre", None) or "-")
+                        days = 0
+                        try:
+                            days = int((now_dt - last_dt).days)
+                        except Exception:
+                            days = 0
+                        alerts.append({
+                            "client_id": client_id,
+                            "client_name": client_name,
+                            "order_id": last_order_id,
+                            "kind": KIND_INACT,
+                            "message": f"Empresa sin compras hace {days} días",
+                            "severity": "warning",
+                            "company": comp_name,
+                        })
                     except Exception:
-                        pay_due = None
-                if pay_due and now_dt > pay_due and not _is_muted("COBRANZA"):
-                    overdue_days = (now_dt - pay_due).days
-                    def _fmt_date(dt):
-                        try:
-                            return dt.strftime("%Y-%m-%d") if dt else ""
-                        except Exception:
-                            return ""
-                    def _fmt_money(v):
-                        try:
-                            return str(float(v)) if v is not None else ""
-                        except Exception:
-                            return ""
-                    alerts.append({
-                        "client_id": c.id,
-                        "client_name": f"{c.apellido} {c.nombre}",
-                        "company_id": o.company_id,
-                        "order_id": o.id,
-                        "kind": "COBRANZA",
-                        "severity": "warning" if overdue_days <= 2 else "danger",
-                        "company": comp_name,
-                        "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
-                        "cob_entrega_efectiva": _fmt_date(getattr(col, "fecha_entrega_efectiva", None)),
-                        "cob_monto": _fmt_money(getattr(col, "monto", None)),
-                        "cob_forma_pago": (getattr(getattr(col, "forma_pago", None), "value", "") or ""),
-                        "cob_pago_estimado": _fmt_date(getattr(col, "fecha_pago_estimada", None)),
-                        "cob_cobro_efectivo": _fmt_date(getattr(col, "fecha_cobro_efectiva", None)),
-                    })
+                        continue
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            pass
+
     return alerts
 
 
@@ -159,10 +1197,8 @@ def _refresh_link_statuses_by_last_order(now_dt: datetime, client_ids=None):
             l.status = RelationStatus.TRABAJABA
             changed = True
     if changed:
-        try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+        db.session.commit()
+
 
 
 @bp.before_app_request
@@ -193,9 +1229,10 @@ def auto_patch_new_columns():
     try:
         if request.endpoint and str(request.endpoint).startswith("static"):
             return
-        if current_app.config.get("_DID_PATCH_NEW_COLS"):
+        if current_app.config.get("_DID_PATCH_NEW_COLS") is True:
             return
-        current_app.config["_DID_PATCH_NEW_COLS"] = True
+        # Marcar como "en progreso" para evitar loops; si falla, se limpia para reintentar.
+        current_app.config["_DID_PATCH_NEW_COLS"] = "running"
         dialect = db.session.bind.dialect.name if db.session.bind is not None else ""
         if dialect == "postgresql":
             stmts = [
@@ -220,6 +1257,7 @@ def auto_patch_new_columns():
                 "ALTER TABLE client ADD COLUMN IF NOT EXISTS forma_pago_habitual VARCHAR(32)",
                 "ALTER TABLE client_document ADD COLUMN IF NOT EXISTS category VARCHAR(32)",
                 "ALTER TABLE company ADD COLUMN IF NOT EXISTS pedido_estandar_recomendado TEXT",
+                "ALTER TABLE company ADD COLUMN IF NOT EXISTS nota_pedido TEXT",
                 "ALTER TABLE company ADD COLUMN IF NOT EXISTS plazo_usual VARCHAR(120)",
                 "ALTER TABLE company ADD COLUMN IF NOT EXISTS forma_pago_default VARCHAR(32)",
                 "ALTER TABLE \"order\" ADD COLUMN IF NOT EXISTS plazo_pago_dias INTEGER",
@@ -260,6 +1298,7 @@ def auto_patch_new_columns():
                 "ALTER TABLE client ADD COLUMN forma_pago_habitual VARCHAR(32)",
                 "ALTER TABLE client_document ADD COLUMN category VARCHAR(32)",
                 "ALTER TABLE company ADD COLUMN pedido_estandar_recomendado TEXT",
+                "ALTER TABLE company ADD COLUMN nota_pedido TEXT",
                 "ALTER TABLE company ADD COLUMN plazo_usual VARCHAR(120)",
                 "ALTER TABLE company ADD COLUMN forma_pago_default VARCHAR(32)",
                 "ALTER TABLE \"order\" ADD COLUMN plazo_pago_dias INTEGER",
@@ -276,6 +1315,9 @@ def auto_patch_new_columns():
                     created_at DATETIME
                 )
                 """,
+                "ALTER TABLE collection_payment ADD COLUMN voided_at DATETIME",
+                "ALTER TABLE collection_payment ADD COLUMN voided_by_user_id INTEGER",
+                "ALTER TABLE collection_payment ADD COLUMN voided_reason TEXT",
             ]
         for sql in stmts:
             try:
@@ -284,9 +1326,62 @@ def auto_patch_new_columns():
             except Exception:
                 db.session.rollback()
                 continue
+
+        try:
+            if dialect == "postgresql":
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+
+                do_blocks = [
+                    """
+                    DO $$
+                    BEGIN
+                        ALTER TABLE collection_payment ADD COLUMN voided_at TIMESTAMP;
+                    EXCEPTION
+                        WHEN duplicate_column THEN NULL;
+                    END $$;
+                    """,
+                    """
+                    DO $$
+                    BEGIN
+                        ALTER TABLE collection_payment ADD COLUMN voided_by_user_id INTEGER;
+                    EXCEPTION
+                        WHEN duplicate_column THEN NULL;
+                    END $$;
+                    """,
+                    """
+                    DO $$
+                    BEGIN
+                        ALTER TABLE collection_payment ADD COLUMN voided_reason TEXT;
+                    EXCEPTION
+                        WHEN duplicate_column THEN NULL;
+                    END $$;
+                    """,
+                ]
+                for sql in do_blocks:
+                    try:
+                        db.session.execute(text(sql))
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+        current_app.config["_DID_PATCH_NEW_COLS"] = True
     except Exception:
         try:
             db.session.rollback()
+        except Exception:
+            pass
+
+        # Permitir reintentar en el próximo request
+        try:
+            current_app.config.pop("_DID_PATCH_NEW_COLS", None)
         except Exception:
             pass
 
@@ -296,40 +1391,93 @@ def inject_notification_count():
     try:
         # IMPORTANTE: esto corre en CADA request para renderizar el navbar.
         # Evitar lógica pesada (loops de clientes/pedidos) que degrada toda la app.
-        now_dt = datetime.utcnow()
-        last = current_app.config.get("_LAST_NOTIF_COUNT_AT")
-        cached = current_app.config.get("_LAST_NOTIF_COUNT_VAL")
-        if last and isinstance(last, datetime) and cached is not None and (now_dt - last) < timedelta(seconds=60):
-            return {"notif_active_count": int(cached)}
+        support_user_id = None
+        support_username = None
+        try:
+            if getattr(current_user, "is_authenticated", False) and getattr(current_user, "is_admin", False):
+                imp = session.get("impersonate_user_id")
+                if imp:
+                    try:
+                        support_user_id = int(imp)
+                    except Exception:
+                        support_user_id = None
+        except Exception:
+            support_user_id = None
 
-        # Conteo rápido: alertas = entregas vencidas + cobranzas vencidas (sin detalle y sin estados muteados).
+        if support_user_id is not None:
+            try:
+                u = AppUser.query.get(int(support_user_id))
+                support_username = getattr(u, "username", None) if u else None
+            except Exception:
+                support_username = None
+
+        now_dt = datetime.utcnow()
+        try:
+            cache_key = "G" if _has_global_access() else f"U:{_effective_user_id()}"
+        except Exception:
+            cache_key = "G"
+
+        last_map = current_app.config.get("_LAST_NOTIF_COUNT_AT_MAP")
+        val_map = current_app.config.get("_LAST_NOTIF_COUNT_VAL_MAP")
+        if not isinstance(last_map, dict):
+            last_map = {}
+        if not isinstance(val_map, dict):
+            val_map = {}
+
+        last = last_map.get(cache_key)
+        cached = val_map.get(cache_key)
+        if last and isinstance(last, datetime) and cached is not None and (now_dt - last) < timedelta(seconds=60):
+            return {
+                "notif_active_count": int(cached),
+                "support_mode": bool(support_user_id),
+                "support_user_id": support_user_id,
+                "support_username": support_username,
+            }
+
+        # Conteo consistente con /notificaciones (respeta ClientAlertState).
         notif_count = 0
         try:
-            notif_count += (
-                db.session.query(func.count(LogisticsStatus.id))
-                .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
-                .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
-                .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
-                .scalar()
-            ) or 0
+            notif_count = int(len(_compute_alerts_for_all_clients(now_dt)) or 0)
+        except Exception:
+            notif_count = 0
+
+        last_map[cache_key] = now_dt
+        val_map[cache_key] = int(notif_count)
+        current_app.config["_LAST_NOTIF_COUNT_AT_MAP"] = last_map
+        current_app.config["_LAST_NOTIF_COUNT_VAL_MAP"] = val_map
+        return {
+            "notif_active_count": int(notif_count),
+            "support_mode": bool(support_user_id),
+            "support_user_id": support_user_id,
+            "support_username": support_username,
+        }
+    except Exception:
+        return {"notif_active_count": 0, "support_mode": False, "support_user_id": None, "support_username": None}
+
+
+def _invalidate_notif_count_cache():
+    try:
+        try:
+            current_app.config.pop("_LAST_NOTIF_COUNT_AT", None)
+            current_app.config.pop("_LAST_NOTIF_COUNT_VAL", None)
         except Exception:
             pass
         try:
-            notif_count += (
-                db.session.query(func.count(Collection.id))
-                .filter(Collection.fecha_cobro_efectiva.is_(None))
-                .filter(Collection.fecha_pago_estimada.isnot(None))
-                .filter(Collection.fecha_pago_estimada < now_dt)
-                .scalar()
-            ) or 0
+            current_app.config.pop("_LAST_NOTIF_COUNT_AT_MAP", None)
+            current_app.config.pop("_LAST_NOTIF_COUNT_VAL_MAP", None)
         except Exception:
             pass
-
-        current_app.config["_LAST_NOTIF_COUNT_AT"] = now_dt
-        current_app.config["_LAST_NOTIF_COUNT_VAL"] = int(notif_count)
-        return {"notif_active_count": int(notif_count)}
     except Exception:
-        return {"notif_active_count": 0}
+        pass
+
+
+@bp.get("/api/notificaciones/count")
+def api_notificaciones_count():
+    data = inject_notification_count() or {}
+    try:
+        return jsonify({"count": int(data.get("notif_active_count") or 0)})
+    except Exception:
+        return jsonify({"count": 0})
 
 
 @bp.get("/")
@@ -337,25 +1485,56 @@ def index():
     # KPIs y métricas para dashboard
     today = date.today()
     month_start = today.replace(day=1)
+    uid = _effective_user_id() if not _has_global_access() else None
     # Pedidos del mes
-    pedidos_mes = Order.query.filter(Order.created_at >= datetime.combine(month_start, datetime.min.time())).count()
+    q_orders_mes = Order.query.filter(Order.created_at >= datetime.combine(month_start, datetime.min.time()))
+    q_orders_mes = q_orders_mes.filter(Order.deleted_at.is_(None))
+    if uid is not None:
+        q_orders_mes = q_orders_mes.filter(Order.owner_user_id == uid)
+    pedidos_mes = q_orders_mes.count()
     # Ventas del mes (suma de precio_final)
-    ventas_mes_val = db.session.query(func.coalesce(func.sum(Order.precio_final), 0)).filter(Order.created_at >= datetime.combine(month_start, datetime.min.time())).scalar() or 0
+    q_ventas_mes = (
+        db.session.query(func.coalesce(func.sum(Order.precio_final), 0))
+        .filter(Order.created_at >= datetime.combine(month_start, datetime.min.time()))
+        .filter(Order.deleted_at.is_(None))
+    )
+    if uid is not None:
+        q_ventas_mes = q_ventas_mes.filter(Order.owner_user_id == uid)
+    ventas_mes_val = q_ventas_mes.scalar() or 0
     # Cobranzas pendientes (cantidad y monto)
-    cobranzas_pend_count = Collection.query.filter(Collection.fecha_cobro_efectiva.is_(None)).count()
-    cobranzas_pend_monto = db.session.query(func.coalesce(func.sum(Collection.monto), 0)).filter(Collection.fecha_cobro_efectiva.is_(None)).scalar() or 0
+    q_cob_pend = Collection.query.join(Order, Collection.order_id == Order.id).filter(Collection.fecha_cobro_efectiva.is_(None))
+    q_cob_pend = q_cob_pend.filter(Order.deleted_at.is_(None))
+    if uid is not None:
+        q_cob_pend = q_cob_pend.filter(Order.owner_user_id == uid)
+    cobranzas_pend_count = q_cob_pend.count()
+
+    q_cob_pend_monto = (
+        db.session.query(func.coalesce(func.sum(Collection.monto), 0))
+        .join(Order, Collection.order_id == Order.id)
+        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        .filter(Order.deleted_at.is_(None))
+    )
+    if uid is not None:
+        q_cob_pend_monto = q_cob_pend_monto.filter(Order.owner_user_id == uid)
+    cobranzas_pend_monto = q_cob_pend_monto.scalar() or 0
     # Status logística: en camino y atrasados
     now_dt = datetime.utcnow()
     en_camino = (
         db.session.query(func.count(LogisticsStatus.id))
+        .join(Order, LogisticsStatus.order_id == Order.id)
         .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
         .filter((LogisticsStatus.fecha_entrega_estimada.is_(None)) | (LogisticsStatus.fecha_entrega_estimada >= now_dt))
+        .filter(Order.deleted_at.is_(None))
+        .filter(True if uid is None else (Order.owner_user_id == uid))
         .scalar()
     ) or 0
     atrasados = (
         db.session.query(func.count(LogisticsStatus.id))
+        .join(Order, LogisticsStatus.order_id == Order.id)
         .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
         .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+        .filter(Order.deleted_at.is_(None))
+        .filter(True if uid is None else (Order.owner_user_id == uid))
         .scalar()
     ) or 0
 
@@ -365,7 +1544,10 @@ def index():
     iso_keys = [d.isoformat() for d in last_30]
     sales_by_day = {k: 0.0 for k in iso_keys}
     # Ventas por día: usar Order.created_at y precio_final
-    orders_last_30 = Order.query.filter(Order.created_at >= datetime.combine(last_30[0], datetime.min.time())).all()
+    q_last30 = Order.query.filter(Order.created_at >= datetime.combine(last_30[0], datetime.min.time()))
+    if uid is not None:
+        q_last30 = q_last30.filter(Order.owner_user_id == uid)
+    orders_last_30 = q_last30.all()
     for o in orders_last_30:
         key = o.created_at.date().isoformat()
         try:
@@ -394,37 +1576,49 @@ def index():
     # Cobranzas
     cobr_vencidas_q = (
         Collection.query
+        .join(Order, Collection.order_id == Order.id)
         .filter(Collection.fecha_cobro_efectiva.is_(None))
         .filter(Collection.fecha_pago_estimada.isnot(None))
         .filter(Collection.fecha_pago_estimada < now_dt)
+        .filter(True if uid is None else (Order.owner_user_id == uid))
     )
     cobr_hoy_q = (
         Collection.query
+        .join(Order, Collection.order_id == Order.id)
         .filter(Collection.fecha_cobro_efectiva.is_(None))
         .filter(Collection.fecha_pago_estimada >= today_start, Collection.fecha_pago_estimada <= today_end)
+        .filter(True if uid is None else (Order.owner_user_id == uid))
     )
     cobr_next7_q = (
         Collection.query
+        .join(Order, Collection.order_id == Order.id)
         .filter(Collection.fecha_cobro_efectiva.is_(None))
         .filter(Collection.fecha_pago_estimada > now_dt, Collection.fecha_pago_estimada <= now_dt + timedelta(days=7))
+        .filter(True if uid is None else (Order.owner_user_id == uid))
     )
 
     # Entregas
     ent_vencidas_q = (
         LogisticsStatus.query
+        .join(Order, LogisticsStatus.order_id == Order.id)
         .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
         .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
         .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+        .filter(True if uid is None else (Order.owner_user_id == uid))
     )
     ent_hoy_q = (
         LogisticsStatus.query
+        .join(Order, LogisticsStatus.order_id == Order.id)
         .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
         .filter(LogisticsStatus.fecha_entrega_estimada >= today_start, LogisticsStatus.fecha_entrega_estimada <= today_end)
+        .filter(True if uid is None else (Order.owner_user_id == uid))
     )
     ent_next7_q = (
         LogisticsStatus.query
+        .join(Order, LogisticsStatus.order_id == Order.id)
         .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
         .filter(LogisticsStatus.fecha_entrega_estimada > now_dt, LogisticsStatus.fecha_entrega_estimada <= now_dt + timedelta(days=7))
+        .filter(True if uid is None else (Order.owner_user_id == uid))
     )
 
     urgentes_hoy = ent_hoy_q.count() + cobr_hoy_q.count()
@@ -521,133 +1715,167 @@ def index():
 
 @bp.get("/clientes")
 def clientes():
-    items = Client.query.order_by(Client.apellido, Client.nombre).all()
-    companies = Company.query.order_by(Company.nombre).all()
+    q = (request.args.get("q") or "").strip()
+    prov = (request.args.get("prov") or "").strip()
+    show_all = request.args.get("all") == "1"
 
-    # Regla: si pasaron 3 meses sin pedidos, TRABAJA -> TRABAJABA
-    now_dt = datetime.utcnow()
-    _refresh_link_statuses_by_last_order(now_dt, [c.id for c in items])
+    page = request.args.get("page", default=1, type=int) or 1
+    per_page = request.args.get("per_page", default=10, type=int) or 10
+    if page < 1:
+        page = 1
+    if per_page < 1:
+        per_page = 10
+    if per_page > 50:
+        per_page = 50
+
+    base = (
+        Client.query
+        .options(selectinload(Client.links).selectinload(ClientCompanyLink.company))
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            base = base.filter(Client.owner_user_id == uid)
+    if prov:
+        try:
+            base = base.filter(Client.provincia.ilike(f"%{prov}%"))
+        except Exception:
+            pass
+    if q:
+        ilike = f"%{q}%"
+        base = base.filter(
+            (Client.apellido.ilike(ilike))
+            | (Client.nombre.ilike(ilike))
+            | ((Client.apellido + " " + Client.nombre).ilike(ilike))
+        )
+    base = base.order_by(Client.apellido, Client.nombre)
+    has_next = False
+    has_prev = False
+    if show_all:
+        items = base.all()
+    else:
+        offset = (page - 1) * per_page
+        rows = base.offset(offset).limit(per_page + 1).all()
+        if len(rows) > per_page:
+            has_next = True
+            rows = rows[:per_page]
+        has_prev = page > 1
+        items = rows
+
+    companies = Company.query.order_by(Company.nombre).all()
 
     alerts_by_client = {}
     total_active_alerts = 0
+    try:
+        now_dt = datetime.utcnow()
+        active_alerts = _compute_alerts_for_all_clients(now_dt) or []
+        total_active_alerts = int(len(active_alerts) or 0)
+        order_ids = sorted({int(a.get("order_id")) for a in active_alerts if a and a.get("order_id")})
+        orders = []
+        if order_ids:
+            oq = (
+                Order.query
+                .options(
+                    selectinload(Order.logistics),
+                    selectinload(Order.collection),
+                    selectinload(Order.company),
+                )
+                .filter(Order.id.in_(order_ids))
+            )
+            if not _has_global_access():
+                uid = _effective_user_id()
+                if uid is not None:
+                    oq = oq.filter(or_(Order.owner_user_id == uid, Order.owner_user_id.is_(None)))
+            orders = oq.all()
+        order_map = {int(o.id): o for o in (orders or []) if o and o.id}
 
-    for c in items:
-        # Estados persistidos para filtrar alertas (visto / postergado)
+        for a in active_alerts:
+            if not a:
+                continue
+            try:
+                cid = int(a.get("client_id") or 0)
+            except Exception:
+                cid = 0
+            if not cid:
+                continue
+            try:
+                oid = int(a.get("order_id") or 0)
+            except Exception:
+                oid = 0
+            state_kind = (a.get("kind") or "").strip().upper()
+            ui_kind = ""
+            if state_kind == "COBRANZA_ATRASADA":
+                ui_kind = "COBRANZA"
+            elif state_kind == "ENTREGA_ATRASADA":
+                ui_kind = "MERCADERIA"
+            else:
+                ui_kind = state_kind
+
+            o = order_map.get(oid) if oid else None
+            coll = getattr(o, "collection", None) if o else None
+            lg = getattr(o, "logistics", None) if o else None
+            company_name = None
+            try:
+                company_name = (getattr(getattr(o, "company", None), "nombre", None) if o else None) or (a.get("company") or None)
+            except Exception:
+                company_name = (a.get("company") or None)
+
+            item = {
+                "client_id": cid,
+                "client_name": a.get("client_name"),
+                "order_id": oid,
+                "kind": ui_kind,
+                "state_kind": state_kind,
+                "message": a.get("message"),
+                "severity": a.get("severity"),
+                "company": company_name,
+            }
+            if ui_kind == "COBRANZA":
+                try:
+                    item["cob_entrega_efectiva"] = (coll.fecha_entrega_efectiva.date().isoformat() if coll and coll.fecha_entrega_efectiva else "")
+                except Exception:
+                    item["cob_entrega_efectiva"] = ""
+                try:
+                    item["cob_monto"] = (str(coll.monto) if coll and coll.monto is not None else "")
+                except Exception:
+                    item["cob_monto"] = ""
+                try:
+                    item["cob_forma_pago"] = ((coll.forma_pago.value if coll and coll.forma_pago else "") or "")
+                except Exception:
+                    item["cob_forma_pago"] = ""
+                try:
+                    item["cob_pago_estimado"] = (coll.fecha_pago_estimada.date().isoformat() if coll and coll.fecha_pago_estimada else "")
+                except Exception:
+                    item["cob_pago_estimado"] = ""
+                try:
+                    item["cob_cobro_efectivo"] = (coll.fecha_cobro_efectiva.date().isoformat() if coll and coll.fecha_cobro_efectiva else "")
+                except Exception:
+                    item["cob_cobro_efectivo"] = ""
+            elif ui_kind == "MERCADERIA":
+                item["st_has_logistics"] = bool(lg is not None)
+                try:
+                    item["st_fecha_compra"] = (lg.fecha_compra.date().isoformat() if lg and lg.fecha_compra else "")
+                except Exception:
+                    item["st_fecha_compra"] = ""
+                try:
+                    item["st_entrega_estimada"] = (lg.fecha_entrega_estimada.date().isoformat() if lg and lg.fecha_entrega_estimada else "")
+                except Exception:
+                    item["st_entrega_estimada"] = ""
+                try:
+                    item["st_entrega_efectiva"] = (lg.fecha_entrega_efectiva.date().isoformat() if lg and lg.fecha_entrega_efectiva else "")
+                except Exception:
+                    item["st_entrega_efectiva"] = ""
+                try:
+                    item["st_precio"] = (str(lg.precio) if lg and lg.precio is not None else "")
+                except Exception:
+                    item["st_precio"] = ""
+
+            alerts_by_client.setdefault(cid, []).append(item)
+    except Exception:
         try:
-            state_rows = ClientAlertState.query.filter_by(client_id=c.id).all()
-        except OperationalError:
-            state_rows = []
-        state_map = {(s.order_id, s.kind): s for s in state_rows}
-
-        client_alerts = []
-
-        for o in (c.orders or []):
-            comp_name = o.company.nombre if o.company else "-"
-
-            def _is_muted(kind: str) -> bool:
-                st = state_map.get((o.id, kind))
-                if not st:
-                    return False
-                if st.dismissed_at:
-                    return True
-                if st.snoozed_until and st.snoozed_until > now_dt:
-                    return True
-                return False
-
-            # Mercadería / logística (atrasos)
-            lg = getattr(o, "logistics", None)
-            if lg and not lg.fecha_entrega_efectiva:
-                due = lg.fecha_entrega_estimada
-                if not due and o.demora_despacho_promedio_dias is not None:
-                    try:
-                        due = o.created_at + timedelta(days=int(o.demora_despacho_promedio_dias or 0))
-                    except Exception:
-                        due = None
-                if due and now_dt > due:
-                    overdue_days = (now_dt - due).days
-                    if not _is_muted("MERCADERIA"):
-                        def _fmt_date(dt):
-                            try:
-                                return dt.strftime("%Y-%m-%d") if dt else ""
-                            except Exception:
-                                return ""
-                        def _fmt_money(v):
-                            try:
-                                return str(float(v)) if v is not None else ""
-                            except Exception:
-                                return ""
-                        client_alerts.append({
-                        "kind": "MERCADERIA",
-                        "severity": "warning" if overdue_days <= 2 else "danger",
-                        "order_id": o.id,
-                        "company": comp_name,
-                        "message": f"Mercadería atrasada ({comp_name}). Vencida hace {overdue_days} día(s).",
-                        "st_has_logistics": True,
-                        "st_fecha_compra": _fmt_date(getattr(lg, "fecha_compra", None)),
-                        "st_entrega_estimada": _fmt_date(getattr(lg, "fecha_entrega_estimada", None)),
-                        "st_entrega_efectiva": _fmt_date(getattr(lg, "fecha_entrega_efectiva", None)),
-                        "st_precio": _fmt_money(getattr(lg, "precio", None)),
-                        })
-            elif not lg:
-                # Si no hay registro de logística, usar snapshot de demora para recordatorio
-                if o.demora_despacho_promedio_dias is not None:
-                    try:
-                        due = o.created_at + timedelta(days=int(o.demora_despacho_promedio_dias or 0))
-                    except Exception:
-                        due = None
-                    if due and now_dt > due:
-                        overdue_days = (now_dt - due).days
-                        if not _is_muted("MERCADERIA"):
-                            client_alerts.append({
-                            "kind": "MERCADERIA",
-                            "severity": "warning" if overdue_days <= 2 else "danger",
-                            "order_id": o.id,
-                            "company": comp_name,
-                            "message": f"Revisar despacho ({comp_name}). Pasaron {overdue_days} día(s) sobre la demora estimada.",
-                            "st_has_logistics": False,
-                            "st_fecha_compra": "",
-                            "st_entrega_estimada": "",
-                            "st_entrega_efectiva": "",
-                            "st_precio": "",
-                            })
-
-            # Pagos / cobranzas (atrasos)
-            col = getattr(o, "collection", None)
-            if col and not col.fecha_cobro_efectiva:
-                pay_due = col.fecha_pago_estimada
-                if not pay_due and o.company and o.company.plazo_pago_promedio_dias is not None:
-                    try:
-                        pay_due = o.created_at + timedelta(days=int(o.company.plazo_pago_promedio_dias or 0))
-                    except Exception:
-                        pay_due = None
-                if pay_due and now_dt > pay_due:
-                    overdue_days = (now_dt - pay_due).days
-                    if not _is_muted("COBRANZA"):
-                        def _fmt_date(dt):
-                            try:
-                                return dt.strftime("%Y-%m-%d") if dt else ""
-                            except Exception:
-                                return ""
-                        def _fmt_money(v):
-                            try:
-                                return str(float(v)) if v is not None else ""
-                            except Exception:
-                                return ""
-                        client_alerts.append({
-                        "kind": "COBRANZA",
-                        "severity": "warning" if overdue_days <= 2 else "danger",
-                        "order_id": o.id,
-                        "company": comp_name,
-                        "message": f"Cobranza vencida ({comp_name}). Vencida hace {overdue_days} día(s).",
-                        "cob_entrega_efectiva": _fmt_date(getattr(col, "fecha_entrega_efectiva", None)),
-                        "cob_monto": _fmt_money(getattr(col, "monto", None)),
-                        "cob_forma_pago": (getattr(getattr(col, "forma_pago", None), "value", "") or ""),
-                        "cob_pago_estimado": _fmt_date(getattr(col, "fecha_pago_estimada", None)),
-                        "cob_cobro_efectivo": _fmt_date(getattr(col, "fecha_cobro_efectiva", None)),
-                        })
-
-        alerts_by_client[c.id] = client_alerts
-        total_active_alerts += len(client_alerts)
+            db.session.rollback()
+        except Exception:
+            pass
 
     return render_template(
         "clientes.html",
@@ -656,6 +1884,13 @@ def clientes():
         companies=companies,
         alerts_by_client=alerts_by_client,
         total_active_alerts=total_active_alerts,
+        q=q,
+        prov=prov,
+        show_all=show_all,
+        page=page,
+        per_page=per_page,
+        has_next=has_next,
+        has_prev=has_prev,
     )
 
 
@@ -668,11 +1903,21 @@ def clientes_alertas_visto():
         return jsonify({"ok": False, "error": "missing_params"}), 400
 
     try:
-        st = ClientAlertState.query.filter_by(client_id=client_id, order_id=order_id, kind=kind).first()
+        base = ClientAlertState.query.filter_by(client_id=client_id, order_id=order_id, kind=kind)
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is None:
+                abort(403)
+            base = base.filter(ClientAlertState.owner_user_id == uid)
+        st = base.first()
     except OperationalError:
         return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
     if not st:
         st = ClientAlertState(client_id=client_id, order_id=order_id, kind=kind)
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is not None:
+                st.owner_user_id = uid
         db.session.add(st)
     # Snapshot para historial
     st.message = (request.form.get("message") or st.message or "").strip() or st.message
@@ -687,6 +1932,10 @@ def clientes_alertas_visto():
     except OperationalError:
         db.session.rollback()
         return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
     return jsonify({"ok": True})
 
 
@@ -702,11 +1951,21 @@ def clientes_alertas_snooze():
         return jsonify({"ok": False, "error": "invalid_days"}), 400
 
     try:
-        st = ClientAlertState.query.filter_by(client_id=client_id, order_id=order_id, kind=kind).first()
+        base = ClientAlertState.query.filter_by(client_id=client_id, order_id=order_id, kind=kind)
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is None:
+                abort(403)
+            base = base.filter(ClientAlertState.owner_user_id == uid)
+        st = base.first()
     except OperationalError:
         return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
     if not st:
         st = ClientAlertState(client_id=client_id, order_id=order_id, kind=kind)
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is not None:
+                st.owner_user_id = uid
         db.session.add(st)
 
     st.message = (request.form.get("message") or st.message or "").strip() or st.message
@@ -722,26 +1981,51 @@ def clientes_alertas_snooze():
     except OperationalError:
         db.session.rollback()
         return jsonify({"ok": False, "error": "db_schema_outdated", "hint": "Ejecutar /admin/patch_client_columns"}), 500
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
     return jsonify({"ok": True, "snoozed_until": st.snoozed_until.isoformat() if st.snoozed_until else None})
 
 
 @bp.get("/notificaciones")
 def notificaciones():
     now_dt = datetime.utcnow()
-    active_alerts = _compute_alerts_for_all_clients(now_dt)
+    try:
+        active_alerts = _compute_alerts_for_all_clients(
+            now_dt,
+            include_delivery_alerts=True,
+            include_inactivity_alerts=True,
+        )
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        active_alerts = []
     try:
         viewed_rows = (
             ClientAlertState.query
             .filter(ClientAlertState.dismissed_at.isnot(None))
+            .filter(True if _has_global_access() else (ClientAlertState.owner_user_id == _effective_user_id()))
             .order_by(ClientAlertState.dismissed_at.desc())
             .limit(200)
             .all()
         )
-    except OperationalError:
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         viewed_rows = []
     # Map para mostrar nombre de cliente en historial
     client_ids = sorted({r.client_id for r in viewed_rows if r and r.client_id})
-    clients = Client.query.filter(Client.id.in_(client_ids)).all() if client_ids else []
+    q_clients = Client.query.filter(Client.id.in_(client_ids)) if client_ids else None
+    if q_clients is not None and not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q_clients = q_clients.filter(Client.owner_user_id == uid)
+    clients = q_clients.all() if q_clients is not None else []
     client_name_map = {c.id: f"{c.apellido} {c.nombre}" for c in clients}
     viewed = [
         {
@@ -773,7 +2057,313 @@ def calendario():
 
 @bp.get("/comisiones")
 def comisiones():
-    return render_template("comisiones.html", active="comisiones")
+    st = CommissionState.query.get(1)
+    last_paid_at = None
+    try:
+        last_paid_at = st.last_paid_at if st else None
+    except Exception:
+        last_paid_at = None
+
+    try:
+        commission_date_iso = date.today().isoformat()
+    except Exception:
+        commission_date_iso = ""
+
+    company_id = request.args.get("company_id", type=int)
+
+    desde = request.args.get("from")
+    hasta = request.args.get("to")
+    d_from = _parse_datetime_like(desde) if (desde or "").strip() else None
+    d_to = _parse_datetime_like(hasta) if (hasta or "").strip() else None
+    try:
+        if d_to is not None:
+            # incluir el día completo
+            d_to = d_to + timedelta(days=1)
+    except Exception:
+        pass
+
+    # Fecha efectiva del pago: se carga en due_date (inputs de pago). created_at puede ser "fecha de carga".
+    try:
+        from sqlalchemy import func
+        pay_dt_expr = func.coalesce(CollectionPayment.due_date, CollectionPayment.created_at)
+    except Exception:
+        pay_dt_expr = CollectionPayment.created_at
+
+    q = (
+        CollectionPayment.query
+        .join(Order, CollectionPayment.order_id == Order.id)
+        .join(Client, Order.client_id == Client.id)
+        .join(Company, Order.company_id == Company.id)
+        .filter(CollectionPayment.kind == "PAYMENT")
+        .options(selectinload(CollectionPayment.order).selectinload(Order.client), selectinload(CollectionPayment.order).selectinload(Order.company))
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Order.owner_user_id == uid)
+    if last_paid_at:
+        # Tomar pagos DESPUÉS de la última liquidación (exclusivo)
+        q = q.filter(pay_dt_expr > last_paid_at)
+
+    if company_id:
+        q = q.filter(Order.company_id == company_id)
+
+    if d_from is not None:
+        q = q.filter(pay_dt_expr >= d_from)
+    if d_to is not None:
+        q = q.filter(pay_dt_expr < d_to)
+
+    rows = q.order_by(Company.nombre.asc(), Client.apellido.asc(), Client.nombre.asc(), Order.created_at.asc(), pay_dt_expr.desc()).all()
+
+    companies = Company.query.order_by(Company.nombre).all()
+
+    from collections import defaultdict
+
+    grouped = defaultdict(dict)
+    totals = defaultdict(float)
+    month_totals = defaultdict(lambda: defaultdict(float))
+
+    month_names_es = {
+        "01": "Enero",
+        "02": "Febrero",
+        "03": "Marzo",
+        "04": "Abril",
+        "05": "Mayo",
+        "06": "Junio",
+        "07": "Julio",
+        "08": "Agosto",
+        "09": "Septiembre",
+        "10": "Octubre",
+        "11": "Noviembre",
+        "12": "Diciembre",
+    }
+
+    complete_order_ids = set()
+    order_payment_counts = {}
+    order_total_amount = {}
+    try:
+        order_ids = []
+        for p in rows:
+            try:
+                oid = int(getattr(getattr(p, "order", None), "id", None) or 0)
+            except Exception:
+                oid = 0
+            if oid > 0:
+                order_ids.append(oid)
+                try:
+                    order_payment_counts[oid] = int(order_payment_counts.get(oid, 0) or 0) + 1
+                except Exception:
+                    order_payment_counts[oid] = 1
+        if order_ids:
+            try:
+                done_rows = (
+                    db.session.query(Collection.order_id)
+                    .filter(Collection.order_id.in_(order_ids))
+                    .filter(Collection.fecha_cobro_efectiva.isnot(None))
+                    .group_by(Collection.order_id)
+                    .all()
+                )
+                for (oid,) in done_rows:
+                    try:
+                        complete_order_ids.add(int(oid))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            try:
+                monto_rows = (
+                    db.session.query(Collection.order_id, Collection.monto)
+                    .filter(Collection.order_id.in_(order_ids))
+                    .all()
+                )
+                for (oid, mt) in monto_rows:
+                    try:
+                        if oid is None:
+                            continue
+                        order_total_amount[int(oid)] = float(mt or 0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        complete_order_ids = set()
+
+    payment_index = {}
+    try:
+        by_order = {}
+        for p in rows:
+            try:
+                oid = int(getattr(getattr(p, "order", None), "id", None) or 0)
+            except Exception:
+                oid = 0
+            if oid <= 0:
+                continue
+            by_order.setdefault(oid, []).append(p)
+
+        for oid, plist in by_order.items():
+            try:
+                plist_sorted = sorted(
+                    plist,
+                    key=lambda x: (getattr(x, "due_date", None) or getattr(x, "created_at", None) or datetime.min),
+                )
+            except Exception:
+                plist_sorted = plist
+            total_parts = int(len(plist_sorted) or 0)
+            for idx, p in enumerate(plist_sorted, start=1):
+                try:
+                    pid = int(getattr(p, "id", 0) or 0)
+                    if pid > 0:
+                        payment_index[pid] = {"idx": int(idx), "total": int(total_parts)}
+                except Exception:
+                    pass
+    except Exception:
+        payment_index = {}
+
+    for p in rows:
+        o = getattr(p, "order", None)
+        comp = getattr(getattr(o, "company", None), "nombre", None) if o else None
+        comp = comp or "-"
+        cli = getattr(getattr(o, "client", None), "apellido", None) if o else None
+        cli2 = getattr(getattr(o, "client", None), "nombre", None) if o else None
+        client_name = " ".join([x for x in [cli, cli2] if x]) or "-"
+
+        # Fecha a mostrar: fecha del pago realizado (due_date) y fallback a created_at
+        pay_date = None
+        try:
+            dt_eff = getattr(p, "due_date", None) or getattr(p, "created_at", None)
+            pay_date = dt_eff.date().isoformat() if dt_eff else None
+        except Exception:
+            pay_date = None
+
+        amt = 0.0
+        try:
+            amt = float(getattr(p, "amount", 0) or 0)
+        except Exception:
+            amt = 0.0
+
+        part_label = ""
+        try:
+            pid = int(getattr(p, "id", 0) or 0)
+            info = payment_index.get(pid) if pid else None
+            if info and int(info.get("total", 0) or 0) > 1:
+                part_label = f"{int(info.get('idx', 0) or 0)}/{int(info.get('total', 0) or 0)}"
+        except Exception:
+            part_label = ""
+
+        total_amt = 0.0
+        try:
+            oid_int = int(getattr(o, "id", 0) or 0) if o is not None else 0
+        except Exception:
+            oid_int = 0
+        try:
+            if oid_int > 0 and (oid_int in order_total_amount):
+                total_amt = float(order_total_amount.get(oid_int) or 0)
+        except Exception:
+            total_amt = 0.0
+        if (total_amt or 0) <= 0:
+            try:
+                if o is not None and getattr(o, "precio_final", None) is not None:
+                    total_amt = float(o.precio_final or 0)
+            except Exception:
+                pass
+        if (total_amt or 0) <= 0:
+            try:
+                lg = getattr(o, "logistics", None) if o is not None else None
+                if lg is not None and getattr(lg, "precio", None) is not None:
+                    total_amt = float(lg.precio or 0)
+            except Exception:
+                pass
+
+        month_key = ""
+        month_label = ""
+        try:
+            if pay_date and len(pay_date) >= 7:
+                month_key = pay_date[:7]
+                mm = month_key[5:7]
+                yy = month_key[0:4]
+                month_label = f"{month_names_es.get(mm, mm)} {yy}"
+        except Exception:
+            month_key = ""
+            month_label = ""
+
+        if not month_key:
+            month_key = "0000-00"
+            month_label = "Sin fecha"
+
+        try:
+            if month_key not in grouped[comp]:
+                grouped[comp][month_key] = {"label": month_label, "rows": []}
+        except Exception:
+            pass
+
+        row_obj = {
+            "payment_id": getattr(p, "id", None),
+            "order_id": getattr(o, "id", None),
+            "client": client_name,
+            "date": pay_date,
+            "amount": amt,
+            "method": (getattr(p, "method", None) or ""),
+            "is_complete": bool(getattr(o, "id", None) and (int(getattr(o, "id", 0) or 0) in complete_order_ids)),
+            "part_label": part_label,
+            "order_total": float(total_amt or 0.0),
+        }
+
+        try:
+            grouped[comp][month_key]["rows"].append(row_obj)
+        except Exception:
+            try:
+                grouped[comp][month_key] = {"label": month_label, "rows": [row_obj]}
+            except Exception:
+                pass
+
+        totals[comp] += abs(amt)
+        try:
+            month_totals[comp][month_key] += abs(amt)
+        except Exception:
+            pass
+
+    try:
+        last_paid_iso = last_paid_at.date().isoformat() if last_paid_at else ""
+    except Exception:
+        last_paid_iso = ""
+
+    return render_template(
+        "comisiones.html",
+        active="comisiones",
+        last_paid_iso=last_paid_iso,
+        commission_date_iso=commission_date_iso,
+        companies=companies,
+        company_id=company_id,
+        from_val=(d_from.date().isoformat() if d_from else (desde or "")),
+        to_val=((d_to - timedelta(days=1)).date().isoformat() if d_to else (hasta or "")),
+        grouped={k: dict(v) for k, v in grouped.items()},
+        totals=dict(totals),
+        month_totals={k: dict(v) for k, v in month_totals.items()},
+    )
+
+
+@bp.post("/comisiones/marcar")
+def comisiones_marcar():
+    raw = (request.form.get("paid_at") or "").strip()
+    d = _parse_datetime_like(raw) if raw else None
+    if not d:
+        # aceptar YYYY-MM-DD o DD/MM/YYYY via _parse_date_like
+        try:
+            dd = _parse_date_like(raw)
+            d = datetime.combine(dd, datetime.min.time()) if dd else None
+        except Exception:
+            d = None
+    if not d:
+        return redirect(url_for("main.comisiones"))
+
+    st = CommissionState.query.get(1)
+    if not st:
+        st = CommissionState(id=1)
+        db.session.add(st)
+    st.last_paid_at = d
+    db.session.commit()
+    return redirect(url_for("main.comisiones"))
 
 
 @bp.get("/api/calendario/events")
@@ -781,18 +2371,20 @@ def api_calendario_events():
     # Rango opcional
     start_raw = request.args.get("start")
     end_raw = request.args.get("end")
-    try:
-        start = datetime.fromisoformat(start_raw) if start_raw else None
-    except Exception:
-        start = None
-    try:
-        end = datetime.fromisoformat(end_raw) if end_raw else None
-    except Exception:
-        end = None
+    start = _parse_datetime_like(start_raw) if start_raw else None
+    end = _parse_datetime_like(end_raw) if end_raw else None
 
     events = []
     # Entregas estimadas (pendientes)
-    q_ent = LogisticsStatus.query.filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+    q_ent = (
+        LogisticsStatus.query
+        .join(Order, LogisticsStatus.order_id == Order.id)
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q_ent = q_ent.filter(Order.owner_user_id == uid)
     if start:
         q_ent = q_ent.filter(LogisticsStatus.fecha_entrega_estimada >= start)
     if end:
@@ -816,7 +2408,15 @@ def api_calendario_events():
         })
 
     # Cobranzas estimadas (pendientes)
-    q_cob = Collection.query.filter(Collection.fecha_cobro_efectiva.is_(None))
+    q_cob = (
+        Collection.query
+        .join(Order, Collection.order_id == Order.id)
+        .filter(Collection.fecha_cobro_efectiva.is_(None))
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q_cob = q_cob.filter(Order.owner_user_id == uid)
     if start:
         q_cob = q_cob.filter(Collection.fecha_pago_estimada >= start)
     if end:
@@ -843,7 +2443,12 @@ def api_calendario_events():
         # Determinar rango de años a considerar
         year_start = (start.date().year if start else date.today().year)
         year_end = (end.date().year if end else year_start)
-        bdays = ClientBirthday.query.filter(ClientBirthday.fecha.isnot(None)).all()
+        bq = ClientBirthday.query.join(Client, ClientBirthday.client_id == Client.id).filter(ClientBirthday.fecha.isnot(None))
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is not None:
+                bq = bq.filter(Client.owner_user_id == uid)
+        bdays = bq.all()
         for b in bdays:
             if not b.fecha:
                 continue
@@ -890,7 +2495,12 @@ def api_calendario_events():
 
 @bp.get("/clientes/nuevo")
 def clientes_new():
-    items = Client.query.order_by(Client.apellido, Client.nombre).all()
+    q = Client.query
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Client.owner_user_id == uid)
+    items = q.order_by(Client.apellido, Client.nombre).all()
     companies = Company.query.order_by(Company.nombre).all()
     branches = [r[0] for r in db.session.query(Client.sucursal).filter(Client.sucursal.isnot(None)).distinct().order_by(Client.sucursal).all()]
     return render_template("clientes_form.html", active="clientes", companies=companies, branches=branches)
@@ -935,7 +2545,10 @@ def clientes_create():
                     provincia=provincia,
                     forma_pago_habitual=forma_pago_habitual,
                     telefono=telefono or None, mail=mail or None,
-                    fecha_incorporacion=date.fromisoformat(fecha_inc) if fecha_inc else None)
+                    fecha_incorporacion=_parse_date_like(fecha_inc) if fecha_inc else None)
+    uid = _effective_user_id()
+    if uid is not None:
+        client.owner_user_id = uid
     db.session.add(client)
     db.session.commit()
 
@@ -950,7 +2563,8 @@ def clientes_create():
                     continue
                 link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=coid).first()
                 if not link:
-                    db.session.add(ClientCompanyLink(client_id=client.id, company_id=coid, status=RelationStatus.TRABAJA, comprobante_tipo="FACTURA"))
+                    link = ClientCompanyLink(client_id=client.id, company_id=coid, status=RelationStatus.TRABAJA, comprobante_tipo="FACTURA")
+                    db.session.add(link)
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -976,7 +2590,7 @@ def clientes_create():
                 fecha = None
                 if dt_raw:
                     try:
-                        fecha = date.fromisoformat(dt_raw) if "-" in dt_raw else None
+                        fecha = _parse_date_like(dt_raw)
                     except Exception:
                         fecha = None
                 db.session.add(ClientBirthday(client_id=client.id, nombre=nm or "-", puesto=rl or None, fecha=fecha, notas=nt or None))
@@ -986,7 +2600,7 @@ def clientes_create():
     # Crear direcciones con provincia, nota, horarios
     if delivery_names or delivery_provincias or delivery_notas or delivery_schedules or delivery_contacts or delivery_phones:
         try:
-            max_len = max(len(delivery_names), len(delivery_provincias), len(delivery_notas), len(delivery_schedules), len(delivery_contacts), len(delivery_phones))
+            max_len = max(len(delivery_names), len(delivery_provincias), len(delivery_notas), len(delivery_schedules), len(delivery_contacts), len(delivery_phones)) if (delivery_names or delivery_provincias or delivery_notas or delivery_schedules or delivery_contacts or delivery_phones) else 0
             for idx in range(max_len):
                 nm = (delivery_names[idx] if idx < len(delivery_names) else "").strip()
                 pv = (delivery_provincias[idx] if idx < len(delivery_provincias) else "").strip()
@@ -1286,6 +2900,7 @@ def admin_client_columns():
 @bp.post("/clientes/<int:client_id>/docs/upload")
 def clientes_docs_upload(client_id: int):
     client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     files = request.files.getlist("documents")
     if not files:
         return redirect(url_for("main.clientes"))
@@ -1318,7 +2933,10 @@ def clientes_docs_upload(client_id: int):
                 except Exception:
                     url = ""
             category = (request.form.get("category") or "CONSTANCIA").upper()
+            uid = _effective_user_id()
             doc = ClientDocument(client_id=client.id, category=category, filename=fname, filepath=url or "", data=content, mimetype=mtype, size=size)
+            if uid is not None:
+                doc.owner_user_id = uid
             db.session.add(doc)
         except Exception:
             continue
@@ -1342,12 +2960,16 @@ def clientes_docs_upload(client_id: int):
             }
             for d in docs
         ])
-    return redirect(url_for("main.clientes_edit_view", client_id=client.id))
+    return redirect(url_for("main.clientes"))
 
 
 @bp.post("/clientes/<int:client_id>/docs/<int:doc_id>/delete")
 def clientes_docs_delete(client_id: int, doc_id: int):
     doc = ClientDocument.query.filter_by(id=doc_id, client_id=client_id).first_or_404()
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is None or getattr(doc, "owner_user_id", None) != uid:
+            abort(403)
     db.session.delete(doc)
     db.session.commit()
     wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.best == "application/json"
@@ -1370,9 +2992,14 @@ def clientes_docs_delete(client_id: int, doc_id: int):
         ])
     return redirect(url_for("main.clientes_edit_view", client_id=client_id))
 
+
 @bp.get("/clientes/<int:client_id>/docs/<int:doc_id>/download")
 def clientes_docs_download(client_id: int, doc_id: int):
     doc = ClientDocument.query.filter_by(id=doc_id, client_id=client_id).first_or_404()
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is None or getattr(doc, "owner_user_id", None) != uid:
+            abort(403)
     # Prioridad: si hay datos en DB, servirlos
     try:
         if getattr(doc, "data", None):
@@ -1389,10 +3016,166 @@ def clientes_docs_download(client_id: int, doc_id: int):
     abort(404)
 
 
+@bp.post("/empresas/<int:company_id>/productos/upload")
+def empresas_productos_upload(company_id: int):
+    company = Company.query.get_or_404(company_id)
+    f = request.files.get("sheet")
+    if not f or not getattr(f, "filename", None):
+        return redirect(url_for("main.empresas_edit_view", company_id=company.id))
+
+    filename = f.filename or "planilla"
+    ok, msg = validate_filename(filename)
+    if not ok:
+        return redirect(url_for("main.empresas_edit_view", company_id=company.id))
+
+    content = f.read() or b""
+    if not content:
+        return redirect(url_for("main.empresas_edit_view", company_id=company.id))
+
+    mtype = f.mimetype or "application/octet-stream"
+    size = len(content)
+
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    upload_preset = os.getenv("CLOUDINARY_UPLOAD_PRESET")
+    url = ""
+    if cloud_name and upload_preset:
+        try:
+            r = requests.post(
+                f"https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload",
+                data={"upload_preset": upload_preset},
+                files={"file": (filename, content, mtype)},
+                timeout=30,
+            )
+            if r.ok:
+                j = r.json()
+                url = j.get("secure_url") or j.get("url") or ""
+        except Exception:
+            url = ""
+
+    row = CompanyProductSheet(
+        company_id=company.id,
+        filename=filename,
+        filepath=(url or None),
+        data=(None if url else content),
+        mimetype=mtype,
+        size=size,
+    )
+    did_commit = False
+    for _ in range(2):
+        try:
+            db.session.add(row)
+            db.session.commit()
+            did_commit = True
+            break
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            # Si la tabla no existe aún (local/railway sin migración), intentar crear.
+            try:
+                db.create_all()
+            except Exception:
+                pass
+    if not did_commit:
+        abort(500)
+
+    # Mantenerte en el legajo (no sacar a otra pantalla)
+    return redirect(url_for("main.empresas_edit_view", company_id=company.id) + "#empresaProductosCollapse")
+
+
+@bp.get("/empresas/<int:company_id>/productos")
+def empresas_productos_view(company_id: int):
+    company = Company.query.get_or_404(company_id)
+    sheet = (
+        CompanyProductSheet.query
+        .filter_by(company_id=company.id)
+        .order_by(CompanyProductSheet.uploaded_at.desc())
+        .first()
+    )
+    q = (request.args.get("q") or "").strip()
+    page = request.args.get("page", default=1, type=int) or 1
+    per_page = request.args.get("per_page", default=50, type=int) or 50
+    if per_page not in (10, 20, 50, 100, 200):
+        per_page = 50
+
+    columns = []
+    rows = []
+    total_rows = 0
+    error = ""
+    filename = ""
+
+    try:
+        if sheet is not None:
+            filename = sheet.filename or ""
+            content = None
+            if getattr(sheet, "data", None):
+                content = bytes(sheet.data)
+            elif getattr(sheet, "filepath", None):
+                try:
+                    rr = requests.get(sheet.filepath, timeout=30)
+                    if rr.ok:
+                        content = rr.content
+                except Exception:
+                    content = None
+            if content:
+                df = read_dataframe_from_bytes(filename, content)
+                parsed = parse_dynamic_table(df, q=q, page=page, per_page=per_page)
+                columns = parsed.columns
+                rows = parsed.rows
+                total_rows = parsed.total_rows
+    except Exception:
+        error = "No se pudo procesar la planilla"
+
+    has_prev = page > 1
+    has_next = (page * per_page) < int(total_rows or 0)
+
+    base_args = {}
+    try:
+        if q:
+            base_args["q"] = q
+    except Exception:
+        pass
+    try:
+        base_args["per_page"] = str(per_page)
+    except Exception:
+        base_args["per_page"] = "50"
+    prev_url = None
+    next_url = None
+    try:
+        if has_prev:
+            prev_url = url_for("main.empresas_productos_view", company_id=company.id) + "?" + urlencode({**base_args, "page": str(page - 1)})
+        if has_next:
+            next_url = url_for("main.empresas_productos_view", company_id=company.id) + "?" + urlencode({**base_args, "page": str(page + 1)})
+    except Exception:
+        prev_url = None
+        next_url = None
+
+    return render_template(
+        "empresa_productos.html",
+        active="empresas",
+        company=company,
+        sheet=sheet,
+        columns=columns,
+        rows=rows,
+        total_rows=total_rows,
+        q=q,
+        page=page,
+        per_page=per_page,
+        has_prev=has_prev,
+        has_next=has_next,
+        prev_url=prev_url,
+        next_url=next_url,
+        error=error,
+        filename=filename,
+    )
+
+
 # Gestión de vínculos desde Clientes (bilateral con Empresas)
 @bp.post("/clientes/<int:client_id>/links/add")
 def clientes_link_add(client_id: int):
     client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     company_id = request.form.get("company_id", type=int)
     status = request.form.get("status") or RelationStatus.TRABAJA.value
     comprobante_tipo = (request.form.get("comprobante_tipo") or "").upper() or None
@@ -1410,6 +3193,8 @@ def clientes_link_add(client_id: int):
 
 @bp.post("/clientes/<int:client_id>/links/<int:link_id>/status")
 def clientes_link_update(client_id: int, link_id: int):
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     link = ClientCompanyLink.query.filter_by(id=link_id, client_id=client_id).first_or_404()
     status = request.form.get("status") or None
     if status:
@@ -1420,6 +3205,8 @@ def clientes_link_update(client_id: int, link_id: int):
 
 @bp.post("/clientes/<int:client_id>/links/<int:link_id>/delete")
 def clientes_link_delete(client_id: int, link_id: int):
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     link = ClientCompanyLink.query.filter_by(id=link_id, client_id=client_id).first_or_404()
     db.session.delete(link)
     db.session.commit()
@@ -1429,6 +3216,7 @@ def clientes_link_delete(client_id: int, link_id: int):
 @bp.get("/clientes/<int:client_id>/editar")
 def clientes_edit_view(client_id: int):
     client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     companies = Company.query.order_by(Company.nombre).all()
     branches = [r[0] for r in db.session.query(Client.sucursal).filter(Client.sucursal.isnot(None)).distinct().order_by(Client.sucursal).all()]
     return render_template("clientes_form.html", active="clientes", client=client, companies=companies, branches=branches)
@@ -1437,6 +3225,7 @@ def clientes_edit_view(client_id: int):
 @bp.post("/clientes/<int:client_id>/editar")
 def clientes_update(client_id: int):
     obj = Client.query.get_or_404(client_id)
+    _require_owner(obj)
     obj.apellido = request.form.get("apellido", obj.apellido)
     obj.nombre = request.form.get("nombre", obj.nombre)
     obj.cuit = (request.form.get("cuit") or None)
@@ -1475,7 +3264,7 @@ def clientes_update(client_id: int):
     b_notas = [v.strip() for v in request.form.getlist("birthday_notas_list")]
     relacion = (request.form.get("relacion") or "").strip() or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
-    obj.fecha_incorporacion = date.fromisoformat(fecha_inc) if fecha_inc else obj.fecha_incorporacion
+    obj.fecha_incorporacion = _parse_date_like(fecha_inc) if fecha_inc else obj.fecha_incorporacion
     # Sincronizar direcciones (lugares de entrega) con provincia, nota, horarios
     try:
         ClientDeliveryPlace.query.filter_by(client_id=obj.id).delete()
@@ -1506,7 +3295,7 @@ def clientes_update(client_id: int):
             fecha = None
             if dt_raw:
                 try:
-                    fecha = date.fromisoformat(dt_raw) if "-" in dt_raw else None
+                    fecha = _parse_date_like(dt_raw)
                 except Exception:
                     fecha = None
             db.session.add(ClientBirthday(client_id=obj.id, nombre=nm or "-", puesto=rl or None, fecha=fecha, notas=nt or None))
@@ -1563,6 +3352,7 @@ def clientes_update(client_id: int):
 @bp.post("/clientes/<int:client_id>/delete")
 def clientes_delete(client_id: int):
     obj = Client.query.get_or_404(client_id)
+    _require_owner(obj)
     db.session.delete(obj)
     db.session.commit()
     return redirect(url_for("main.clientes"))
@@ -1577,7 +3367,7 @@ def clientes_edit(client_id: int):
     obj.telefono = request.form.get("telefono") or None
     obj.mail = request.form.get("mail") or None
     fecha_inc = request.form.get("fecha_incorporacion") or None
-    obj.fecha_incorporacion = date.fromisoformat(fecha_inc) if fecha_inc else obj.fecha_incorporacion
+    obj.fecha_incorporacion = _parse_date_like(fecha_inc) if fecha_inc else obj.fecha_incorporacion
     db.session.commit()
     return redirect(url_for("main.clientes"))
 
@@ -1592,23 +3382,284 @@ def api_clientes():
     return jsonify(res)
 
 
+@bp.get("/api/cobranzas/pagos_por_pedido")
+def api_cobranzas_pagos_por_pedido():
+    order_id = request.args.get("order_id", type=int)
+    if not order_id:
+        return jsonify([])
+    o = Order.query.get_or_404(order_id)
+    _require_owner(o)
+
+    def _to_iso(dtv):
+        try:
+            if not dtv:
+                return None
+            try:
+                return dtv.date().isoformat()
+            except Exception:
+                return dtv.isoformat()
+        except Exception:
+            return None
+
+    rows = []
+    try:
+        q = (
+            CollectionPayment.query
+            .filter_by(order_id=order_id)
+            .filter(CollectionPayment.kind != "DRAFT")
+            .order_by(CollectionPayment.created_at.asc())
+        )
+        for p in q.all():
+            try:
+                kind_norm = (getattr(p, "kind", None) or "").strip().upper()
+                method_raw = getattr(p, "method", None)
+                method_norm = (method_raw or "").strip().upper()
+                # normalizar separadores para que matchee con el frontend
+                method_norm = method_norm.replace("-", "_").replace(" ", "_")
+                voided_at = getattr(p, "voided_at", None)
+                rows.append({
+                    "id": p.id,
+                    "kind": kind_norm,
+                    "method": (method_norm or None),
+                    "amount": float(getattr(p, "amount", 0) or 0),
+                    "due_date": _to_iso(getattr(p, "due_date", None)),
+                    "notes": getattr(p, "notes", None),
+                    "attachment_url": getattr(p, "attachment_url", None),
+                    "created_at": _to_iso(getattr(p, "created_at", None)),
+                    "voided_at": _to_iso(voided_at),
+                })
+            except Exception:
+                continue
+    except Exception:
+        rows = []
+    return jsonify(rows)
+
+
+@bp.post("/cobranzas/pagos/<int:payment_id>/anular")
+def cobranzas_pago_anular(payment_id: int):
+    p = CollectionPayment.query.get_or_404(payment_id)
+    o = Order.query.get_or_404(int(p.order_id))
+    _require_owner(o)
+
+    # No anular borradores
+    try:
+        if (getattr(p, "kind", "") or "").strip().upper() == "DRAFT":
+            abort(400)
+    except Exception:
+        abort(400)
+
+    # Idempotente
+    if getattr(p, "voided_at", None) is None:
+        try:
+            p.voided_at = datetime.utcnow()
+        except Exception:
+            pass
+        try:
+            uid = _effective_user_id()
+            if uid is not None:
+                p.voided_by_user_id = uid
+        except Exception:
+            pass
+        try:
+            reason = (request.form.get("reason") or "").strip()
+            if reason:
+                p.voided_reason = reason
+        except Exception:
+            pass
+
+    # Recalcular Collection del pedido ignorando anulados
+    try:
+        coll = Collection.query.filter_by(order_id=o.id).first()
+    except Exception:
+        coll = None
+    if coll is not None:
+        try:
+            # base monto
+            candidates = []
+            if getattr(coll, "monto", None) is not None:
+                candidates.append(float(coll.monto))
+            if getattr(o, "precio_final", None) is not None:
+                candidates.append(float(o.precio_final))
+            lg = getattr(o, "logistics", None)
+            if lg is not None and getattr(lg, "precio", None) is not None:
+                candidates.append(float(lg.precio))
+            picked = None
+            for v in candidates:
+                if v is not None and v > 0:
+                    picked = v
+                    break
+            if picked is None and candidates:
+                picked = candidates[0]
+            base_monto = float(picked or 0.0)
+        except Exception:
+            base_monto = 0.0
+
+        total_paid = 0.0
+        total_credit = 0.0
+        max_due_all = None
+        try:
+            for pr in (
+                CollectionPayment.query
+                .filter_by(order_id=o.id)
+                .filter(CollectionPayment.kind != "DRAFT")
+                .filter(CollectionPayment.voided_at.is_(None))
+                .all()
+            ):
+                kind = (getattr(pr, "kind", "") or "").strip().upper()
+                amt = float(getattr(pr, "amount", 0) or 0)
+                if kind == "CREDIT_NOTE":
+                    total_credit += abs(amt)
+                elif kind == "PAYMENT":
+                    total_paid += abs(amt)
+                dd = getattr(pr, "due_date", None)
+                if dd and (max_due_all is None or dd > max_due_all):
+                    max_due_all = dd
+        except Exception:
+            total_paid = 0.0
+            total_credit = 0.0
+
+        # Reintento tolerante por Railway si falló por columna faltante
+        if total_paid == 0.0 and total_credit == 0.0:
+            try:
+                total_paid2 = 0.0
+                total_credit2 = 0.0
+                qpay = (
+                    CollectionPayment.query
+                    .filter_by(order_id=o.id)
+                    .filter(CollectionPayment.kind != "DRAFT")
+                )
+                try:
+                    qpay = _safe_filter_not_voided(qpay)
+                except Exception:
+                    pass
+                for p in qpay.all():
+                    kind = (getattr(p, "kind", "") or "").strip().upper()
+                    amt = float(getattr(p, "amount", 0) or 0)
+                    if kind == "CREDIT_NOTE":
+                        total_credit2 += abs(amt)
+                    elif kind == "PAYMENT":
+                        total_paid2 += abs(amt)
+                total_paid = float(total_paid2 or 0.0)
+                total_credit = float(total_credit2 or 0.0)
+            except Exception:
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+            max_due_all = None
+
+        net_due = float(base_monto or 0.0) - float(total_credit or 0.0)
+        try:
+            # actualizar vencimiento estimado al más lejano si hay alguno
+            if max_due_all:
+                coll.fecha_pago_estimada = max_due_all
+        except Exception:
+            pass
+
+        try:
+            if net_due <= 0:
+                if not coll.fecha_cobro_efectiva:
+                    coll.fecha_cobro_efectiva = datetime.utcnow()
+            elif float(total_paid or 0.0) >= float(net_due or 0.0):
+                if not coll.fecha_cobro_efectiva:
+                    coll.fecha_cobro_efectiva = datetime.utcnow()
+            else:
+                coll.fecha_cobro_efectiva = None
+        except Exception:
+            pass
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True})
+    return redirect(url_for("main.nueva_cobranza", order_id=o.id))
+
+
 @bp.get("/api/clientes/<int:client_id>/empresas")
 def api_client_companies(client_id: int):
     c = Client.query.get_or_404(client_id)
+    try:
+        _require_owner(c)
+    except Exception:
+        abort(403)
     rows = []
+    seen = set()
+
+    # 1) Empresas vinculadas en CRM
     for l in c.links:
         if l.company:
+            coid = int(l.company.id)
+            if coid in seen:
+                continue
+            seen.add(coid)
             rows.append({
-                "id": l.company.id,
+                "id": coid,
                 "label": l.company.nombre,
                 "mail_pedido": l.company.mail_pedido or "",
                 "mail_pago": l.company.mail_pago or "",
                 "pedido_estandar_recomendado": l.company.pedido_estandar_recomendado or "",
+                "nota_pedido": getattr(l.company, "nota_pedido", None) or "",
                 "comprobante_tipo": (getattr(l, "comprobante_tipo", None) or "FACTURA"),
                 "forma_pago_default": (l.company.forma_pago_default or ""),
                 "plazo_pago_dias": getattr(l, "plazo_pago_dias", None),
                 "plazo_pago_promedio_dias": l.company.plazo_pago_promedio_dias,
-                "status": getattr(l.status, "value", str(l.status))
+                "status": getattr(l.status, "value", str(l.status)),
+            })
+
+    # 2) Empresas que aparecen en pedidos del cliente (aunque no estén vinculadas)
+    try:
+        uid = _effective_user_id()
+        order_company_ids = (
+            db.session.query(Order.company_id)
+            .filter(Order.client_id == client_id)
+            .filter(Order.deleted_at.is_(None))
+            .filter(Order.company_id.isnot(None))
+            .filter(
+                True
+                if _has_global_access()
+                else (
+                    (Order.owner_user_id == uid)
+                    # Compatibilidad: pedidos legacy pueden tener owner_user_id NULL.
+                    # Como ya validamos _require_owner(c), permitirlos para este cliente.
+                    | (Order.owner_user_id.is_(None))
+                )
+            )
+            .distinct()
+            .all()
+        )
+        order_company_ids = [int(r[0]) for r in (order_company_ids or []) if r and r[0]]
+    except Exception:
+        order_company_ids = []
+
+    if order_company_ids:
+        for comp in Company.query.filter(Company.id.in_(order_company_ids)).all():
+            try:
+                coid = int(comp.id)
+            except Exception:
+                continue
+            if coid in seen:
+                continue
+            seen.add(coid)
+            rows.append({
+                "id": coid,
+                "label": comp.nombre,
+                "mail_pedido": comp.mail_pedido or "",
+                "mail_pago": comp.mail_pago or "",
+                "pedido_estandar_recomendado": comp.pedido_estandar_recomendado or "",
+                "nota_pedido": getattr(comp, "nota_pedido", None) or "",
+                "comprobante_tipo": "FACTURA",
+                "forma_pago_default": (comp.forma_pago_default or ""),
+                "plazo_pago_dias": None,
+                "plazo_pago_promedio_dias": comp.plazo_pago_promedio_dias,
+                "status": "TRABAJA",
             })
     # Sort by name
     rows.sort(key=lambda r: r["label"].lower())
@@ -1618,25 +3669,156 @@ def api_client_companies(client_id: int):
 @bp.get("/empresas")
 def empresas():
     q = (request.args.get("q") or "").strip()
+    show_all = request.args.get("all") == "1"
+
+    page = request.args.get("page", default=1, type=int) or 1
+    per_page = request.args.get("per_page", default=10, type=int) or 10
+    if page < 1:
+        page = 1
+    if per_page < 1:
+        per_page = 10
+    if per_page > 50:
+        per_page = 50
     base = Company.query
     if q:
         ilike = f"%{q}%"
         base = base.filter((Company.marca.ilike(ilike)) | (Company.nombre.ilike(ilike)))
-    items = base.order_by(Company.marca.nullslast(), Company.nombre).all()
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
-    now_dt = datetime.utcnow()
+    base = base.order_by(Company.marca.nullslast(), Company.nombre)
+    has_next = False
+    has_prev = False
+    if show_all:
+        items = base.all()
+    else:
+        offset = (page - 1) * per_page
+        rows = base.offset(offset).limit(per_page + 1).all()
+        if len(rows) > per_page:
+            has_next = True
+            rows = rows[:per_page]
+        has_prev = page > 1
+        items = rows
+    cq = Client.query
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            cq = cq.filter(Client.owner_user_id == uid)
+    clients = cq.order_by(Client.apellido, Client.nombre).all()
+
     alerts_by_company = {}
     total_active_alerts = 0
     try:
-        all_alerts = _compute_alerts_for_all_clients(now_dt)
+        now_dt = datetime.utcnow()
+        active_alerts = _compute_alerts_for_all_clients(now_dt) or []
+        total_active_alerts = int(len(active_alerts) or 0)
+        order_ids = sorted({int(a.get("order_id")) for a in active_alerts if a and a.get("order_id")})
+        orders = []
+        if order_ids:
+            oq = (
+                Order.query
+                .options(
+                    selectinload(Order.logistics),
+                    selectinload(Order.collection),
+                    selectinload(Order.company),
+                )
+                .filter(Order.id.in_(order_ids))
+            )
+            if not _has_global_access():
+                uid = _effective_user_id()
+                if uid is not None:
+                    oq = oq.filter(or_(Order.owner_user_id == uid, Order.owner_user_id.is_(None)))
+            orders = oq.all()
+        order_map = {int(o.id): o for o in (orders or []) if o and o.id}
+
+        for a in active_alerts:
+            if not a:
+                continue
+            try:
+                oid = int(a.get("order_id") or 0)
+            except Exception:
+                oid = 0
+            o = order_map.get(oid) if oid else None
+            if not o:
+                continue
+            try:
+                coid = int(getattr(o, "company_id", None) or 0)
+            except Exception:
+                coid = 0
+            if not coid:
+                continue
+
+            state_kind = (a.get("kind") or "").strip().upper()
+            ui_kind = ""
+            if state_kind == "COBRANZA_ATRASADA":
+                ui_kind = "COBRANZA"
+            elif state_kind == "ENTREGA_ATRASADA":
+                ui_kind = "MERCADERIA"
+            else:
+                ui_kind = state_kind
+
+            coll = getattr(o, "collection", None)
+            lg = getattr(o, "logistics", None)
+            company_name = None
+            try:
+                company_name = (getattr(getattr(o, "company", None), "nombre", None) if o else None) or (a.get("company") or None)
+            except Exception:
+                company_name = (a.get("company") or None)
+
+            item = {
+                "client_id": a.get("client_id"),
+                "client_name": a.get("client_name"),
+                "order_id": oid,
+                "kind": ui_kind,
+                "state_kind": state_kind,
+                "message": a.get("message"),
+                "severity": a.get("severity"),
+                "company": company_name,
+            }
+            if ui_kind == "COBRANZA":
+                try:
+                    item["cob_entrega_efectiva"] = (coll.fecha_entrega_efectiva.date().isoformat() if coll and coll.fecha_entrega_efectiva else "")
+                except Exception:
+                    item["cob_entrega_efectiva"] = ""
+                try:
+                    item["cob_monto"] = (str(coll.monto) if coll and coll.monto is not None else "")
+                except Exception:
+                    item["cob_monto"] = ""
+                try:
+                    item["cob_forma_pago"] = ((coll.forma_pago.value if coll and coll.forma_pago else "") or "")
+                except Exception:
+                    item["cob_forma_pago"] = ""
+                try:
+                    item["cob_pago_estimado"] = (coll.fecha_pago_estimada.date().isoformat() if coll and coll.fecha_pago_estimada else "")
+                except Exception:
+                    item["cob_pago_estimado"] = ""
+                try:
+                    item["cob_cobro_efectivo"] = (coll.fecha_cobro_efectiva.date().isoformat() if coll and coll.fecha_cobro_efectiva else "")
+                except Exception:
+                    item["cob_cobro_efectivo"] = ""
+            elif ui_kind == "MERCADERIA":
+                item["st_has_logistics"] = bool(lg is not None)
+                try:
+                    item["st_fecha_compra"] = (lg.fecha_compra.date().isoformat() if lg and lg.fecha_compra else "")
+                except Exception:
+                    item["st_fecha_compra"] = ""
+                try:
+                    item["st_entrega_estimada"] = (lg.fecha_entrega_estimada.date().isoformat() if lg and lg.fecha_entrega_estimada else "")
+                except Exception:
+                    item["st_entrega_estimada"] = ""
+                try:
+                    item["st_entrega_efectiva"] = (lg.fecha_entrega_efectiva.date().isoformat() if lg and lg.fecha_entrega_efectiva else "")
+                except Exception:
+                    item["st_entrega_efectiva"] = ""
+                try:
+                    item["st_precio"] = (str(lg.precio) if lg and lg.precio is not None else "")
+                except Exception:
+                    item["st_precio"] = ""
+
+            alerts_by_company.setdefault(coid, []).append(item)
     except Exception:
-        all_alerts = []
-    for a in all_alerts:
-        coid = a.get("company_id")
-        if not coid:
-            continue
-        alerts_by_company.setdefault(coid, []).append(a)
-        total_active_alerts += 1
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
     return render_template(
         "empresas.html",
         active="empresas",
@@ -1645,12 +3827,22 @@ def empresas():
         q=q,
         alerts_by_company=alerts_by_company,
         total_active_alerts=total_active_alerts,
+        show_all=show_all,
+        page=page,
+        per_page=per_page,
+        has_next=has_next,
+        has_prev=has_prev,
     )
 
 
 @bp.get("/empresas/nueva")
 def empresas_new():
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    q = Client.query
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Client.owner_user_id == uid)
+    clients = q.order_by(Client.apellido, Client.nombre).all()
     return render_template("empresas_form.html", active="empresas", clients=clients)
 
 
@@ -1662,6 +3854,7 @@ def empresas_create():
     plazo = request.form.get("plazo", type=int)
     plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
     pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
+    nota_pedido = (request.form.get("nota_pedido") or "").strip() or None
     forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
     mail_pedido_single = (request.form.get("mail_pedido", "") or "").strip()
@@ -1679,6 +3872,7 @@ def empresas_create():
         plazo_pago_promedio_dias=plazo or 30,
         plazo_usual=plazo_usual,
         pedido_estandar_recomendado=pedido_estandar_recomendado,
+        nota_pedido=nota_pedido,
         forma_pago_default=forma_pago_default,
         mail_pedido=mail_pedido,
         mail_pago=mail_pago,
@@ -1693,6 +3887,10 @@ def empresas_create():
         for cid in client_ids:
             c = Client.query.get(cid)
             if not c:
+                continue
+            try:
+                _require_owner(c)
+            except Exception:
                 continue
             link = ClientCompanyLink.query.filter_by(client_id=cid, company_id=company.id).first()
             if not link:
@@ -1844,22 +4042,6 @@ def empresas_docs_upload(company_id: int):
         return redirect(url_for("main.empresas_edit_view", company_id=company.id))
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
     upload_preset = os.getenv("CLOUDINARY_UPLOAD_PRESET")
-    # Límite total de tamaño en MB para evitar problemas de envío por mail (Gmail)
-    try:
-        max_mb = int(os.getenv("MAX_COMPANY_DOCS_MB", "20"))
-    except Exception:
-        max_mb = 20
-    max_bytes = max_mb * 1024 * 1024
-    try:
-        existing_total = (
-            db.session.query(func.coalesce(func.sum(CompanyDocument.size), 0))
-            .filter(CompanyDocument.company_id == company.id)
-            .scalar()
-            or 0
-        )
-    except Exception:
-        existing_total = 0
-    skipped_by_limit = False
     for f in files:
         try:
             if not f or not getattr(f, "filename", None):
@@ -1869,10 +4051,6 @@ def empresas_docs_upload(company_id: int):
             mtype = f.mimetype or "application/octet-stream"
             size = len(content)
             if size <= 0:
-                continue
-            # Si este archivo hace que se supere el límite total permitido, lo ignoramos
-            if max_bytes and (existing_total + size) > max_bytes:
-                skipped_by_limit = True
                 continue
             url = ""
             if content and cloud_name and upload_preset:
@@ -1898,12 +4076,9 @@ def empresas_docs_upload(company_id: int):
                 size=size,
             )
             db.session.add(doc)
-            existing_total += size
         except Exception:
             continue
     db.session.commit()
-    if skipped_by_limit:
-        return redirect(url_for("main.empresas_edit_view", company_id=company.id, upload_limit=1, upload_limit_mb=max_mb))
     return redirect(url_for("main.empresas_edit_view", company_id=company.id))
 
 
@@ -1935,7 +4110,12 @@ def empresas_docs_download(company_id: int, doc_id: int):
 
 @bp.get("/estado-clientes")
 def estado_clientes():
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    q = Client.query
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Client.owner_user_id == uid)
+    clients = q.order_by(Client.apellido, Client.nombre).all()
     return render_template("estado_clientes.html", active="clientes", clients=clients)
 
 
@@ -1964,8 +4144,32 @@ def estado_clientes_update_all(client_id: int):
 @bp.get("/empresas/<int:company_id>/editar")
 def empresas_edit_view(company_id: int):
     company = Company.query.get_or_404(company_id)
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
-    return render_template("empresas_form.html", active="empresas", company=company, clients=clients)
+    visible_links = []
+    try:
+        if _has_global_access():
+            visible_links = list(getattr(company, "links", None) or [])
+        else:
+            uid = _effective_user_id()
+            visible_links = [
+                l for l in (getattr(company, "links", None) or [])
+                if getattr(getattr(l, "client", None), "owner_user_id", None) == uid
+            ]
+    except Exception:
+        visible_links = []
+    q = Client.query
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Client.owner_user_id == uid)
+    clients = q.order_by(Client.apellido, Client.nombre).all()
+    return render_template(
+        "empresas_form.html",
+        active="empresas",
+        company=company,
+        clients=clients,
+        visible_links=visible_links,
+        is_admin=bool(getattr(current_user, "is_admin", False)),
+    )
 
 
 @bp.post("/empresas/<int:company_id>/editar")
@@ -1977,13 +4181,15 @@ def empresas_update(company_id: int):
     obj.plazo_pago_promedio_dias = request.form.get("plazo", type=int) or obj.plazo_pago_promedio_dias
     obj.plazo_usual = (request.form.get("plazo_usual") or "").strip() or None
     obj.pedido_estandar_recomendado = (request.form.get("pedido_estandar_recomendado") or "").strip() or None
+    obj.nota_pedido = (request.form.get("nota_pedido") or "").strip() or None
     obj.forma_pago_default = ((request.form.get("forma_pago_default") or "").strip().upper() or None)
     mail_pedido_list = [m.strip() for m in request.form.getlist("mail_pedido_list") if (m or "").strip()]
-    mail_pedido_single = (request.form.get("mail_pedido") or "").strip()
+    mail_pedido_single = (request.form.get("mail_pedido", "") or "").strip()
     obj.mail_pedido = (", ".join(mail_pedido_list) if mail_pedido_list else (mail_pedido_single or None))
     mail_pago_list = [m.strip() for m in request.form.getlist("mail_pago_list") if (m or "").strip()]
-    mail_pago_single = (request.form.get("mail_pago") or "").strip()
-    obj.mail_pago = (", ".join(mail_pago_list) if mail_pago_list else (mail_pago_single or None))
+    mail_pago_single = (request.form.get("mail_pago", "") or "").strip()
+    if _has_global_access():
+        obj.mail_pago = (", ".join(mail_pago_list) if mail_pago_list else (mail_pago_single or None))
     obj.cuit = (request.form.get("cuit") or None)
     obj.notas = (request.form.get("notas") or None)
     obj.cuenta_bancaria_notas = (request.form.get("cuenta_bancaria_notas") or None)
@@ -1992,10 +4198,22 @@ def empresas_update(company_id: int):
     client_ids = request.form.getlist("client_ids", type=int)
     if client_ids:
         keep_ids = set(client_ids)
-        # Mapear vínculos existentes por client_id
-        existing = {l.client_id: l for l in obj.links}
-        # Eliminar vínculos que ya no están seleccionados
-        for l in list(obj.links):
+        # Mapear vínculos existentes (solo los que pertenecen al usuario actual si no es admin)
+        visible_existing = []
+        try:
+            if _has_global_access():
+                visible_existing = list(getattr(obj, "links", None) or [])
+            else:
+                uid = _effective_user_id()
+                visible_existing = [
+                    l for l in (getattr(obj, "links", None) or [])
+                    if getattr(getattr(l, "client", None), "owner_user_id", None) == uid
+                ]
+        except Exception:
+            visible_existing = []
+        existing = {l.client_id: l for l in visible_existing}
+        # Eliminar vínculos que ya no están seleccionados (solo los visibles del usuario)
+        for l in list(visible_existing):
             if l.client_id not in keep_ids:
                 db.session.delete(l)
         # Crear vínculos nuevos para los ids seleccionados que no existían
@@ -2004,6 +4222,10 @@ def empresas_update(company_id: int):
                 continue
             c = Client.query.get(cid)
             if not c:
+                continue
+            try:
+                _require_owner(c)
+            except Exception:
                 continue
             db.session.add(ClientCompanyLink(client_id=cid, company_id=obj.id, status=RelationStatus.TRABAJA, comprobante_tipo="FACTURA"))
 
@@ -2019,6 +4241,7 @@ def empresas_link_add(company_id: int):
     comprobante_tipo = (request.form.get("comprobante_tipo") or "").upper() or None
     descuento_raw = (request.form.get("descuento") or "").strip()
     client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     link = ClientCompanyLink.query.filter_by(client_id=client.id, company_id=company.id).first()
     if not link:
         link = ClientCompanyLink(client_id=client.id, company_id=company.id)
@@ -2045,6 +4268,12 @@ def empresas_link_add(company_id: int):
 @bp.post("/empresas/<int:company_id>/links/<int:link_id>/status")
 def empresas_link_update(company_id: int, link_id: int):
     link = ClientCompanyLink.query.filter_by(id=link_id, company_id=company_id).first_or_404()
+    try:
+        client = Client.query.get(getattr(link, "client_id", None))
+        if client is not None:
+            _require_owner(client)
+    except Exception:
+        abort(403)
     status = request.form.get("status") or None
     comprobante_tipo = (request.form.get("comprobante_tipo") or "").upper() or None
     descuento_raw = (request.form.get("descuento") or "").strip()
@@ -2069,6 +4298,12 @@ def empresas_link_update(company_id: int, link_id: int):
 @bp.post("/empresas/<int:company_id>/links/<int:link_id>/delete")
 def empresas_link_delete(company_id: int, link_id: int):
     link = ClientCompanyLink.query.filter_by(id=link_id, company_id=company_id).first_or_404()
+    try:
+        client = Client.query.get(getattr(link, "client_id", None))
+        if client is not None:
+            _require_owner(client)
+    except Exception:
+        abort(403)
     db.session.delete(link)
     db.session.commit()
     return redirect(url_for("main.empresas", open_links=company_id))
@@ -2110,11 +4345,13 @@ def api_empresas():
 @bp.get("/pedidos")
 def pedidos():
     order_id = request.args.get("order_id", type=int)
+    return_to = (request.args.get("return_to") or "").strip() or None
     order = None
     logistics = None
     today_iso = date.today().isoformat()
     if order_id:
         order = Order.query.get_or_404(order_id)
+        _require_owner(order)
         logistics = LogisticsStatus.query.filter_by(order_id=order.id).first()
         try:
             if logistics and logistics.fecha_compra:
@@ -2127,10 +4364,223 @@ def pedidos():
         "pedidos.html",
         active="pedidos",
         today=today_iso,
-        clientes=Client.query.order_by(Client.apellido, Client.nombre).all(),
+        clientes=(
+            (Client.query if _has_global_access() else Client.query.filter(Client.owner_user_id == _effective_user_id()))
+            .order_by(Client.apellido, Client.nombre)
+            .all()
+        ),
         edit_order=order,
         edit_logistics=logistics,
+        return_to=return_to,
     )
+
+
+@bp.get("/api/pedidos/drafts")
+def api_pedidos_drafts_list():
+    client_id = request.args.get("client_id", type=int)
+    company_id = request.args.get("company_id", type=int)
+    q = (
+        db.session.query(OrderDraft, Client, Company)
+        .join(Client, OrderDraft.client_id == Client.id)
+        .join(Company, OrderDraft.company_id == Company.id)
+        .order_by(Client.apellido.asc(), Client.nombre.asc(), Company.nombre.asc())
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is None:
+            abort(403)
+        q = q.filter(OrderDraft.owner_user_id == uid)
+    if client_id:
+        q = q.filter(OrderDraft.client_id == client_id)
+    if company_id:
+        q = q.filter(OrderDraft.company_id == company_id)
+
+    rows = []
+    for d, c, co in q.limit(200).all():
+        try:
+            rows.append({
+                "id": int(getattr(d, "id", 0) or 0),
+                "client_id": int(getattr(d, "client_id", 0) or 0),
+                "company_id": int(getattr(d, "company_id", 0) or 0),
+                "client_label": " ".join([x for x in [getattr(c, "apellido", None), getattr(c, "nombre", None)] if x]) or (getattr(c, "apellido", None) or ""),
+                "company_label": (getattr(co, "nombre", None) or ""),
+                "branch_id": (getattr(d, "branch_id", None) or ""),
+                "sucursal": (getattr(d, "sucursal", None) or ""),
+                "nota": (getattr(d, "nota", None) or ""),
+                "descripcion": (getattr(d, "descripcion", None) or ""),
+                "precio_final": (str(getattr(d, "precio_final", "") or "") if getattr(d, "precio_final", None) is not None else ""),
+                "forma_pago": (getattr(getattr(d, "forma_pago", None), "value", None) or ""),
+                "forma_pago_detalle": (getattr(d, "forma_pago_detalle", None) or ""),
+                "plazo_pago_dias": (getattr(d, "plazo_pago_dias", None) or ""),
+                "fecha_compra": "",
+            })
+        except Exception:
+            continue
+    return jsonify(rows)
+
+
+@bp.post("/api/pedidos/drafts")
+def api_pedidos_drafts_upsert():
+    client_id = request.form.get("client_id", type=int)
+    company_id = request.form.get("company_id", type=int)
+    if not client_id or not company_id:
+        abort(400)
+
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
+    company = Company.query.get_or_404(company_id)
+
+    uid = _effective_user_id() if not _has_global_access() else None
+    if not _has_global_access() and uid is None:
+        abort(403)
+
+    d = None
+    try:
+        base = OrderDraft.query.filter_by(client_id=client_id, company_id=company_id)
+        if not _has_global_access():
+            base = base.filter(OrderDraft.owner_user_id == uid)
+        d = base.first()
+    except Exception:
+        d = None
+
+    if d is None:
+        d = OrderDraft(
+            owner_user_id=(None if _has_global_access() else uid),
+            client_id=client_id,
+            company_id=company_id,
+        )
+        db.session.add(d)
+
+    try:
+        d.branch_id = request.form.get("branch_id", type=int)
+    except Exception:
+        pass
+    try:
+        d.sucursal = (request.form.get("sucursal") or "")
+    except Exception:
+        pass
+    try:
+        d.nota = (request.form.get("nota") or "")
+    except Exception:
+        pass
+    try:
+        d.descripcion = (request.form.get("descripcion") or "")
+    except Exception:
+        pass
+    try:
+        d.plazo_pago_dias = request.form.get("plazo_pago_dias", type=int)
+    except Exception:
+        pass
+    try:
+        d.forma_pago_detalle = (request.form.get("forma_pago_detalle") or "").strip().upper() or None
+    except Exception:
+        pass
+    try:
+        fp = (request.form.get("forma_pago") or "").strip().upper() or ""
+        d.forma_pago = PaymentMethod(fp) if fp else None
+    except Exception:
+        d.forma_pago = None
+    try:
+        d.precio_final = _parse_amount_like(request.form.get("precio_final"))
+    except Exception:
+        pass
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        abort(500)
+
+    return jsonify({"ok": True, "id": int(getattr(d, "id", 0) or 0)})
+
+
+@bp.delete("/api/pedidos/drafts/<int:draft_id>")
+def api_pedidos_drafts_delete(draft_id: int):
+    d = OrderDraft.query.get_or_404(draft_id)
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is None or int(getattr(d, "owner_user_id", 0) or 0) != int(uid):
+            abort(403)
+    db.session.delete(d)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        abort(500)
+    return jsonify({"ok": True})
+
+
+@bp.get("/historial/eliminados")
+def historial_eliminados():
+    q = (
+        Order.query
+        .filter(Order.deleted_at.isnot(None))
+        .options(
+            selectinload(Order.client),
+            selectinload(Order.company),
+            selectinload(Order.logistics),
+            selectinload(Order.collection),
+        )
+        .order_by(Order.deleted_at.desc(), Order.id.desc())
+    )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Order.owner_user_id == uid)
+    items = q.limit(500).all()
+    return render_template("pedidos_eliminados.html", active="historial", orders=items)
+
+
+@bp.post("/historial/<int:order_id>/update")
+def historial_update(order_id: int):
+    o = Order.query.get_or_404(order_id)
+    _require_owner(o)
+    nota = request.form.get("nota")
+    descripcion = request.form.get("descripcion")
+    monto = request.form.get("monto", type=float)
+    entrega_efectiva_raw = (request.form.get("fecha_entrega_efectiva") or "").strip()
+    cobro_efectivo_raw = (request.form.get("fecha_cobro_efectiva") or "").strip()
+
+    if nota is not None:
+        o.nota = nota
+    if descripcion is not None:
+        o.descripcion = descripcion
+
+    # Asegurar logistics/collection según lo editado
+    lg = LogisticsStatus.query.filter_by(order_id=o.id).first()
+    coll = Collection.query.filter_by(order_id=o.id).first()
+
+    if entrega_efectiva_raw is not None:
+        if not lg:
+            lg = LogisticsStatus(order_id=o.id)
+            db.session.add(lg)
+        try:
+            lg.fecha_entrega_efectiva = _parse_datetime_like(entrega_efectiva_raw) if entrega_efectiva_raw else None
+        except Exception:
+            pass
+
+    if cobro_efectivo_raw is not None:
+        if not coll:
+            coll = Collection(order_id=o.id)
+            db.session.add(coll)
+        try:
+            coll.fecha_cobro_efectiva = _parse_datetime_like(cobro_efectivo_raw) if cobro_efectivo_raw else None
+        except Exception:
+            pass
+
+    if monto is not None:
+        o.precio_final = monto
+        if lg:
+            lg.precio = monto
+        if coll:
+            coll.monto = monto
+
+    db.session.commit()
+
+    return_to = (request.form.get("return_to") or "").strip()
+    if return_to and return_to.startswith("/") and ("//" not in return_to):
+        return redirect(return_to)
+    return redirect(url_for("main.historial"))
 
 
 @bp.post("/pedidos")
@@ -2148,8 +4598,10 @@ def pedidos_create():
     fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
     # tipo de comprobante (FACTURA / REMITO)
     tipo_comprobante = (request.form.get("tipo_comprobante") or "").strip().upper() or None
-    precio_final = request.form.get("precio_final", type=float)
+    precio_final_raw = request.form.get("precio_final")
+    precio_final = _parse_amount_like(precio_final_raw)
     forma_pago = (request.form.get("forma_pago") or "").strip().upper() or None
+    forma_pago_detalle = (request.form.get("forma_pago_detalle") or "").strip().upper() or None
     plazo_pago_dias = request.form.get("plazo_pago_dias", type=int)
 
     if not client_id:
@@ -2161,6 +4613,7 @@ def pedidos_create():
 
     client = Client.query.get_or_404(client_id)
     company = Company.query.get_or_404(company_id)
+    _require_owner(client)
 
     # Plazo de pago del pedido: default empresa pero editable
     if plazo_pago_dias is None:
@@ -2195,6 +4648,7 @@ def pedidos_create():
         order.descripcion = descripcion
         order.precio_final = precio_final
         order.forma_pago = forma_pago_enum
+        order.forma_pago_detalle = forma_pago_detalle
         order.tipo_comprobante = tipo_comprobante
         order.plazo_pago_dias = plazo_pago_dias
         order.demora_despacho_promedio_dias = company.demora_despacho_promedio_dias
@@ -2203,10 +4657,13 @@ def pedidos_create():
         db.session.flush()
     else:
         order = Order(client=client, company=company, sucursal=sucursal, branch_id=branch_id, nota=nota, descripcion=descripcion,
-                      precio_final=precio_final, forma_pago=forma_pago_enum, tipo_comprobante=tipo_comprobante,
+                      precio_final=precio_final, forma_pago=forma_pago_enum, forma_pago_detalle=forma_pago_detalle, tipo_comprobante=tipo_comprobante,
                       plazo_pago_dias=plazo_pago_dias,
                       demora_despacho_promedio_dias=company.demora_despacho_promedio_dias,
                       mail_pedido=company.mail_pedido)
+        uid = _effective_user_id()
+        if uid is not None:
+            order.owner_user_id = uid
         db.session.add(order)
         db.session.flush()
 
@@ -2230,12 +4687,15 @@ def pedidos_create():
     # Create/update logistics record
     logistics = LogisticsStatus.query.filter_by(order_id=order.id).first()
     try:
-        fecha_compra = datetime.fromisoformat(fecha_compra_raw) if fecha_compra_raw else datetime.utcnow()
+        fecha_compra = _parse_datetime_like(fecha_compra_raw) if fecha_compra_raw else datetime.utcnow()
+        if not fecha_compra:
+            fecha_compra = datetime.utcnow()
     except Exception:
         fecha_compra = datetime.utcnow()
     # fecha_entrega_estimada: usar la provista o calcular por demora promedio
     try:
-        fecha_estimada = datetime.fromisoformat(fecha_entrega_estimada_raw) if fecha_entrega_estimada_raw else (fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0))
+        parsed_est = _parse_datetime_like(fecha_entrega_estimada_raw) if fecha_entrega_estimada_raw else None
+        fecha_estimada = parsed_est if parsed_est else (fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0))
     except Exception:
         fecha_estimada = fecha_compra + timedelta(days=company.demora_despacho_promedio_dias or 0)
     if logistics:
@@ -2245,11 +4705,12 @@ def pedidos_create():
         logistics.descripcion = descripcion
         logistics.precio = precio_final
         logistics.forma_pago = order.forma_pago
+        logistics.forma_pago_detalle = order.forma_pago_detalle
         db.session.add(logistics)
     else:
         logistics = LogisticsStatus(order_id=order.id, fecha_compra=fecha_compra,
                                     fecha_entrega_estimada=fecha_estimada, nota=nota, descripcion=descripcion,
-                                    precio=precio_final, forma_pago=order.forma_pago)
+                                    precio=precio_final, forma_pago=order.forma_pago, forma_pago_detalle=order.forma_pago_detalle)
         db.session.add(logistics)
     files = request.files.getlist("attachments")
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
@@ -2268,17 +4729,52 @@ def pedidos_create():
                         db.session.add(OrderAttachment(order_id=order.id, url=url))
             except Exception:
                 pass
+
+    # Si se creó un pedido nuevo, eliminar borradores (pendientes) del mismo cliente+empresa.
+    # Nota: los borradores se guardan en servidor en OrderDraft (además del fallback localStorage).
+    try:
+        if not order_id:
+            base = OrderDraft.query.filter_by(client_id=int(client.id), company_id=int(company.id))
+            if _has_global_access():
+                base = base.filter(OrderDraft.owner_user_id.is_(None))
+            else:
+                uid = _effective_user_id()
+                if uid is not None:
+                    base = base.filter(OrderDraft.owner_user_id == uid)
+            for d in base.all():
+                try:
+                    db.session.delete(d)
+                except Exception:
+                    pass
+    except Exception:
+        pass
     db.session.commit()
+    # Volver a la pantalla que inició la edición (por ejemplo /deudas)
+    return_to = (request.form.get("return_to") or "").strip()
+    if return_to and return_to.startswith("/") and ("//" not in return_to):
+        return redirect(return_to)
     return redirect(url_for("main.status"))
 
 
 @bp.get("/status")
 def status():
-    q = LogisticsStatus.query.join(Order)
+    from sqlalchemy import or_
+
+    q = (
+        LogisticsStatus.query
+        .join(Order)
+        .options(
+            selectinload(LogisticsStatus.order).selectinload(Order.client),
+            selectinload(LogisticsStatus.order).selectinload(Order.company),
+        )
+    )
+    q = q.filter(Order.deleted_at.is_(None))
     estados = request.args.getlist("status")
     tipos = request.args.getlist("tipo")  # FACTURA / REMITO
     desde = request.args.get("from")
     hasta = request.args.get("to")
+    client_q = (request.args.get("client_q") or "").strip()
+    company_q = (request.args.get("company_q") or "").strip()
     if estados:
         estado_map = {
             "EN_CAMINO": lambda s: s.fecha_entrega_efectiva.is_(None) and (s.fecha_entrega_estimada.is_(None) | (LogisticsStatus.fecha_entrega_estimada >= datetime.utcnow())),
@@ -2294,24 +4790,43 @@ def status():
         if "ENTREGADO" in estados:
             conds.append(LogisticsStatus.fecha_entrega_efectiva.isnot(None))
         if conds:
-            from sqlalchemy import or_
             q = q.filter(or_(*conds))
+    else:
+        # Por defecto mostrar solo lo pendiente de entrega (EN_CAMINO + ATRASADO).
+        # Si el usuario quiere ver ENTREGADO, lo activa con el filtro.
+        q = q.filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
     if tipos:
         q = q.filter(Order.tipo_comprobante.in_(tipos))
+    if client_q:
+        q = q.join(Client, Order.client_id == Client.id)
+        pat = f"%{client_q}%"
+        q = q.filter(or_(Client.apellido.ilike(pat), Client.nombre.ilike(pat)))
+    if company_q:
+        q = q.join(Company, Order.company_id == Company.id)
+        pat = f"%{company_q}%"
+        q = q.filter(Company.nombre.ilike(pat))
     if desde:
         try:
-            d = datetime.fromisoformat(desde)
+            d = _parse_datetime_like(desde)
+            if not d:
+                raise ValueError("invalid_from")
             q = q.filter(LogisticsStatus.fecha_compra >= d)
         except Exception:
             pass
     if hasta:
         try:
-            h = datetime.fromisoformat(hasta)
+            h = _parse_datetime_like(hasta)
+            if not h:
+                raise ValueError("invalid_to")
             q = q.filter(LogisticsStatus.fecha_compra <= h)
         except Exception:
             pass
     # Mostrar primero el último agregado (proxy: id descendente)
-    items = q.order_by(LogisticsStatus.id.desc()).all()
+    show_all = (request.args.get("all") == "1") or bool(client_q or company_q)
+    q = q.order_by(LogisticsStatus.id.desc())
+    if not show_all:
+        q = q.limit(300)
+    items = q.all()
     return render_template("status.html", active="status", items=items)
 
 
@@ -2324,7 +4839,7 @@ def status_mark_entregado(order_id: int):
         try:
             raw = (request.form.get("fecha") or "").strip()
             if raw:
-                picked = datetime.fromisoformat(raw)
+                picked = _parse_datetime_like(raw)
         except Exception:
             picked = None
         if picked is None:
@@ -2358,41 +4873,49 @@ def status_mark_entregado(order_id: int):
 @bp.post("/status/<int:order_id>/update")
 def status_update(order_id: int):
     logistics = LogisticsStatus.query.filter_by(order_id=order_id).first_or_404()
-    precio = request.form.get("precio", type=float)
+    precio_raw = request.form.get("precio")
+    precio = None
+    precio_is_set = False
+    if precio_raw is not None:
+        precio_is_set = True
+        try:
+            precio = float(precio_raw) if str(precio_raw).strip() != "" else None
+        except Exception:
+            precio = None
     forma_pago_raw = request.form.get("forma_pago")
     forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
     fecha_entrega_estimada_raw = (request.form.get("fecha_entrega_estimada") or "").strip()
     fecha_compra_raw = (request.form.get("fecha_compra") or "").strip()
     fecha_entrega_efectiva_raw = (request.form.get("fecha_entrega_efectiva") or "").strip()
-    if precio is not None:
+    if precio_is_set:
         logistics.precio = precio
     if forma_pago_raw is not None:
         logistics.forma_pago = forma_pago
     if fecha_compra_raw is not None:
         try:
-            logistics.fecha_compra = datetime.fromisoformat(fecha_compra_raw) if fecha_compra_raw else None
+            logistics.fecha_compra = _parse_datetime_like(fecha_compra_raw) if fecha_compra_raw else None
         except Exception:
             pass
     if fecha_entrega_estimada_raw:
         try:
-            logistics.fecha_entrega_estimada = datetime.fromisoformat(fecha_entrega_estimada_raw)
+            logistics.fecha_entrega_estimada = _parse_datetime_like(fecha_entrega_estimada_raw)
         except Exception:
             pass
     if fecha_entrega_efectiva_raw is not None:
         try:
-            logistics.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw) if fecha_entrega_efectiva_raw else None
+            logistics.fecha_entrega_efectiva = _parse_datetime_like(fecha_entrega_efectiva_raw) if fecha_entrega_efectiva_raw else None
         except Exception:
             pass
     # Mantener consistencia con cobranzas si existe registro
     coll = Collection.query.filter_by(order_id=order_id).first()
     if coll:
-        if precio is not None:
+        if precio_is_set:
             coll.monto = precio
         if forma_pago_raw is not None:
             coll.forma_pago = forma_pago
         if fecha_entrega_efectiva_raw is not None:
             try:
-                coll.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw) if fecha_entrega_efectiva_raw else None
+                coll.fecha_entrega_efectiva = _parse_datetime_like(fecha_entrega_efectiva_raw) if fecha_entrega_efectiva_raw else None
             except Exception:
                 pass
     else:
@@ -2400,7 +4923,7 @@ def status_update(order_id: int):
         if fecha_entrega_efectiva_raw:
             try:
                 coll = Collection(order_id=order_id)
-                coll.fecha_entrega_efectiva = datetime.fromisoformat(fecha_entrega_efectiva_raw)
+                coll.fecha_entrega_efectiva = _parse_datetime_like(fecha_entrega_efectiva_raw)
                 try:
                     plazo_days = None
                     if getattr(logistics.order, "plazo_pago_dias", None) is not None:
@@ -2420,70 +4943,779 @@ def status_update(order_id: int):
     # Mantener consistencia con la Orden
     order = Order.query.get(order_id)
     if order:
-        if precio is not None:
+        if precio_is_set:
             order.precio_final = precio
         if forma_pago_raw is not None:
             order.forma_pago = forma_pago
     db.session.commit()
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True})
+    return_to = (request.form.get("return_to") or "").strip()
+    if return_to and return_to.startswith("/") and ("//" not in return_to):
+        return redirect(return_to)
     return redirect(url_for("main.status"))
 
 
-@bp.get("/cobranzas")
-def cobranzas():
+@bp.post("/cobranzas/<int:order_id>/entregar")
+def cobranzas_mark_entregado(order_id: int):
+    coll = Collection.query.filter_by(order_id=order_id).first_or_404()
+    o = Order.query.get_or_404(order_id)
+    if not _has_global_access():
+        _require_owner(o)
+
+    now_dt = datetime.now()
+    logistics = None
+    try:
+        logistics = LogisticsStatus.query.filter_by(order_id=order_id).first()
+    except Exception:
+        logistics = None
+    if logistics is None:
+        logistics = LogisticsStatus(order_id=order_id)
+        try:
+            logistics.fecha_compra = getattr(o, "created_at", None) or now_dt
+        except Exception:
+            logistics.fecha_compra = now_dt
+        db.session.add(logistics)
+
+    # Al marcar ENTREGADO, la entrega efectiva debe ser la REAL (hoy), no una estimación previa.
+    try:
+        logistics.fecha_entrega_efectiva = now_dt
+    except Exception:
+        pass
+
+    # Mantener consistencia visual en Deudas (columna editable)
+    try:
+        coll.fecha_entrega_efectiva = getattr(logistics, "fecha_entrega_efectiva", None) or now_dt
+    except Exception:
+        pass
+
+    # Autocalcular vencimiento (fecha_pago_estimada) si corresponde
+    try:
+        if getattr(coll, "fecha_pago_estimada", None) is None and getattr(coll, "fecha_entrega_efectiva", None) is not None:
+            try:
+                plazo_days = None
+                if getattr(o, "plazo_pago_dias", None) is not None:
+                    plazo_days = int(o.plazo_pago_dias or 0)
+                elif o.company and getattr(o.company, "plazo_pago_promedio_dias", None) is not None:
+                    plazo_days = int(o.company.plazo_pago_promedio_dias or 0)
+                else:
+                    plazo_days = 30
+            except Exception:
+                plazo_days = 30
+            coll.fecha_pago_estimada = coll.fecha_entrega_efectiva + timedelta(days=int(plazo_days or 0))
+    except Exception:
+        pass
+
+    db.session.commit()
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        try:
+            iso = logistics.fecha_entrega_efectiva.date().isoformat() if logistics and logistics.fecha_entrega_efectiva else ""
+        except Exception:
+            iso = ""
+        try:
+            venc_iso = coll.fecha_pago_estimada.date().isoformat() if coll and coll.fecha_pago_estimada else ""
+        except Exception:
+            venc_iso = ""
+        return jsonify({"ok": True, "fecha_entrega_efectiva": iso, "fecha_pago_estimada": venc_iso})
     return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.get("/deudas")
 def deudas_pendientes():
-    q = Collection.query.join(Order)
+    from sqlalchemy import or_
+
+    # Auto-pasaje a Cobranzas (provisorio):
+    # Si la entrega estimada ya venció y no hay entrega efectiva en logística,
+    # asumir entrega "provisoria" SOLO para cobranzas (Collection.fecha_entrega_efectiva)
+    # para evitar doble confirmación con Status Mercadería.
+    try:
+        now_dt = datetime.utcnow()
+        overdue_lg = (
+            LogisticsStatus.query
+            .join(Order)
+            .options(selectinload(LogisticsStatus.order).selectinload(Order.company))
+            .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+            .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
+            .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
+        )
+        for lg in overdue_lg.all():
+            o = getattr(lg, "order", None)
+            if not o:
+                continue
+            # Si ya existe entrega efectiva en cobranzas, no tocar
+            coll = Collection.query.filter_by(order_id=o.id).first()
+            if coll and getattr(coll, "fecha_entrega_efectiva", None):
+                continue
+            # Crear cobranza si no existe
+            if not coll:
+                coll = Collection(order_id=o.id)
+                db.session.add(coll)
+
+            # No setear entrega efectiva automáticamente desde la estimada.
+            # Si se había seteado una entrega "provisoria" en cobranzas (igual a la estimada)
+            # y logística sigue sin entrega efectiva, revertirla para que quede claro "SIN ENTREGA".
+            try:
+                if (
+                    getattr(coll, "fecha_entrega_efectiva", None)
+                    and getattr(lg, "fecha_entrega_efectiva", None) is None
+                    and getattr(lg, "fecha_entrega_estimada", None) is not None
+                    and getattr(coll, "fecha_entrega_efectiva", None) == getattr(lg, "fecha_entrega_estimada", None)
+                ):
+                    coll.fecha_entrega_efectiva = None
+            except Exception:
+                pass
+
+            # Monto base (preferir valores > 0)
+            try:
+                candidates = []
+                if getattr(coll, "monto", None) is not None:
+                    candidates.append(float(coll.monto))
+                if getattr(o, "precio_final", None) is not None:
+                    candidates.append(float(o.precio_final))
+                if getattr(lg, "precio", None) is not None:
+                    candidates.append(float(lg.precio))
+                picked = None
+                for v in candidates:
+                    if v is not None and v > 0:
+                        picked = v
+                        break
+                if picked is None and candidates:
+                    picked = candidates[0]
+                if picked is not None and (getattr(coll, "monto", None) is None or float(coll.monto or 0) <= 0):
+                    coll.monto = float(picked)
+            except Exception:
+                pass
+
+            # Vencimiento por plazo (si no hay vencimiento ya definido)
+            try:
+                if getattr(coll, "fecha_pago_estimada", None) is None and getattr(coll, "fecha_entrega_efectiva", None) is not None:
+                    try:
+                        plazo_days = None
+                        if getattr(o, "plazo_pago_dias", None) is not None:
+                            plazo_days = int(o.plazo_pago_dias or 0)
+                        elif o.company and getattr(o.company, "plazo_pago_promedio_dias", None) is not None:
+                            plazo_days = int(o.company.plazo_pago_promedio_dias or 0)
+                        else:
+                            plazo_days = 30
+                    except Exception:
+                        plazo_days = 30
+                    coll.fecha_pago_estimada = coll.fecha_entrega_efectiva + timedelta(days=plazo_days)
+            except Exception:
+                pass
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+    # Incluir pedidos SIN entrega efectiva también en Deudas (aunque no exista Collection todavía).
+    # No setear entrega efectiva: solo crear Collection mínima para que aparezca en la tabla.
+    try:
+        q_missing = (
+            Order.query
+            .outerjoin(Collection, Collection.order_id == Order.id)
+            .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
+            .filter(Order.deleted_at.is_(None))
+            .filter(Collection.id.is_(None))
+            .filter(or_(LogisticsStatus.id.is_(None), LogisticsStatus.fecha_entrega_efectiva.is_(None)))
+        )
+        if not _has_global_access():
+            uid = _effective_user_id()
+            if uid is not None:
+                q_missing = q_missing.filter(or_(Order.owner_user_id == uid, Order.owner_user_id.is_(None)))
+        for o in q_missing.all():
+            try:
+                coll = Collection(order_id=o.id)
+                uid2 = _effective_user_id()
+                if uid2 is not None:
+                    coll.owner_user_id = uid2
+                try:
+                    picked = None
+                    lg = getattr(o, "logistics", None)
+                    candidates = []
+                    if getattr(o, "precio_final", None) is not None:
+                        candidates.append(float(o.precio_final))
+                    if lg is not None and getattr(lg, "precio", None) is not None:
+                        candidates.append(float(lg.precio))
+                    for v in candidates:
+                        if v is not None and float(v) > 0:
+                            picked = float(v)
+                            break
+                    if picked is None and candidates:
+                        picked = float(candidates[0])
+                    if picked is not None:
+                        coll.monto = float(picked)
+                except Exception:
+                    pass
+                db.session.add(coll)
+            except Exception:
+                continue
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+    q = (
+        Collection.query
+        .join(Order)
+        .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
+        .options(
+            selectinload(Collection.order).selectinload(Order.client),
+            selectinload(Collection.order).selectinload(Order.company),
+            selectinload(Collection.order).selectinload(Order.logistics),
+        )
+    )
+    q = q.filter(Order.deleted_at.is_(None))
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(or_(Order.owner_user_id == uid, Order.owner_user_id.is_(None)))
     estados = request.args.getlist("status")
+    # Filtro excluyente: si por algún motivo llegaron varios, usar solo el último.
+    # (Puede ocurrir por URL guardada/restaurada o por duplicación de inputs hidden.)
+    try:
+        if estados and len(estados) > 1:
+            estados = [estados[-1]]
+    except Exception:
+        pass
     tipos = request.args.getlist("tipo")  # FACTURA / REMITO
     desde = request.args.get("from")
     hasta = request.args.get("to")
+    client_q = (request.args.get("client_q") or "").strip()
+    company_q = (request.args.get("company_q") or "").strip()
     if estados:
-        from sqlalchemy import or_
+        from sqlalchemy import or_, exists
         conds = []
         now = datetime.utcnow()
-        if "A_COBRAR" in estados:
-            conds.append((Collection.fecha_cobro_efectiva.is_(None)))
+        partial_pay_exists = (
+            db.session.query(CollectionPayment.id)
+            .filter(CollectionPayment.order_id == Order.id)
+            .filter(CollectionPayment.kind != "DRAFT")
+            .exists()
+        )
+        try:
+            partial_pay_exists = _safe_filter_not_voided(
+                db.session.query(CollectionPayment.id)
+                .filter(CollectionPayment.order_id == Order.id)
+                .filter(CollectionPayment.kind != "DRAFT")
+            ).exists()
+        except Exception:
+            partial_pay_exists = (
+                db.session.query(CollectionPayment.id)
+                .filter(CollectionPayment.order_id == Order.id)
+                .filter(CollectionPayment.kind != "DRAFT")
+                .exists()
+            )
+        partial_draft_exists = (
+            db.session.query(CollectionDraft.id)
+            .filter(CollectionDraft.order_id == Order.id)
+            .exists()
+        )
+        partial_exists = or_(partial_pay_exists, partial_draft_exists)
+
+        delivered = or_(
+            Collection.fecha_entrega_efectiva.isnot(None),
+            LogisticsStatus.fecha_entrega_efectiva.isnot(None),
+        )
+        undelivered = and_(
+            Collection.fecha_entrega_efectiva.is_(None),
+            or_(LogisticsStatus.id.is_(None), LogisticsStatus.fecha_entrega_efectiva.is_(None)),
+        )
+        overdue = and_(
+            Collection.fecha_pago_estimada.isnot(None),
+            Collection.fecha_pago_estimada < now,
+        )
+
+        # Filtros excluyentes (no mezclar)
         if "COBRADO" in estados:
             conds.append(Collection.fecha_cobro_efectiva.isnot(None))
+
+        if "EN_CAMINO" in estados:
+            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), undelivered))
+
+        if "ATRASADO" in estados:
+            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), delivered, overdue))
+
+        if "PARCIAL" in estados:
+            # Parcial = entregado + sin cobro + con pagos/borrador (incluye también los vencidos: "Parcial Atrasado")
+            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), delivered, partial_exists))
+
+        if "A_COBRAR" in estados:
+            # A cobrar = entregado + sin cobro + sin parcial, y NO vencido
+            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), delivered, ~partial_exists, ~overdue))
         if conds:
             q = q.filter(or_(*conds))
     if tipos:
         q = q.filter(Order.tipo_comprobante.in_(tipos))
+    if client_q:
+        q = q.join(Client, Order.client_id == Client.id)
+        pat = f"%{client_q}%"
+        q = q.filter(or_(Client.apellido.ilike(pat), Client.nombre.ilike(pat)))
+    if company_q:
+        q = q.join(Company, Order.company_id == Company.id)
+        pat = f"%{company_q}%"
+        q = q.filter(Company.nombre.ilike(pat))
     if desde:
         try:
-            d = datetime.fromisoformat(desde)
+            d = _parse_datetime_like(desde)
+            if not d:
+                raise ValueError("invalid_from")
             q = q.filter(Collection.fecha_pago_estimada >= d)
         except Exception:
             pass
     if hasta:
         try:
-            h = datetime.fromisoformat(hasta)
+            h = _parse_datetime_like(hasta)
+            if not h:
+                raise ValueError("invalid_to")
             q = q.filter(Collection.fecha_pago_estimada <= h)
         except Exception:
             pass
-    # Mostrar primero el último agregado (proxy: id descendente)
-    items = q.order_by(Collection.id.desc()).all()
+    # Paginación
+    try:
+        page = int(request.args.get("page", 1) or 1)
+    except Exception:
+        page = 1
+    if page < 1:
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 20) or 20)
+    except Exception:
+        per_page = 20
+    if per_page not in (10, 20, 50):
+        per_page = 20
+
+    total_count = 0
+    try:
+        total_count = int(q.order_by(None).count() or 0)
+    except Exception:
+        total_count = 0
+
+    q = q.order_by(Collection.id.desc())
+    try:
+        items = q.limit(per_page).offset((page - 1) * per_page).all()
+    except Exception:
+        items = q.limit(per_page).all()
+
+    partial_order_ids = set()
+    try:
+        order_ids = [int(getattr(getattr(c, "order", None), "id", None) or 0) for c in items]
+        order_ids = [oid for oid in order_ids if oid > 0]
+        if order_ids:
+            try:
+                paid_rows = (
+                    db.session.query(CollectionPayment.order_id)
+                    .filter(CollectionPayment.order_id.in_(order_ids))
+                    .filter(CollectionPayment.kind != "DRAFT")
+                    .group_by(CollectionPayment.order_id)
+                    .all()
+                )
+                try:
+                    paid_rows = (
+                        _safe_filter_not_voided(
+                            db.session.query(CollectionPayment.order_id)
+                            .filter(CollectionPayment.order_id.in_(order_ids))
+                            .filter(CollectionPayment.kind != "DRAFT")
+                        )
+                        .group_by(CollectionPayment.order_id)
+                        .all()
+                    )
+                except Exception:
+                    paid_rows = (
+                        db.session.query(CollectionPayment.order_id)
+                        .filter(CollectionPayment.order_id.in_(order_ids))
+                        .filter(CollectionPayment.kind != "DRAFT")
+                        .group_by(CollectionPayment.order_id)
+                        .all()
+                    )
+                for (oid,) in paid_rows:
+                    try:
+                        partial_order_ids.add(int(oid))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                draft_rows = (
+                    db.session.query(CollectionDraft.order_id)
+                    .filter(CollectionDraft.order_id.isnot(None))
+                    .filter(CollectionDraft.order_id.in_(order_ids))
+                    .group_by(CollectionDraft.order_id)
+                    .all()
+                )
+                for (oid,) in draft_rows:
+                    try:
+                        partial_order_ids.add(int(oid))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        partial_order_ids = set()
+
+    # Orden visual por defecto: arriba ATRASADO y PARCIAL, abajo COBRADO.
+    try:
+        def _sort_key(c):
+            oid = int(getattr(getattr(c, "order", None), "id", None) or 0)
+            is_cobrado = bool(getattr(c, "fecha_cobro_efectiva", None))
+            is_overdue = bool(getattr(c, "status", None) == "ATRASADO")
+            is_partial = bool(oid and (oid in partial_order_ids))
+            if is_cobrado:
+                grp = 2
+            elif is_overdue or is_partial:
+                grp = 0
+            else:
+                grp = 1
+            return (grp, -int(getattr(c, "id", 0) or 0))
+
+        items = sorted(items, key=_sort_key)
+    except Exception:
+        pass
+
     return render_template(
         "cobranzas.html",
         active="deudas",
         items=items,
         now_date=date.today(),
+        partial_order_ids=partial_order_ids,
+        timedelta=timedelta,
+        page=page,
+        per_page=per_page,
+        total_count=total_count,
+        prev_url=(
+            url_for("main.deudas_pendientes")
+            + "?"
+            + urlencode({**request.args.to_dict(flat=False), "page": page - 1, "per_page": per_page}, doseq=True)
+            if page > 1
+            else None
+        ),
+        next_url=(
+            url_for("main.deudas_pendientes")
+            + "?"
+            + urlencode({**request.args.to_dict(flat=False), "page": page + 1, "per_page": per_page}, doseq=True)
+            if (page * per_page) < int(total_count or 0)
+            else None
+        ),
     )
 
 
 @bp.get("/cobranzas/nueva")
 def nueva_cobranza():
+    # Soporte para reabrir borradores
+    order_id = request.args.get("order_id", type=int)
+    draft_id = request.args.get("draft_id", type=int)
+    draft_data = None
+    if draft_id:
+        try:
+            d = CollectionDraft.query.get(int(draft_id))
+        except Exception:
+            d = None
+        if d is not None:
+            _require_owner(d)
+            if (d.notes or "").strip():
+                try:
+                    draft_data = json.loads(d.notes)
+                except Exception:
+                    draft_data = None
+            if isinstance(draft_data, dict):
+                draft_data["draft_id"] = int(getattr(d, "id", None) or 0)
+                try:
+                    if "client_id" not in draft_data:
+                        draft_data["client_id"] = int(getattr(d, "client_id", None) or 0)
+                    if "company_id" not in draft_data:
+                        draft_data["company_id"] = int(getattr(d, "company_id", None) or 0)
+                    if "order_id" not in draft_data:
+                        draft_data["order_id"] = int(getattr(d, "order_id", None) or 0) or None
+                except Exception:
+                    pass
+    if order_id:
+        try:
+            o = Order.query.options(selectinload(Order.client), selectinload(Order.company)).get(order_id)
+            if o is not None:
+                _require_owner(o)
+
+                if draft_data is None:
+                    try:
+                        d2 = CollectionDraft.query.filter_by(order_id=order_id).order_by(CollectionDraft.updated_at.desc()).first()
+                    except Exception:
+                        d2 = None
+                    if d2 is not None:
+                        try:
+                            _require_owner(d2)
+                        except Exception:
+                            d2 = None
+                    if d2 is not None and (d2.notes or "").strip():
+                        try:
+                            draft_data = json.loads(d2.notes)
+                        except Exception:
+                            draft_data = None
+                        if isinstance(draft_data, dict):
+                            try:
+                                draft_data["draft_id"] = int(getattr(d2, "id", None) or 0)
+                            except Exception:
+                                pass
+
+                dr = (
+                    CollectionPayment.query
+                    .filter_by(order_id=order_id)
+                    .filter(CollectionPayment.kind == "DRAFT")
+                    .order_by(CollectionPayment.created_at.desc())
+                    .first()
+                )
+                if draft_data is None and dr and (dr.notes or "").strip():
+                    try:
+                        draft_data = json.loads(dr.notes)
+                    except Exception:
+                        draft_data = None
+                # Si no hay DRAFT, precargar con lo YA guardado en el pedido/cobranza.
+                if draft_data is None or (isinstance(draft_data, dict) and set(draft_data.keys()) <= {"client_id", "company_id", "order_id"}):
+                    try:
+                        coll = Collection.query.filter_by(order_id=o.id).first()
+                    except Exception:
+                        coll = None
+
+                    def _to_date_iso(dt):
+                        try:
+                            if not dt:
+                                return ""
+                            try:
+                                return dt.date().isoformat()
+                            except Exception:
+                                return dt.isoformat()
+                        except Exception:
+                            return ""
+
+                    # Base pedido
+                    order_created_iso = ""
+                    try:
+                        lg = getattr(o, "logistics", None)
+                        if lg is not None and getattr(lg, "fecha_compra", None):
+                            order_created_iso = _to_date_iso(lg.fecha_compra)
+                    except Exception:
+                        order_created_iso = ""
+                    if not order_created_iso:
+                        try:
+                            order_created_iso = _to_date_iso(getattr(o, "created_at", None))
+                        except Exception:
+                            order_created_iso = ""
+
+                    order_entrega_iso = ""
+                    try:
+                        if coll is not None and getattr(coll, "fecha_entrega_efectiva", None):
+                            order_entrega_iso = _to_date_iso(coll.fecha_entrega_efectiva)
+                    except Exception:
+                        order_entrega_iso = ""
+                    if not order_entrega_iso:
+                        try:
+                            lg = getattr(o, "logistics", None)
+                            if lg is not None and getattr(lg, "fecha_entrega_efectiva", None):
+                                order_entrega_iso = _to_date_iso(lg.fecha_entrega_efectiva)
+                        except Exception:
+                            order_entrega_iso = ""
+
+                    order_venc_iso = ""
+                    try:
+                        if coll is not None and getattr(coll, "fecha_pago_estimada", None):
+                            order_venc_iso = _to_date_iso(coll.fecha_pago_estimada)
+                    except Exception:
+                        order_venc_iso = ""
+
+                    # Monto: preferir collection.monto, luego order.precio_final, luego logistics.precio
+                    order_monto = ""
+                    try:
+                        candidates = []
+                        if coll is not None and getattr(coll, "monto", None) is not None:
+                            candidates.append(float(coll.monto))
+                        if getattr(o, "precio_final", None) is not None:
+                            candidates.append(float(o.precio_final))
+                        lg = getattr(o, "logistics", None)
+                        if lg is not None and getattr(lg, "precio", None) is not None:
+                            candidates.append(float(lg.precio))
+                        picked = None
+                        for v in candidates:
+                            if v is not None and v > 0:
+                                picked = v
+                                break
+                        if picked is None and candidates:
+                            picked = candidates[0]
+                        if picked is not None:
+                            order_monto = str(picked)
+                    except Exception:
+                        order_monto = ""
+
+                    # Notas
+                    order_notes = ""
+                    try:
+                        parts = []
+                        if getattr(o, "nota", None):
+                            parts.append(str(o.nota))
+                        if getattr(o, "descripcion", None):
+                            parts.append(str(o.descripcion))
+                        order_notes = "\n".join([p for p in parts if p is not None])
+                    except Exception:
+                        order_notes = ""
+
+                    # Pagos/NC/retenciones
+                    nc_total = 0.0
+                    ret_total = 0.0
+                    pm = {}
+                    rows = []
+                    try:
+                        mp = {
+                            "EFECTIVO": "pm_efectivo",
+                            "TRANSFERENCIA": "pm_transferencia",
+                            "E-CHEQ": "pm_echeq",
+                            "CHEQUE_TERCEROS": "pm_cheque_terceros",
+                            "CHEQUE_PROPIO": "pm_cheque_propio",
+                        }
+                        payments = (
+                            CollectionPayment.query
+                            .filter_by(order_id=o.id)
+                            .filter(CollectionPayment.kind != "DRAFT")
+                            .order_by(CollectionPayment.created_at.asc())
+                            .all()
+                        )
+                        try:
+                            payments = (
+                                _safe_filter_not_voided(
+                                    CollectionPayment.query
+                                    .filter_by(order_id=o.id)
+                                    .filter(CollectionPayment.kind != "DRAFT")
+                                )
+                                .order_by(CollectionPayment.created_at.asc())
+                                .all()
+                            )
+                        except Exception:
+                            payments = (
+                                CollectionPayment.query
+                                .filter_by(order_id=o.id)
+                                .filter(CollectionPayment.kind != "DRAFT")
+                                .order_by(CollectionPayment.created_at.asc())
+                                .all()
+                            )
+                        for p in payments:
+                            kind = (getattr(p, "kind", "") or "").strip().upper()
+                            method = (getattr(p, "method", None) or "").strip().upper()
+                            amt = float(getattr(p, "amount", 0) or 0)
+                            if kind == "CREDIT_NOTE" or method == "NC":
+                                nc_total += abs(amt)
+                                continue
+                            if method == "RETENCION":
+                                ret_total += abs(amt)
+                                continue
+                            prefix = mp.get(method)
+                            if not prefix:
+                                continue
+                            dd = getattr(p, "due_date", None) or getattr(p, "created_at", None)
+                            dd_iso = _to_date_iso(dd)
+                            if prefix not in pm or not (pm.get(prefix) or {}).get("amount"):
+                                pm[prefix] = {"amount": str(abs(amt)), "date": dd_iso}
+                            else:
+                                rows.append({"prefix": prefix, "amount": str(abs(amt)), "date": dd_iso})
+                    except Exception:
+                        nc_total = nc_total
+                        ret_total = ret_total
+
+                    draft_data = {
+                        "client_id": o.client_id,
+                        "company_id": o.company_id,
+                        "order_id": o.id,
+                        "order_created_at": order_created_iso,
+                        "order_fecha_entrega_efectiva": order_entrega_iso,
+                        "order_fecha_pago_estimada": order_venc_iso,
+                        "order_monto": order_monto,
+                        "order_credit_note": ("" if abs(nc_total) <= 0.009 else str(nc_total)),
+                        "order_retenciones": ("" if abs(ret_total) <= 0.009 else str(ret_total)),
+                        "order_notes": order_notes,
+                        "pm": pm,
+                        "rows": rows,
+                    }
+        except Exception:
+            draft_data = None
     return render_template(
         "nueva_cobranza.html",
         active="nueva_cobranza",
         today=date.today().isoformat(),
-        clientes=Client.query.order_by(Client.apellido, Client.nombre).all(),
+        clientes=(
+            (Client.query if _has_global_access() else Client.query.filter(Client.owner_user_id == _effective_user_id()))
+            .order_by(Client.apellido, Client.nombre)
+            .all()
+        ),
+        draft_data=draft_data,
     )
+
+
+@bp.get("/cobranzas/pendientes")
+def cobranzas_pendientes():
+    q = CollectionDraft.query.order_by(CollectionDraft.updated_at.desc())
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(CollectionDraft.owner_user_id == uid)
+    rows = []
+    for d in q.all():
+        o = None
+        try:
+            if getattr(d, "order_id", None):
+                o = Order.query.options(selectinload(Order.client), selectinload(Order.company)).get(int(d.order_id))
+        except Exception:
+            o = None
+        try:
+            if o is not None:
+                _require_owner(o)
+        except Exception:
+            o = None
+        try:
+            if o is not None:
+                client_label = getattr(getattr(o, "client", None), "apellido", None) or "-"
+            else:
+                cobj = Client.query.get(getattr(d, "client_id", None)) if getattr(d, "client_id", None) else None
+                client_label = getattr(cobj, "apellido", None) or "-"
+        except Exception:
+            client_label = "-"
+        try:
+            if o is not None:
+                company_label = getattr(getattr(o, "company", None), "nombre", None) or "-"
+            else:
+                compobj = Company.query.get(getattr(d, "company_id", None)) if getattr(d, "company_id", None) else None
+                company_label = getattr(compobj, "nombre", None) or "-"
+        except Exception:
+            company_label = "-"
+        try:
+            created = o.created_at.date().isoformat() if (o is not None and getattr(o, "created_at", None)) else ""
+        except Exception:
+            created = ""
+        try:
+            saved = d.updated_at.date().isoformat() if getattr(d, "updated_at", None) else ""
+        except Exception:
+            saved = ""
+        rows.append({
+            "draft_id": d.id,
+            "order_id": (o.id if o is not None else None),
+            "client": client_label,
+            "company": company_label,
+            "order_date": created,
+            "saved_at": saved,
+        })
+    return render_template("cobranzas_pendientes.html", active="nueva_cobranza", items=rows)
 
 
 @bp.get("/api/cobranzas/pedidos_pendientes")
@@ -2492,48 +5724,200 @@ def api_cobranzas_pedidos_pendientes():
     company_id = request.args.get("company_id", type=int)
     if not client_id or not company_id:
         return jsonify([])
+
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
+
     q = (
         Order.query
         .filter(Order.client_id == client_id)
         .filter(Order.company_id == company_id)
-        .outerjoin(Collection)
-        .filter(or_(Collection.id.is_(None), Collection.fecha_cobro_efectiva.is_(None)))
-        .order_by(Order.created_at.desc())
+        .options(
+            selectinload(Order.logistics),
+            selectinload(Order.collection),
+            selectinload(Order.company),
+            selectinload(Order.collection_payments),
+        )
+        .order_by(Order.created_at.asc())
     )
-    res = []
-    for o in q.all():
-        col = o.collection
-        monto_val = 0.0
+    q = q.filter(Order.deleted_at.is_(None))
+
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            # Compatibilidad: pedidos legacy pueden tener owner_user_id NULL.
+            # Como ya validamos _require_owner(client), permitirlos para este cliente.
+            q = q.filter((Order.owner_user_id == uid) | (Order.owner_user_id.is_(None)))
+
+    def _pick_monto(order: Order):
+        """Devuelve (monto_val, has_monto).
+
+        has_monto=True si existe algún monto > 0 en collection/order/logistics.
+        Si no hay monto todavía, devolvemos 0.0 y has_monto=False para NO filtrar el pedido.
+        """
+        col = getattr(order, "collection", None)
         try:
             candidates = []
             if col is not None and getattr(col, "monto", None) is not None:
-                candidates.append((float(col.monto), "collection"))
-            if getattr(o, "precio_final", None) is not None:
-                candidates.append((float(o.precio_final), "order"))
-            lg = getattr(o, "logistics", None)
+                candidates.append(float(col.monto))
+            if getattr(order, "precio_final", None) is not None:
+                candidates.append(float(order.precio_final))
+            lg = getattr(order, "logistics", None)
             if lg is not None and getattr(lg, "precio", None) is not None:
-                candidates.append((float(lg.precio), "logistics"))
-            # Preferir un monto > 0; si no hay, caer al primero disponible (puede ser 0)
-            picked = None
-            for v, _src in candidates:
+                candidates.append(float(lg.precio))
+            for v in candidates:
                 if v is not None and v > 0:
-                    picked = v
-                    break
-            if picked is None and candidates:
-                picked = candidates[0][0]
-            monto_val = float(picked or 0.0)
+                    return float(v), True
+            # Si hay candidatos pero ninguno > 0, tratarlos como "sin monto".
+            return 0.0, False
         except Exception:
-            monto_val = 0.0
-        res.append({
+            return 0.0, False
+
+    def _iso_date(dt):
+        try:
+            return dt.date().isoformat() if dt else None
+        except Exception:
+            return None
+
+    def _calc_venc(order: Order):
+        col = getattr(order, "collection", None)
+        if col is not None and getattr(col, "fecha_pago_estimada", None):
+            return _iso_date(col.fecha_pago_estimada)
+        # Vencimiento: entrega efectiva (si existe) o fecha pedido + plazo
+        base_dt = None
+        lg = getattr(order, "logistics", None)
+        if lg is not None and getattr(lg, "fecha_entrega_efectiva", None):
+            base_dt = lg.fecha_entrega_efectiva
+        if base_dt is None:
+            # Fecha base del pedido: preferir fecha_compra (si existe) y como fallback created_at
+            if lg is not None and getattr(lg, "fecha_compra", None):
+                base_dt = lg.fecha_compra
+            else:
+                base_dt = getattr(order, "created_at", None)
+        plazo = getattr(order, "plazo_pago_dias", None)
+        if plazo is None:
+            try:
+                comp = getattr(order, "company", None)
+                plazo = getattr(comp, "plazo_pago_promedio_dias", None) if comp is not None else None
+            except Exception:
+                plazo = None
+        try:
+            plazo_i = int(plazo or 0)
+        except Exception:
+            plazo_i = 0
+        try:
+            if base_dt is None:
+                return None
+            return _iso_date(base_dt + timedelta(days=max(0, plazo_i)))
+        except Exception:
+            return None
+
+    orders = q.all()
+
+    # Precalcular datos por pedido, asegurando que pagos/NC sean SOLO de ese order_id.
+    all_rows = []
+    for o in orders:
+        col = getattr(o, "collection", None)
+        lg = getattr(o, "logistics", None)
+        monto_val, has_monto = _pick_monto(o)
+
+        total_paid = 0.0
+        total_credit = 0.0
+        try:
+            for p in (
+                CollectionPayment.query
+                .filter_by(order_id=o.id)
+                .filter(CollectionPayment.kind != "DRAFT")
+                .all()
+            ):
+                kind = (getattr(p, "kind", "") or "").strip().upper()
+                amt = float(getattr(p, "amount", 0) or 0)
+                if kind == "CREDIT_NOTE":
+                    total_credit += abs(amt)
+                elif kind == "PAYMENT":
+                    total_paid += abs(amt)
+        except Exception:
+            total_paid = 0.0
+            total_credit = 0.0
+
+        remaining = float(monto_val or 0.0) - float(total_paid or 0.0) - float(total_credit or 0.0)
+        cobrado = False
+        try:
+            cobrado = (col is not None and getattr(col, "fecha_cobro_efectiva", None) is not None)
+        except Exception:
+            cobrado = False
+
+        entrega_eff = None
+        try:
+            entrega_eff = _iso_date(getattr(lg, "fecha_entrega_efectiva", None)) if lg is not None else None
+        except Exception:
+            entrega_eff = None
+        if not entrega_eff:
+            try:
+                entrega_eff = _iso_date(getattr(col, "fecha_entrega_efectiva", None)) if col is not None else None
+            except Exception:
+                entrega_eff = None
+
+        all_rows.append({
             "order_id": o.id,
-            "created_at": (o.created_at.date().isoformat() if o.created_at else None),
-            "fecha_entrega_efectiva": (col.fecha_entrega_efectiva.date().isoformat() if col and col.fecha_entrega_efectiva else None),
-            "fecha_pago_estimada": (col.fecha_pago_estimada.date().isoformat() if col and col.fecha_pago_estimada else None),
-            "monto": monto_val,
-            "tipo_comprobante": o.tipo_comprobante,
+            "order_date": (
+                _iso_date(getattr(lg, "fecha_compra", None))
+                if lg is not None and getattr(lg, "fecha_compra", None)
+                else (o.created_at.date().isoformat() if o.created_at else None)
+            ),
+            "fecha_entrega_efectiva": entrega_eff,
+            "fecha_pago_estimada": _calc_venc(o),
+            "monto": float(monto_val or 0.0),
             "nota": o.nota,
             "descripcion": o.descripcion,
+            "plazo_pago_dias": getattr(o, "plazo_pago_dias", None),
+            "total_paid": float(total_paid or 0.0),
+            "total_credit": float(total_credit or 0.0),
+            "remaining": float(remaining or 0.0),
+            "_cobrado": cobrado,
+            "_has_monto": bool(has_monto),
         })
+
+    company_diff_total_calc = 0.0
+    try:
+        for r in all_rows:
+            if r.get("_cobrado") and abs(float(r.get("remaining") or 0.0)) >= 1000.0:
+                company_diff_total_calc += float(r.get("remaining") or 0.0)
+    except Exception:
+        company_diff_total_calc = 0.0
+
+    company_balance_adjustment = 0.0
+    try:
+        uid = _balance_owner_user_id()
+        bal = (
+            ClientCompanyBalance.query
+            .filter_by(owner_user_id=uid, client_id=client_id, company_id=company_id)
+            .first()
+        )
+        if bal is not None and getattr(bal, "balance_adjustment", None) is not None:
+            company_balance_adjustment = float(bal.balance_adjustment or 0.0)
+    except Exception:
+        company_balance_adjustment = 0.0
+
+    company_diff_total = float(company_diff_total_calc or 0.0) + float(company_balance_adjustment or 0.0)
+
+    # Devolver solo pendientes
+    res = []
+    for r in all_rows:
+        rem = float(r.get("remaining") or 0.0)
+        cobrado = bool(r.get("_cobrado"))
+        has_monto = bool(r.get("_has_monto"))
+        if cobrado:
+            continue
+        # Si el pedido no tiene monto aún, igual debe aparecer para poder asignarlo en Nueva cobranza.
+        if has_monto and rem <= 0.009:
+            continue
+        rr = {k: v for k, v in r.items() if not k.startswith("_")}
+        rr["company_diff_total"] = float(company_diff_total or 0.0)
+        rr["company_diff_total_calc"] = float(company_diff_total_calc or 0.0)
+        rr["company_balance_adjustment"] = float(company_balance_adjustment or 0.0)
+        res.append(rr)
+
     return jsonify(res)
 
 
@@ -2541,32 +5925,190 @@ def api_cobranzas_pedidos_pendientes():
 def nueva_cobranza_create():
     client_id = request.form.get("client_id", type=int)
     company_id = request.form.get("company_id", type=int)
-    order_id = request.form.get("order_id", type=int)
+    order_id = request.form.get("order_id", type=int) or request.form.get("order_id_override", type=int)
+    draft_id = request.form.get("draft_id", type=int)
     if not client_id or not company_id:
         return redirect(url_for("main.nueva_cobranza"))
 
+    # Borrador: no debe alterar pagos/NC existentes; sólo guardar snapshot para retomar.
+    try:
+        is_draft = (request.form.get("draft") == "1")
+    except Exception:
+        is_draft = False
+
+    if is_draft:
+        saved_draft = None
+        try:
+            if order_id:
+                o = Order.query.get_or_404(order_id)
+                _require_owner(o)
+                if o.client_id != client_id or o.company_id != company_id:
+                    abort(400)
+
+            snap = {
+                "client_id": client_id,
+                "company_id": company_id,
+                "order_id": (order_id or None),
+                "order_created_at": (request.form.get("order_created_at") or "").strip(),
+                "order_fecha_entrega_efectiva": (request.form.get("order_fecha_entrega_efectiva") or "").strip(),
+                "order_fecha_pago_estimada": (request.form.get("order_fecha_pago_estimada") or "").strip(),
+                "order_monto": (request.form.get("order_monto") or "").strip(),
+                "order_credit_note": (request.form.get("order_credit_note") or "").strip(),
+                "order_retenciones": (request.form.get("order_retenciones") or "").strip(),
+                "order_notes": (request.form.get("order_notes") or "").strip(),
+                "pm": {},
+                "rows": [],
+            }
+
+            try:
+                for prefix in (
+                    "pm_efectivo",
+                    "pm_transferencia",
+                    "pm_echeq",
+                    "pm_cheque_terceros",
+                    "pm_cheque_propio",
+                ):
+                    snap["pm"][prefix] = {
+                        "amount": (request.form.get(f"{prefix}_amount") or "").strip(),
+                        "date": (request.form.get(f"{prefix}_date") or "").strip(),
+                    }
+            except Exception:
+                pass
+
+            try:
+                kinds = request.form.getlist("row_kind")
+                methods = request.form.getlist("row_method")
+                amounts = request.form.getlist("row_amount")
+                dues = request.form.getlist("row_due_date")
+                row_count = max(len(kinds), len(methods), len(amounts), len(dues)) if any([kinds, methods, amounts, dues]) else 0
+                for i in range(row_count):
+                    method = (methods[i] if i < len(methods) else "").strip()
+                    raw_amount = (amounts[i] if i < len(amounts) else "").strip()
+                    raw_due = (dues[i] if i < len(dues) else "").strip()
+                    if not method and not raw_amount and not raw_due:
+                        continue
+                    prefix = None
+                    try:
+                        mp = {
+                            "EFECTIVO": "pm_efectivo",
+                            "TRANSFERENCIA": "pm_transferencia",
+                            "E-CHEQ": "pm_echeq",
+                            "CHEQUE_TERCEROS": "pm_cheque_terceros",
+                            "CHEQUE_PROPIO": "pm_cheque_propio",
+                        }
+                        prefix = mp.get(method)
+                    except Exception:
+                        prefix = None
+                    if not prefix:
+                        continue
+                    snap["rows"].append({"prefix": prefix, "amount": raw_amount, "date": raw_due})
+            except Exception:
+                pass
+
+            drow = None
+            if draft_id:
+                try:
+                    drow = CollectionDraft.query.get(int(draft_id))
+                except Exception:
+                    drow = None
+                if drow is not None:
+                    _require_owner(drow)
+
+            if drow is None:
+                uid = (None if _has_global_access() else _effective_user_id())
+                qd = (
+                    CollectionDraft.query
+                    .filter_by(owner_user_id=uid)
+                    .filter(CollectionDraft.client_id == client_id)
+                    .filter(CollectionDraft.company_id == company_id)
+                )
+                if order_id:
+                    qd = qd.filter(CollectionDraft.order_id == order_id)
+                else:
+                    qd = qd.filter(CollectionDraft.order_id.is_(None))
+                drow = qd.order_by(CollectionDraft.updated_at.desc()).first()
+
+            if drow is None:
+                drow = CollectionDraft(
+                    owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                    client_id=client_id,
+                    company_id=company_id,
+                    order_id=(order_id or None),
+                )
+                db.session.add(drow)
+            try:
+                drow.order_id = (order_id or None)
+            except Exception:
+                pass
+            try:
+                drow.notes = json.dumps(snap, ensure_ascii=False)
+            except Exception:
+                pass
+            saved_draft = drow
+            db.session.commit()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+        try:
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({
+                    "ok": True,
+                    "order_id": (int(order_id) if order_id else None),
+                    "draft_id": (int(getattr(saved_draft, "id", None) or 0) if saved_draft is not None else None),
+                })
+        except Exception:
+            pass
+        return redirect(url_for("main.cobranzas_pendientes"))
+
     o = None
+    coll = None
     if order_id:
         o = Order.query.get_or_404(order_id)
+        _require_owner(o)
         if o.client_id != client_id or o.company_id != company_id:
             abort(400)
+        coll = Collection.query.filter_by(order_id=order_id).first()
+        if not coll:
+            coll = Collection(order_id=order_id)
+            uid = _effective_user_id()
+            if uid is not None:
+                coll.owner_user_id = uid
+            db.session.add(coll)
     else:
-        # Permitir registrar cobranza aunque no se seleccione un pedido:
-        # crear un pedido mínimo para poder asociar Collection (order_id es obligatorio).
-        client = Client.query.get_or_404(client_id)
-        company = Company.query.get_or_404(company_id)
-        o = Order(
-            client=client,
-            company=company,
-            tipo_comprobante="FACTURA",
-        )
-        db.session.add(o)
-        db.session.flush()
-        order_id = o.id
-    coll = Collection.query.filter_by(order_id=order_id).first()
-    if not coll:
-        coll = Collection(order_id=order_id)
-        db.session.add(coll)
+        if not is_draft:
+            client = Client.query.get_or_404(client_id)
+            _require_owner(client)
+            company = Company.query.get_or_404(company_id)
+            o = Order(
+                client=client,
+                company=company,
+                tipo_comprobante="FACTURA",
+            )
+            uid = _effective_user_id()
+            if uid is not None:
+                o.owner_user_id = uid
+            db.session.add(o)
+            db.session.flush()
+            order_id = o.id
+            coll = Collection.query.filter_by(order_id=order_id).first()
+            if not coll:
+                coll = Collection(order_id=order_id)
+                uid = _effective_user_id()
+                if uid is not None:
+                    coll.owner_user_id = uid
+                db.session.add(coll)
+
+    # Edición manual de datos del pedido (opcional)
+    raw_created = (request.form.get("order_created_at") or "").strip()
+    raw_entrega = (request.form.get("order_fecha_entrega_efectiva") or "").strip()
+    raw_venc = (request.form.get("order_fecha_pago_estimada") or "").strip()
+    raw_monto = (request.form.get("order_monto") or "").strip()
+    raw_nc = (request.form.get("order_credit_note") or "").strip()
+    raw_ret = (request.form.get("order_retenciones") or "").strip()
+    raw_notes = (request.form.get("order_notes") or "").strip()
 
     kinds = request.form.getlist("row_kind")
     methods = request.form.getlist("row_method")
@@ -2605,15 +6147,41 @@ def nueva_cobranza_create():
     except Exception:
         pass
 
-    # Clear existing draft rows for this order (to avoid duplicates on resubmit)
-    try:
-        CollectionPayment.query.filter_by(order_id=order_id).delete()
-    except Exception:
-        db.session.rollback()
+    if order_id:
+        try:
+            CollectionPayment.query.filter_by(order_id=order_id).filter(CollectionPayment.kind == "DRAFT").delete()
+        except Exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
 
-    total_paid = 0.0
-    total_credit = 0.0
     max_due = None
+
+    def _already_inserted_recent(kind: str, method: str, amount_val: float, due_dt, notes_val: str) -> bool:
+        try:
+            since = datetime.utcnow() - timedelta(seconds=15)
+            q = (
+                CollectionPayment.query
+                .filter(CollectionPayment.order_id == order_id)
+                .filter(CollectionPayment.kind == kind)
+                .filter(CollectionPayment.method.is_(None) if method is None else (CollectionPayment.method == method))
+                .filter(CollectionPayment.amount == amount_val)
+                .filter(CollectionPayment.due_date.is_(None) if due_dt is None else (CollectionPayment.due_date == due_dt))
+                .filter(CollectionPayment.notes.is_(None) if not notes_val else (CollectionPayment.notes == notes_val))
+                .filter(CollectionPayment.created_at.isnot(None))
+                .filter(CollectionPayment.created_at >= since)
+            )
+            try:
+                q = _safe_filter_not_voided(q)
+            except Exception:
+                try:
+                    q = q.filter(CollectionPayment.voided_at.is_(None))
+                except Exception:
+                    pass
+            return q.first() is not None
+        except Exception:
+            return False
 
     def _parse_amount(s: str) -> float:
         s = (s or "").strip()
@@ -2627,6 +6195,64 @@ def nueva_cobranza_create():
         elif "," in s:
             s = s.replace(",", ".")
         return float(s)
+
+    try:
+        if raw_created:
+            # viene como YYYY-MM-DD por flatpickr
+            dt = _parse_datetime_like(raw_created)
+            if dt:
+                # Guardar como fecha real del pedido (fecha_compra) y NO tocar created_at
+                try:
+                    from backend.models import LogisticsStatus
+                except Exception:
+                    LogisticsStatus = None
+                try:
+                    lg = getattr(o, "logistics", None)
+                    if lg is None and LogisticsStatus is not None:
+                        lg = LogisticsStatus(order_id=o.id)
+                        o.logistics = lg
+                        db.session.add(lg)
+                    if lg is not None:
+                        lg.fecha_compra = dt
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        if raw_entrega != "":
+            coll.fecha_entrega_efectiva = _parse_datetime_like(raw_entrega) if raw_entrega else None
+    except Exception:
+        pass
+    try:
+        if raw_venc != "":
+            coll.fecha_pago_estimada = _parse_datetime_like(raw_venc) if raw_venc else None
+    except Exception:
+        pass
+    try:
+        if raw_monto != "":
+            mval = _parse_amount(raw_monto)
+            if mval is not None and mval >= 0:
+                coll.monto = mval
+                o.precio_final = mval
+                if getattr(o, "logistics", None) is not None:
+                    try:
+                        o.logistics.precio = mval
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    try:
+        if raw_notes != "":
+            # Guardar primer línea como nota y el resto como descripción
+            parts = [p for p in raw_notes.split("\n")]
+            first = (parts[0] if parts else "").strip()
+            rest = "\n".join(parts[1:]).strip() if len(parts) > 1 else ""
+            if first:
+                o.nota = first
+            if rest or (raw_notes and not first):
+                o.descripcion = rest or raw_notes
+    except Exception:
+        pass
 
     def _upload_file_to_cloudinary(f):
         if not f or not getattr(f, "filename", ""):
@@ -2646,7 +6272,8 @@ def nueva_cobranza_create():
             return None
         return None
 
-    if any([kinds, methods, amounts, dues, notes, files]):
+    # Pagos extras enviados como filas row_* (agregados por método). Se procesan junto con pm_*.
+    if (not is_draft) and any([kinds, methods, amounts, dues, notes, files]):
         row_count = max(len(kinds), len(methods), len(amounts), len(dues), len(notes), len(files))
         for i in range(row_count):
             kind = (kinds[i] if i < len(kinds) else "").strip().upper() or "PAYMENT"
@@ -2663,10 +6290,17 @@ def nueva_cobranza_create():
             if not amount_val and not method and not raw_due and not row_note and (not f or not getattr(f, "filename", "")):
                 continue
 
+            # No crear pagos con monto 0 (pueden venir por autofill/inputs habilitados sin querer)
+            try:
+                if float(amount_val or 0.0) <= 0.009:
+                    continue
+            except Exception:
+                continue
+
             due_dt = None
             if raw_due:
                 try:
-                    due_dt = datetime.fromisoformat(raw_due)
+                    due_dt = _parse_datetime_like(raw_due)
                 except Exception:
                     due_dt = None
 
@@ -2674,30 +6308,28 @@ def nueva_cobranza_create():
             if getattr(f, "filename", "") and (not attach_url):
                 abort(500, "No se pudo subir el adjunto a Cloudinary. Verificá configuración y conexión.")
 
-            db.session.add(
-                CollectionPayment(
-                    order_id=order_id,
-                    kind=kind,
-                    method=method,
-                    amount=amount_val,
-                    due_date=due_dt,
-                    attachment_url=attach_url,
-                    notes=row_note,
+            if not _already_inserted_recent(kind, method, amount_val, due_dt, row_note):
+                db.session.add(
+                    CollectionPayment(
+                        order_id=order_id,
+                        owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                        kind=kind,
+                        method=method,
+                        amount=amount_val,
+                        due_date=due_dt,
+                        attachment_url=attach_url,
+                        notes=row_note,
+                    )
                 )
-            )
-
-            if kind == "CREDIT_NOTE":
-                total_credit += abs(amount_val)
-            else:
-                total_paid += abs(amount_val)
 
             if due_dt and (max_due is None or due_dt > max_due):
                 max_due = due_dt
-    else:
+
+    if not is_draft:
         payment_defs = [
             ("pm_efectivo", "EFECTIVO", False),
-            ("pm_transferencia", "TRANSFERENCIA", True),
-            ("pm_echeq", "E-CHEQ", True),
+            ("pm_transferencia", "TRANSFERENCIA", False),
+            ("pm_echeq", "E-CHEQ", False),
             ("pm_cheque_terceros", "CHEQUE_TERCEROS", False),
             ("pm_cheque_propio", "CHEQUE_PROPIO", False),
         ]
@@ -2715,32 +6347,80 @@ def nueva_cobranza_create():
             if not amount_val and not raw_date and not row_note and not (f and getattr(f, "filename", "")):
                 continue
 
+            # No crear pagos con monto 0
+            try:
+                if float(amount_val or 0.0) <= 0.009:
+                    continue
+            except Exception:
+                continue
+
             due_dt = None
             if raw_date:
                 try:
-                    due_dt = datetime.fromisoformat(raw_date)
+                    due_dt = _parse_datetime_like(raw_date)
                 except Exception:
                     due_dt = None
 
             attach_url = _upload_file_to_cloudinary(f)
-            if needs_attach and (raw_amount or raw_date) and not attach_url:
-                abort(400, "Este medio de pago requiere adjunto y no se pudo subir.")
+            # Adjunto opcional: si hay archivo y no se pudo subir, informar. Si no hay archivo, continuar.
+            if getattr(f, "filename", "") and not attach_url:
+                abort(500, "No se pudo subir el adjunto a Cloudinary. Verificá configuración y conexión.")
 
-            db.session.add(
-                CollectionPayment(
-                    order_id=order_id,
-                    kind="PAYMENT",
-                    method=method,
-                    amount=amount_val,
-                    due_date=due_dt,
-                    attachment_url=attach_url,
-                    notes=row_note,
+            if not _already_inserted_recent("PAYMENT", method, amount_val, due_dt, row_note):
+                db.session.add(
+                    CollectionPayment(
+                        order_id=order_id,
+                        owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                        kind="PAYMENT",
+                        method=method,
+                        amount=amount_val,
+                        due_date=due_dt,
+                        attachment_url=attach_url,
+                        notes=row_note,
+                    )
                 )
-            )
-
-            total_paid += abs(amount_val)
             if due_dt and (max_due is None or due_dt > max_due):
                 max_due = due_dt
+
+    # Inputs fijos adicionales (solo al confirmar, no en borrador): Nota de crédito y Retenciones
+    if not is_draft:
+        try:
+            if raw_nc != "":
+                nc_val = _parse_amount(raw_nc)
+                if nc_val and nc_val != 0:
+                    db.session.add(
+                        CollectionPayment(
+                            order_id=order_id,
+                            owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                            kind="CREDIT_NOTE",
+                            method="NC",
+                            amount=abs(nc_val),
+                            due_date=None,
+                            attachment_url=None,
+                            notes="Nota de crédito",
+                        )
+                    )
+        except Exception:
+            pass
+
+        try:
+            if raw_ret != "":
+                ret_val = _parse_amount(raw_ret)
+                if ret_val and ret_val != 0:
+                    db.session.add(
+                        CollectionPayment(
+                            order_id=order_id,
+                            owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                            kind="PAYMENT",
+                            method="RETENCION",
+                            amount=abs(ret_val),
+                            due_date=None,
+                            attachment_url=None,
+                            notes="Retenciones",
+                        )
+                    )
+        except Exception:
+            pass
 
     # Update collection summary
     try:
@@ -2752,40 +6432,525 @@ def nueva_cobranza_create():
         lg = getattr(o, "logistics", None)
         if lg is not None and getattr(lg, "precio", None) is not None:
             candidates.append(float(lg.precio))
-        picked = None
-        for v in candidates:
-            if v is not None and v > 0:
-                picked = v
-                break
-        if picked is None and candidates:
-            picked = candidates[0]
-        base_monto = float(picked or 0.0)
+        # Usar el monto autoritativo más alto disponible.
+        # (Evita cerrar pedidos si en algún lado quedó un monto parcial/erróneo.)
+        base_monto = 0.0
+        try:
+            positives = [float(v) for v in candidates if v is not None and float(v) > 0]
+            base_monto = float(max(positives) if positives else 0.0)
+        except Exception:
+            base_monto = 0.0
     except Exception:
         base_monto = 0.0
+
+    # Persistir monto SOLO si está vacío y se deduce de campos autoritativos (no del form).
+    try:
+        if not is_draft and float(base_monto or 0.0) > 0.009:
+            if getattr(coll, "monto", None) is None or float(getattr(coll, "monto", 0) or 0) <= 0:
+                coll.monto = float(base_monto)
+    except Exception:
+        pass
+    # Recalcular totales con TODO lo guardado (histórico + nuevo), excluyendo DRAFT
+    total_paid = 0.0
+    total_credit = 0.0
+    max_due_all = None
+    methods_used = set()
+    try:
+        for p in (
+            CollectionPayment.query
+            .filter_by(order_id=order_id)
+            .filter(CollectionPayment.kind != "DRAFT")
+            .filter(CollectionPayment.voided_at.is_(None))
+            .all()
+        ):
+            kind = (getattr(p, "kind", "") or "").strip().upper()
+            amt = float(getattr(p, "amount", 0) or 0)
+            if kind == "CREDIT_NOTE":
+                total_credit += abs(amt)
+            elif kind == "PAYMENT":
+                total_paid += abs(amt)
+                try:
+                    m = (getattr(p, "method", None) or "").strip().upper()
+                except Exception:
+                    m = ""
+                if m and m not in ("RETENCION", "NC", "DRAFT"):
+                    methods_used.add(m)
+            dd = getattr(p, "due_date", None)
+            if dd and (max_due_all is None or dd > max_due_all):
+                max_due_all = dd
+    except Exception:
+        total_paid = 0.0
+        total_credit = 0.0
+        max_due_all = None
+
     net_due = base_monto - total_credit
-    # Vencimiento estimado: tomar el más lejano ingresado (p.ej. cheque)
-    if max_due:
-        coll.fecha_pago_estimada = max_due
+    # Vencimiento estimado: tomar el más lejano entre lo ingresado históricamente
+    if max_due_all:
+        coll.fecha_pago_estimada = max_due_all
+    try:
+        if is_draft:
+            # borrador: nunca marcar como cobrado
+            coll.fecha_cobro_efectiva = None
+        else:
+            # total adeudado luego de notas de crédito
+            if base_monto <= 0.009:
+                # Sin monto válido no se puede cerrar el pedido.
+                coll.fecha_cobro_efectiva = None
+            elif net_due <= 0:
+                # no queda nada por cobrar
+                if not coll.fecha_cobro_efectiva:
+                    coll.fecha_cobro_efectiva = datetime.utcnow()
+            elif total_paid >= net_due:
+                if not coll.fecha_cobro_efectiva:
+                    coll.fecha_cobro_efectiva = datetime.utcnow()
+            else:
+                # pago parcial: mantener pendiente
+                coll.fecha_cobro_efectiva = None
+    except Exception:
+        pass
+    try:
+        if (not is_draft) and getattr(coll, "fecha_cobro_efectiva", None):
+            lg = LogisticsStatus.query.filter_by(order_id=order_id).first()
+            if lg is not None and getattr(lg, "fecha_entrega_efectiva", None) is None:
+                picked = None
+                try:
+                    picked = getattr(lg, "fecha_entrega_estimada", None)
+                except Exception:
+                    picked = None
+                if picked is None:
+                    try:
+                        picked = getattr(coll, "fecha_entrega_efectiva", None)
+                    except Exception:
+                        picked = None
+                picked = picked or datetime.utcnow()
+                try:
+                    lg.fecha_entrega_efectiva = picked
+                except Exception:
+                    pass
+                try:
+                    if getattr(coll, "fecha_entrega_efectiva", None) is None:
+                        coll.fecha_entrega_efectiva = picked
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Si hay excedente (saldo a favor), requerir confirmación explícita
+    try:
+        if not is_draft:
+            confirm_overpay = (request.form.get("confirm_overpay") == "1")
+            excedente = float(total_paid or 0.0) - float(net_due or 0.0)
+            if excedente > 0.009 and not confirm_overpay:
+                abort(400, "Excedente / saldo a favor: requiere confirmación")
+    except Exception:
+        pass
+
+    # Si es borrador, guardar un snapshot para reabrir desde "Pendientes"
+    saved_draft = None
+    try:
+        if is_draft:
+            snap = {
+                "client_id": client_id,
+                "company_id": company_id,
+                "order_id": (order_id or None),
+                "order_created_at": raw_created,
+                "order_fecha_entrega_efectiva": raw_entrega,
+                "order_fecha_pago_estimada": raw_venc,
+                "order_monto": raw_monto,
+                "order_credit_note": raw_nc,
+                "order_retenciones": raw_ret,
+                "order_notes": raw_notes,
+                "pm": {},
+                "rows": [],
+            }
+            try:
+                for prefix in (
+                    "pm_efectivo",
+                    "pm_transferencia",
+                    "pm_echeq",
+                    "pm_cheque_terceros",
+                    "pm_cheque_propio",
+                ):
+                    snap["pm"][prefix] = {
+                        "amount": (request.form.get(f"{prefix}_amount") or "").strip(),
+                        "date": (request.form.get(f"{prefix}_date") or "").strip(),
+                    }
+            except Exception:
+                pass
+            try:
+                row_count = max(len(kinds), len(methods), len(amounts), len(dues)) if any([kinds, methods, amounts, dues]) else 0
+                for i in range(row_count):
+                    method = (methods[i] if i < len(methods) else "").strip()
+                    raw_amount = (amounts[i] if i < len(amounts) else "").strip()
+                    raw_due = (dues[i] if i < len(dues) else "").strip()
+                    if not method and not raw_amount and not raw_due:
+                        continue
+                    prefix = None
+                    try:
+                        mp = {
+                            "EFECTIVO": "pm_efectivo",
+                            "TRANSFERENCIA": "pm_transferencia",
+                            "E-CHEQ": "pm_echeq",
+                            "CHEQUE_TERCEROS": "pm_cheque_terceros",
+                            "CHEQUE_PROPIO": "pm_cheque_propio",
+                        }
+                        prefix = mp.get(method)
+                    except Exception:
+                        prefix = None
+                    if not prefix:
+                        continue
+                    snap["rows"].append({"prefix": prefix, "amount": raw_amount, "date": raw_due})
+            except Exception:
+                pass
+
+            drow = None
+            if draft_id:
+                try:
+                    drow = CollectionDraft.query.get(int(draft_id))
+                except Exception:
+                    drow = None
+                if drow is not None:
+                    _require_owner(drow)
+            if drow is None:
+                try:
+                    uid = (None if _has_global_access() else _effective_user_id())
+                    qd = CollectionDraft.query.filter_by(owner_user_id=uid).filter(CollectionDraft.client_id == client_id).filter(CollectionDraft.company_id == company_id)
+                    if order_id:
+                        qd = qd.filter(CollectionDraft.order_id == order_id)
+                    else:
+                        qd = qd.filter(CollectionDraft.order_id.is_(None))
+                    drow = qd.order_by(CollectionDraft.updated_at.desc()).first()
+                except Exception:
+                    drow = None
+            if drow is None:
+                drow = CollectionDraft(
+                    owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                    client_id=client_id,
+                    company_id=company_id,
+                    order_id=(order_id or None),
+                )
+                db.session.add(drow)
+            try:
+                drow.order_id = (order_id or None)
+            except Exception:
+                pass
+            try:
+                drow.notes = json.dumps(snap, ensure_ascii=False)
+            except Exception:
+                pass
+            saved_draft = drow
+    except Exception:
+        saved_draft = saved_draft
+
+    def _map_forma_pago_detalle_to_enum(det: str):
+        det = (det or "").strip().upper()
+        if not det:
+            return None
+        if det == "EFECTIVO":
+            try:
+                return PaymentMethod.EFECTIVO
+            except Exception:
+                return None
+        if det == "TRANSFERENCIA":
+            try:
+                return PaymentMethod.TRANSFERENCIA
+            except Exception:
+                return None
+        if det in ("CHEQUE", "E-CHEQ", "CHEQUE_TERCEROS", "CHEQUE_PROPIO"):
+            try:
+                return PaymentMethod.CHEQUE
+            except Exception:
+                return None
+        if det in ("VARIAS", "NO_SE_SABE"):
+            try:
+                return PaymentMethod.NO_SE_SABE
+            except Exception:
+                return None
+        return None
+
+    try:
+        if (not is_draft) and methods_used:
+            detalle = "VARIAS" if len(methods_used) > 1 else list(methods_used)[0]
+            forma_enum = _map_forma_pago_detalle_to_enum(detalle)
+            try:
+                coll.forma_pago_detalle = detalle
+            except Exception:
+                pass
+            try:
+                coll.forma_pago = forma_enum
+            except Exception:
+                pass
+            try:
+                o.forma_pago_detalle = detalle
+            except Exception:
+                pass
+            try:
+                o.forma_pago = forma_enum
+            except Exception:
+                pass
+            try:
+                lg2 = getattr(o, "logistics", None)
+                if lg2 is not None:
+                    try:
+                        lg2.forma_pago_detalle = detalle
+                    except Exception:
+                        pass
+                    try:
+                        lg2.forma_pago = forma_enum
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     db.session.commit()
+
+    try:
+        if draft_id:
+            drow = CollectionDraft.query.get(int(draft_id))
+            if drow is not None:
+                _require_owner(drow)
+                db.session.delete(drow)
+                db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+    # Para autoguardado de borradores desde JS
+    try:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            if is_draft:
+                try:
+                    return jsonify({
+                        "ok": True,
+                        "order_id": (int(order_id) if order_id else None),
+                        "draft_id": (int(getattr(saved_draft, "id", None) or 0) if saved_draft is not None else None),
+                    })
+                except Exception:
+                    return jsonify({"ok": True, "order_id": (int(order_id) if order_id else None)})
+            return jsonify({"ok": True, "order_id": int(order_id), "redirect": url_for("main.historial")})
+    except Exception:
+        pass
+
+    # Post-guardar: volver a Historial (no a Deudas)
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
+    if not is_draft:
+        return redirect(url_for("main.historial"))
     return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.post("/cobranzas/<int:order_id>/cobrar")
 def cobranzas_mark_cobrado(order_id: int):
     coll = Collection.query.filter_by(order_id=order_id).first_or_404()
+    # No permitir marcar COBRADO si el pedido todavía no está entregado.
+    try:
+        if not getattr(coll, "fecha_entrega_efectiva", None):
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({"ok": False, "error": "NO_ENTREGADO"}), 400
+            abort(400)
+    except Exception:
+        pass
+    if not _has_global_access():
+        o = Order.query.get_or_404(order_id)
+        _require_owner(o)
+    else:
+        o = Order.query.get(order_id)
+
+    fp_det_applied = None
+
+    # Completar forma de pago por defecto del cliente si está vacío
+    try:
+        fp_det = (getattr(coll, "forma_pago_detalle", None) or (getattr(getattr(coll, "forma_pago", None), "value", None) if getattr(coll, "forma_pago", None) else "") or "").strip().upper()
+        if not fp_det and o is not None:
+            try:
+                cl = getattr(o, "client", None)
+                if cl is None:
+                    cl = Client.query.get(getattr(o, "client_id", None))
+                if cl is not None:
+                    fp_det = (getattr(cl, "forma_pago_habitual", None) or "").strip().upper()
+            except Exception:
+                pass
+        if not fp_det and o is not None:
+            try:
+                comp = getattr(o, "company", None)
+                if comp is None:
+                    comp = Company.query.get(getattr(o, "company_id", None))
+                if comp is not None:
+                    fp_det = (getattr(comp, "forma_pago_default", None) or "").strip().upper()
+            except Exception:
+                pass
+
+        if fp_det:
+            coll.forma_pago_detalle = fp_det
+            fp_det_applied = fp_det
+            if fp_det in ("CHEQUE", "E-CHEQ", "CHEQUE_TERCEROS", "CHEQUE_PROPIO"):
+                try:
+                    coll.forma_pago = PaymentMethod.CHEQUE
+                except Exception:
+                    coll.forma_pago = None
+            elif fp_det == "EFECTIVO":
+                try:
+                    coll.forma_pago = PaymentMethod.EFECTIVO
+                except Exception:
+                    coll.forma_pago = None
+            elif fp_det == "TRANSFERENCIA":
+                try:
+                    coll.forma_pago = PaymentMethod.TRANSFERENCIA
+                except Exception:
+                    coll.forma_pago = None
+            else:
+                try:
+                    coll.forma_pago = PaymentMethod(fp_det)
+                except Exception:
+                    pass
+            # Mantener consistencia con la Orden para que el legajo quede vinculado.
+            try:
+                if o is not None:
+                    o.forma_pago = getattr(coll, "forma_pago", None)
+                    o.forma_pago_detalle = getattr(coll, "forma_pago_detalle", None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Completar monto si falta (para que el pago "total" tenga base)
+    try:
+        if getattr(coll, "monto", None) is None or float(coll.monto or 0) <= 0:
+            picked = None
+            try:
+                lg = LogisticsStatus.query.filter_by(order_id=order_id).first()
+            except Exception:
+                lg = None
+            candidates = []
+            try:
+                if o is not None and getattr(o, "precio_final", None) is not None:
+                    candidates.append(float(o.precio_final))
+            except Exception:
+                pass
+            try:
+                if lg is not None and getattr(lg, "precio", None) is not None:
+                    candidates.append(float(lg.precio))
+            except Exception:
+                pass
+            for v in candidates:
+                try:
+                    if v is not None and float(v) > 0:
+                        picked = float(v)
+                        break
+                except Exception:
+                    pass
+            if picked is not None:
+                coll.monto = picked
+    except Exception:
+        pass
+
     coll.fecha_cobro_efectiva = datetime.utcnow()
+
+    # Si se marca COBRADO desde esta pantalla, asumir pago total (crear un PAYMENT si no existe)
+    try:
+        has_payment = (
+            CollectionPayment.query
+            .filter_by(order_id=order_id)
+            .filter(CollectionPayment.kind != "DRAFT")
+            .filter(CollectionPayment.voided_at.is_(None))
+            .count()
+        )
+        if (has_payment or 0) == 0:
+            amt = float(getattr(coll, "monto", 0) or 0)
+            if amt > 0:
+                p = CollectionPayment(
+                    order_id=order_id,
+                    owner_user_id=getattr(coll, "owner_user_id", None),
+                    kind="PAYMENT",
+                    method=(getattr(coll, "forma_pago_detalle", None) or ""),
+                    amount=amt,
+                    due_date=coll.fecha_cobro_efectiva,
+                )
+                db.session.add(p)
+    except Exception:
+        pass
+
+    # Si se cobró, asumir entrega efectiva (para sacar de Status Mercadería y apagar alerta)
+    try:
+        logistics = LogisticsStatus.query.filter_by(order_id=order_id).first()
+        if logistics is None:
+            logistics = LogisticsStatus(order_id=order_id)
+            try:
+                logistics.fecha_compra = getattr(o, "created_at", None) or datetime.utcnow()
+            except Exception:
+                logistics.fecha_compra = datetime.utcnow()
+            try:
+                logistics.forma_pago = getattr(o, "forma_pago", None)
+            except Exception:
+                pass
+            try:
+                logistics.forma_pago_detalle = getattr(o, "forma_pago_detalle", None)
+            except Exception:
+                pass
+            try:
+                logistics.precio = getattr(o, "precio_final", None)
+            except Exception:
+                pass
+            # Si no existe logística, estimar fecha de entrega (para poder marcar efectiva “en la estimada”)
+            try:
+                demora = None
+                try:
+                    demora = int(getattr(getattr(o, "company", None), "demora_despacho_promedio_dias", None) or 0)
+                except Exception:
+                    demora = None
+                base_dt = getattr(logistics, "fecha_compra", None) or datetime.utcnow()
+                if demora is not None and demora > 0:
+                    logistics.fecha_entrega_estimada = base_dt + timedelta(days=demora)
+            except Exception:
+                pass
+            db.session.add(logistics)
+
+        if not getattr(logistics, "fecha_entrega_efectiva", None):
+            picked = getattr(logistics, "fecha_entrega_estimada", None) or datetime.utcnow()
+            logistics.fecha_entrega_efectiva = picked
+            try:
+                if not getattr(coll, "fecha_entrega_efectiva", None):
+                    coll.fecha_entrega_efectiva = picked
+            except Exception:
+                pass
+    except Exception:
+        pass
     db.session.commit()
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True})
+        fp = ""
+        try:
+            fp = (fp_det_applied or getattr(coll, "forma_pago_detalle", None) or "")
+        except Exception:
+            fp = (fp_det_applied or "")
+        return jsonify({"ok": True, "forma_pago_detalle": (fp or "")})
+    return_to = (request.form.get("return_to") or "").strip()
+    if return_to and return_to.startswith("/") and ("//" not in return_to):
+        return redirect(return_to)
     return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.post("/cobranzas/<int:order_id>/desmarcar")
 def cobranzas_unmark_cobrado(order_id: int):
     coll = Collection.query.filter_by(order_id=order_id).first_or_404()
+    if not _has_global_access():
+        o = Order.query.get_or_404(order_id)
+        _require_owner(o)
     coll.fecha_cobro_efectiva = None
     db.session.commit()
+    try:
+        _invalidate_notif_count_cache()
+    except Exception:
+        pass
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True})
     return redirect(url_for("main.deudas_pendientes"))
@@ -2814,82 +6979,394 @@ def cobranzas_unmark_automaticos():
 @bp.post("/cobranzas/<int:order_id>/update")
 def cobranzas_update(order_id: int):
     coll = Collection.query.filter_by(order_id=order_id).first_or_404()
+    o = Order.query.get_or_404(order_id)
+    if not _has_global_access():
+        _require_owner(o)
+    monto_present = ("monto" in request.form)
     monto = request.form.get("monto", type=float)
     forma_pago_raw = request.form.get("forma_pago")
-    forma_pago = None if forma_pago_raw == "" else (PaymentMethod(forma_pago_raw) if forma_pago_raw else None)
+    forma_pago_enum = None
+    forma_pago_detalle = None
+    if forma_pago_raw is not None:
+        v = (forma_pago_raw or "").strip().upper()
+        if v == "":
+            forma_pago_enum = None
+            forma_pago_detalle = None
+        else:
+            forma_pago_detalle = v
+            if v in ("CHEQUE", "E-CHEQ", "CHEQUE_TERCEROS", "CHEQUE_PROPIO"):
+                try:
+                    forma_pago_enum = PaymentMethod.CHEQUE
+                except Exception:
+                    forma_pago_enum = None
+            elif v == "EFECTIVO":
+                try:
+                    forma_pago_enum = PaymentMethod.EFECTIVO
+                except Exception:
+                    forma_pago_enum = None
+            elif v == "TRANSFERENCIA":
+                try:
+                    forma_pago_enum = PaymentMethod.TRANSFERENCIA
+                except Exception:
+                    forma_pago_enum = None
+            elif v in ("VARIAS", "NO_SE_SABE"):
+                try:
+                    forma_pago_enum = PaymentMethod.NO_SE_SABE
+                except Exception:
+                    forma_pago_enum = None
+            else:
+                try:
+                    forma_pago_enum = PaymentMethod(v)
+                except Exception:
+                    forma_pago_enum = None
     pago_estimado = request.form.get("pago_estimado")
     entrega_efectiva_raw = (request.form.get("fecha_entrega_efectiva") or "").strip()
     cobro_efectivo_raw = (request.form.get("fecha_cobro_efectiva") or "").strip()
-    if monto is not None:
+
+    prev_entrega = None
+    prev_pago = None
+    try:
+        prev_entrega = getattr(coll, "fecha_entrega_efectiva", None)
+    except Exception:
+        prev_entrega = None
+    try:
+        prev_pago = getattr(coll, "fecha_pago_estimada", None)
+    except Exception:
+        prev_pago = None
+    if monto_present:
+        # Si el input se vacía, el hidden llega como "" y request.form.get(..., type=float) devuelve None.
+        # En ese caso, persistimos NULL para permitir limpiar el monto.
         coll.monto = monto
     if forma_pago_raw is not None:
-        coll.forma_pago = forma_pago
+        coll.forma_pago = forma_pago_enum
+        coll.forma_pago_detalle = forma_pago_detalle
     if pago_estimado is not None:
-        coll.fecha_pago_estimada = datetime.fromisoformat(pago_estimado) if pago_estimado else None
+        coll.fecha_pago_estimada = _parse_datetime_like(pago_estimado) if pago_estimado else None
     if entrega_efectiva_raw is not None:
         try:
-            coll.fecha_entrega_efectiva = datetime.fromisoformat(entrega_efectiva_raw) if entrega_efectiva_raw else None
+            coll.fecha_entrega_efectiva = _parse_datetime_like(entrega_efectiva_raw) if entrega_efectiva_raw else None
         except Exception:
             pass
+
+    # Autocalcular vencimiento si cambió la entrega efectiva.
+    # Importante: cuando se edita "entrega" desde la tabla, el form manda también el vencimiento viejo.
+    # Solo recalcular si el vencimiento enviado coincide con el anterior (o viene vacío), para no pisar una edición manual.
+    try:
+        new_entrega = getattr(coll, "fecha_entrega_efectiva", None)
+        if new_entrega is not None:
+            entrega_changed = False
+            try:
+                entrega_changed = (prev_entrega is None) or (prev_entrega.date() != new_entrega.date())
+            except Exception:
+                entrega_changed = True
+
+            if entrega_changed:
+                sent_pago_dt = None
+                try:
+                    sent_pago_dt = _parse_datetime_like(pago_estimado) if (pago_estimado is not None and str(pago_estimado).strip() != "") else None
+                except Exception:
+                    sent_pago_dt = None
+
+                prev_iso = ""
+                sent_iso = ""
+                try:
+                    prev_iso = prev_pago.date().isoformat() if prev_pago else ""
+                except Exception:
+                    prev_iso = ""
+                try:
+                    sent_iso = sent_pago_dt.date().isoformat() if sent_pago_dt else ""
+                except Exception:
+                    sent_iso = ""
+
+                should_autocalc = (sent_iso == "") or (prev_iso != "" and sent_iso == prev_iso)
+                if should_autocalc:
+                    plazo_days = None
+                    try:
+                        if getattr(o, "plazo_pago_dias", None) is not None:
+                            plazo_days = int(o.plazo_pago_dias or 0)
+                    except Exception:
+                        plazo_days = None
+                    if plazo_days is None:
+                        try:
+                            lnk = ClientCompanyLink.query.filter_by(client_id=int(o.client_id), company_id=int(o.company_id)).first()
+                        except Exception:
+                            lnk = None
+                        try:
+                            if lnk is not None and getattr(lnk, "plazo_pago_dias", None) is not None:
+                                plazo_days = int(lnk.plazo_pago_dias or 0)
+                        except Exception:
+                            plazo_days = None
+                    if plazo_days is None:
+                        try:
+                            comp = Company.query.get(int(o.company_id)) if getattr(o, "company_id", None) else None
+                        except Exception:
+                            comp = None
+                        try:
+                            if comp is not None and getattr(comp, "plazo_pago_promedio_dias", None) is not None:
+                                plazo_days = int(comp.plazo_pago_promedio_dias or 0)
+                        except Exception:
+                            plazo_days = None
+                    if plazo_days is None:
+                        plazo_days = 30
+                    try:
+                        coll.fecha_pago_estimada = new_entrega + timedelta(days=max(0, int(plazo_days or 0)))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
     if cobro_efectivo_raw is not None:
         try:
-            coll.fecha_cobro_efectiva = datetime.fromisoformat(cobro_efectivo_raw) if cobro_efectivo_raw else None
+            coll.fecha_cobro_efectiva = _parse_datetime_like(cobro_efectivo_raw) if cobro_efectivo_raw else None
         except Exception:
             pass
     # Mantener consistencia con status si existe registro
     logistics = LogisticsStatus.query.filter_by(order_id=order_id).first()
     if logistics:
-        if monto is not None:
+        if monto_present:
             logistics.precio = monto
         if forma_pago_raw is not None:
-            logistics.forma_pago = forma_pago
+            logistics.forma_pago = forma_pago_enum
+            logistics.forma_pago_detalle = forma_pago_detalle
         if entrega_efectiva_raw is not None:
             try:
-                logistics.fecha_entrega_efectiva = datetime.fromisoformat(entrega_efectiva_raw) if entrega_efectiva_raw else None
+                logistics.fecha_entrega_efectiva = _parse_datetime_like(entrega_efectiva_raw) if entrega_efectiva_raw else None
             except Exception:
                 pass
+    try:
+        if getattr(coll, "fecha_cobro_efectiva", None):
+            if logistics and getattr(logistics, "fecha_entrega_efectiva", None) is None:
+                picked = None
+                try:
+                    picked = getattr(logistics, "fecha_entrega_estimada", None)
+                except Exception:
+                    picked = None
+                if picked is None:
+                    try:
+                        picked = getattr(coll, "fecha_entrega_efectiva", None)
+                    except Exception:
+                        picked = None
+                picked = picked or datetime.utcnow()
+                try:
+                    logistics.fecha_entrega_efectiva = picked
+                except Exception:
+                    pass
+                try:
+                    if getattr(coll, "fecha_entrega_efectiva", None) is None:
+                        coll.fecha_entrega_efectiva = picked
+                except Exception:
+                    pass
+    except Exception:
+        pass
     # Mantener consistencia con la Orden
     order = Order.query.get(order_id)
     if order:
-        if monto is not None:
+        if monto_present:
             order.precio_final = monto
         if forma_pago_raw is not None:
-            order.forma_pago = forma_pago
+            order.forma_pago = forma_pago_enum
+            order.forma_pago_detalle = forma_pago_detalle
     db.session.commit()
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True})
+        try:
+            entrega_iso = (coll.fecha_entrega_efectiva.date().isoformat() if getattr(coll, "fecha_entrega_efectiva", None) else "")
+        except Exception:
+            entrega_iso = ""
+        try:
+            pago_iso = (coll.fecha_pago_estimada.date().isoformat() if getattr(coll, "fecha_pago_estimada", None) else "")
+        except Exception:
+            pago_iso = ""
+        try:
+            cobro_iso = (coll.fecha_cobro_efectiva.date().isoformat() if getattr(coll, "fecha_cobro_efectiva", None) else "")
+        except Exception:
+            cobro_iso = ""
+        return jsonify({
+            "ok": True,
+            "fecha_entrega_efectiva": entrega_iso,
+            "fecha_pago_estimada": pago_iso,
+            "fecha_cobro_efectiva": cobro_iso,
+        })
+    return_to = (request.form.get("return_to") or "").strip()
+    if return_to and return_to.startswith("/") and ("//" not in return_to):
+        return redirect(return_to)
     return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.get("/historial")
 def historial():
-    orders = Order.query.order_by(Order.created_at.desc()).all()
-    return render_template("historial.html", active="historial", orders=orders)
+    sort = (request.args.get("sort") or "pedido").strip().lower()
+    direction = (request.args.get("dir") or "desc").strip().lower()
+    show_all = request.args.get("all") == "1"
+    page = request.args.get("page", default=1, type=int) or 1
+    per_page = request.args.get("per_page", default=10, type=int) or 10
+    if page < 1:
+        page = 1
+    if per_page < 1:
+        per_page = 10
+    if per_page > 200:
+        per_page = 200
+
+    base = (
+        Order.query
+        .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
+        .outerjoin(Collection, Collection.order_id == Order.id)
+        .options(
+            selectinload(Order.client),
+            selectinload(Order.company),
+            selectinload(Order.logistics),
+            selectinload(Order.collection),
+        )
+    )
+    base = base.filter(Order.deleted_at.is_(None))
+
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            base = base.filter(Order.owner_user_id == uid)
+
+    if sort == "cliente":
+        base = base.join(Client, Order.client_id == Client.id)
+        order_cols = (Client.apellido, Client.nombre, Order.id)
+    elif sort == "empresa":
+        base = base.join(Company, Order.company_id == Company.id)
+        order_cols = (Company.nombre, Order.id)
+    elif sort == "entrega":
+        order_cols = (LogisticsStatus.fecha_entrega_efectiva, Order.created_at, Order.id)
+    elif sort == "cobro":
+        order_cols = (Collection.fecha_cobro_efectiva, Order.created_at, Order.id)
+    else:
+        # pedido
+        order_cols = (Order.created_at, Order.id)
+
+    is_desc = direction != "asc"
+    applied = []
+    # SQLite no soporta NULLS LAST. Emular: ordenar primero por "es NULL" (0/1) asc,
+    # y luego por el valor en asc/desc.
+    for c in order_cols:
+        try:
+            applied.append(c.is_(None).asc())
+        except Exception:
+            pass
+        applied.append(c.desc() if is_desc else c.asc())
+
+    base = base.order_by(*applied)
+    if not show_all:
+        offset = (page - 1) * per_page
+        rows = base.offset(offset).limit(per_page + 1).all()
+        has_next = len(rows) > per_page
+        if has_next:
+            rows = rows[:per_page]
+        has_prev = page > 1
+        orders = rows
+    else:
+        orders = base.all()
+        has_next = False
+        has_prev = False
+
+    return_to = request.full_path if hasattr(request, "full_path") else "/historial"
+    return render_template(
+        "historial.html",
+        active="historial",
+        orders=orders,
+        page=page,
+        per_page=per_page,
+        has_next=has_next,
+        has_prev=has_prev,
+        sort=sort,
+        direction=direction,
+        show_all=show_all,
+        return_to=return_to,
+    )
+
 
 @bp.get("/crm")
 def crm():
     rows = []
-    clients = Client.query.order_by(Client.apellido, Client.nombre).all()
+    q = Client.query
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Client.owner_user_id == uid)
+    clients = q.order_by(Client.apellido, Client.nombre).all()
     # Mapeo de etiquetas
     label_map = {
         RelationStatus.TRABAJA.value: "Trabaja",
         RelationStatus.TRABAJABA.value: "Trabajaba",
         RelationStatus.A_INCORPORAR.value: "A Incorporar",
     }
-    for c in clients:
-        # Determinar todas las empresas relacionadas ya sea por órdenes o por vínculos
-        company_ids = set()
-        # Por órdenes
-        for row in db.session.query(Order.company_id).filter(Order.client_id == c.id).distinct():
-            if row[0]:
-                company_ids.add(int(row[0]))
-        # Por links
-        for l in c.links:
-            if l.company_id:
-                company_ids.add(int(l.company_id))
+    clients = (
+        q.options(selectinload(Client.links).selectinload(ClientCompanyLink.company))
+        .order_by(Client.apellido, Client.nombre)
+        .all()
+    )
 
+    pq = db.session.query(Order.client_id, Order.company_id)
+    pq = pq.filter(Order.deleted_at.is_(None))
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            pq = pq.filter(Order.owner_user_id == uid)
+    pairs = pq.distinct().all()
+    company_ids_from_orders = set([int(coid) for _cid, coid in pairs if coid])
+    pair_set = set([(int(cid), int(coid)) for cid, coid in pairs if cid and coid])
+
+    last_map = {
+        (int(r[0]), int(r[1])): r[2]
+        for r in (
+            db.session.query(Order.client_id, Order.company_id, func.max(Order.created_at))
+            .filter(Order.deleted_at.is_(None))
+            .filter(True if _has_global_access() else (Order.owner_user_id == _effective_user_id()))
+            .group_by(Order.client_id, Order.company_id)
+            .all()
+        )
+        if r[0] and r[1]
+    }
+    avg_map = {
+        (int(r[0]), int(r[1])): r[2]
+        for r in (
+            db.session.query(Order.client_id, Order.company_id, func.avg(Order.precio_final))
+            .filter(Order.deleted_at.is_(None))
+            .filter(True if _has_global_access() else (Order.owner_user_id == _effective_user_id()))
+            .group_by(Order.client_id, Order.company_id)
+            .all()
+        )
+        if r[0] and r[1]
+    }
+    cobradas_map = {
+        (int(r[0]), int(r[1])): int(r[2] or 0)
+        for r in (
+            db.session.query(Order.client_id, Order.company_id, func.count(Collection.id))
+            .join(Collection, Collection.order_id == Order.id)
+            .filter(Collection.fecha_cobro_efectiva.isnot(None))
+            .filter(True if _has_global_access() else (Order.owner_user_id == _effective_user_id()))
+            .group_by(Order.client_id, Order.company_id)
+            .all()
+        )
+        if r[0] and r[1]
+    }
+
+    link_status = {}
+    company_ids_from_links = set()
+    for c in clients:
+        for l in (c.links or []):
+            if getattr(l, "company_id", None):
+                company_ids_from_links.add(int(l.company_id))
+                st_val = getattr(getattr(l, "status", None), "value", None)
+                link_status[(int(c.id), int(l.company_id))] = label_map.get(st_val, "-")
+
+    all_company_ids = sorted(company_ids_from_orders.union(company_ids_from_links))
+    companies = Company.query.filter(Company.id.in_(all_company_ids)).all() if all_company_ids else []
+    company_by_id = {int(co.id): co for co in companies}
+
+    pairs_by_client = {}
+    for cid, coid in pair_set:
+        pairs_by_client.setdefault(cid, set()).add(coid)
+    for key in link_status.keys():
+        cid, coid = key
+        pairs_by_client.setdefault(cid, set()).add(coid)
+
+    for c in clients:
+        company_ids = pairs_by_client.get(int(c.id), set())
         if not company_ids:
-            # Sin empresas, mostrar fila resumida sin empresa
             rows.append({
                 "cliente": f"{c.apellido} {c.nombre}",
                 "empresa": "-",
@@ -2899,36 +7376,15 @@ def crm():
                 "categ": "-",
             })
             continue
-
         for cid in sorted(company_ids):
-            comp = Company.query.get(cid)
+            comp = company_by_id.get(int(cid))
             if not comp:
                 continue
-            # Última compra cliente-empresa
-            last_order = (
-                Order.query.filter_by(client_id=c.id, company_id=cid)
-                .order_by(Order.created_at.desc())
-                .first()
-            )
-            last_date = last_order.created_at if last_order else None
-            # Compras cobradas cliente-empresa
-            cobradas = (
-                db.session.query(func.count(Collection.id))
-                .join(Order, Collection.order_id == Order.id)
-                .filter(Order.client_id == c.id, Order.company_id == cid, Collection.fecha_cobro_efectiva.isnot(None))
-                .scalar()
-            ) or 0
-            # Compra promedio cliente-empresa
-            avg_compra = (
-                db.session.query(func.avg(Order.precio_final))
-                .filter(Order.client_id == c.id, Order.company_id == cid)
-                .scalar()
-            )
-            # Categorización por link específico si existe
-            link = next((l for l in c.links if l.company_id == cid), None)
-            st_val = getattr(getattr(link, "status", None), "value", None)
-            categ = label_map.get(st_val, "-")
-
+            key = (int(c.id), int(cid))
+            last_date = last_map.get(key)
+            cobradas = cobradas_map.get(key, 0)
+            avg_compra = avg_map.get(key)
+            categ = link_status.get(key, "-")
             rows.append({
                 "cliente": f"{c.apellido} {c.nombre}",
                 "empresa": comp.nombre,
@@ -2944,10 +7400,12 @@ def crm():
 @bp.post("/pedidos/<int:order_id>/edit")
 def pedidos_edit(order_id: int):
     o = Order.query.get_or_404(order_id)
+    _require_owner(o)
     o.nota = request.form.get("nota") or o.nota
     o.descripcion = request.form.get("descripcion") or o.descripcion
-    precio_final = request.form.get("precio_final", type=float)
-    if precio_final is not None:
+    precio_final_raw = request.form.get("precio_final")
+    precio_final = _parse_amount_like(precio_final_raw) if precio_final_raw is not None else None
+    if precio_final_raw is not None:
         o.precio_final = precio_final
         # Sincronizar con logistics y collection
         if o.logistics:
@@ -2962,21 +7420,52 @@ def pedidos_edit(order_id: int):
             o.logistics.forma_pago = forma_pago
         if o.collection:
             o.collection.forma_pago = forma_pago
+
+    forma_pago_detalle_raw = request.form.get("forma_pago_detalle")
+    if forma_pago_detalle_raw is not None:
+        detail = (forma_pago_detalle_raw or "").strip().upper() or None
+        o.forma_pago_detalle = detail
+        if o.logistics:
+            o.logistics.forma_pago_detalle = detail
+        if o.collection:
+            o.collection.forma_pago_detalle = detail
     db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({
+            "ok": True,
+            "order_id": o.id,
+            "nota": o.nota or "",
+            "descripcion": o.descripcion or "",
+        })
     return redirect(url_for("main.historial"))
 
 
 @bp.post("/pedidos/<int:order_id>/delete")
 def pedidos_delete(order_id: int):
     o = Order.query.get_or_404(order_id)
-    db.session.delete(o)
+    _require_owner(o)
+    if getattr(o, "deleted_at", None) is None:
+        o.deleted_at = datetime.utcnow()
+        db.session.add(o)
     db.session.commit()
-    return redirect(url_for("main.historial"))
+
+    return_to = (request.form.get("return_to") or "").strip()
+    if return_to and return_to.startswith("/") and ("//" not in return_to):
+        return redirect(return_to)
+    ref = (request.headers.get("Referer") or "").strip()
+    try:
+        p = urlparse(ref).path
+        if p and p.startswith("/") and ("//" not in p):
+            return redirect(p)
+    except Exception:
+        pass
+    return redirect(url_for("main.deudas_pendientes"))
 
 
 @bp.get("/api/clientes/<int:client_id>/sucursales")
 def api_client_branches(client_id: int):
     client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     rows = ClientBranch.query.filter_by(client_id=client_id).order_by(ClientBranch.nombre).all()
     # Compatibilidad: si no hay filas en ClientBranch pero el cliente tiene sucursal legacy,
     # crear una entrada básica para que aparezca en el combo de pedidos.
@@ -2998,17 +7487,36 @@ def api_prev_orders():
     limit = request.args.get("limit", default=10, type=int)
     if not client_id or not company_id:
         abort(400)
+
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     q = (
         Order.query
         .filter_by(client_id=client_id, company_id=company_id)
         .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
-        .order_by(LogisticsStatus.fecha_compra.desc().nullslast(), Order.created_at.desc())
-        .limit(max(1, min(limit, 50)))
     )
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter(Order.owner_user_id == uid)
+    # SQLite no soporta NULLS LAST. Emular: primero los que tienen fecha_compra, luego los NULL.
+    try:
+        q = q.order_by(LogisticsStatus.fecha_compra.is_(None).asc(), LogisticsStatus.fecha_compra.desc(), Order.created_at.desc())
+    except Exception:
+        q = q.order_by(Order.created_at.desc())
+    q = q.limit(max(1, min(limit, 50)))
     items = []
     for o in q.all():
         lg = getattr(o, "logistics", None)
         fc = getattr(lg, "fecha_compra", None) if lg is not None else None
+        monto = None
+        try:
+            if getattr(o, "precio_final", None) is not None:
+                monto = float(o.precio_final or 0)
+            elif lg is not None and getattr(lg, "precio", None) is not None:
+                monto = float(lg.precio or 0)
+        except Exception:
+            monto = float(getattr(o, "precio_final", 0) or 0)
         items.append({
             "id": o.id,
             "created_at": o.created_at.isoformat() if o.created_at else None,
@@ -3017,15 +7525,17 @@ def api_prev_orders():
             "fecha_compra_date": fc.date().isoformat() if fc else None,
             "nota": o.nota or "",
             "descripcion": o.descripcion or "",
-            "precio_final": float(o.precio_final or 0),
+            "precio_final": monto if monto is not None else 0.0,
             "forma_pago": getattr(o.forma_pago, "value", None),
+            "forma_pago_detalle": getattr(o, "forma_pago_detalle", None),
         })
     return jsonify(items)
 
 
 @bp.post("/clientes/<int:client_id>/sucursales")
 def client_branch_add(client_id: int):
-    Client.query.get_or_404(client_id)
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     nombre = (request.form.get("nombre") or "").strip()
     if not nombre:
         abort(400)
@@ -3037,7 +7547,23 @@ def client_branch_add(client_id: int):
 
 @bp.post("/clientes/<int:client_id>/sucursales/<int:branch_id>/delete")
 def client_branch_delete(client_id: int, branch_id: int):
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
     b = ClientBranch.query.filter_by(id=branch_id, client_id=client_id).first_or_404()
     db.session.delete(b)
+    db.session.commit()
+    return redirect(url_for("main.clientes"))
+    _require_owner(client)
+    b = ClientBranch.query.filter_by(id=branch_id, client_id=client_id).first_or_404()
+    db.session.delete(b)
+    db.session.commit()
+    return redirect(url_for("main.clientes"))
+    db.session.delete(b)
+    db.session.commit()
+    return redirect(url_for("main.clientes"))
+    return redirect(url_for("main.clientes"))
+    db.session.delete(b)
+    db.session.commit()
+    return redirect(url_for("main.clientes"))
     db.session.commit()
     return redirect(url_for("main.clientes"))

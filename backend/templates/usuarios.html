@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 m-0">Usuarios</h1>
+  <div>
+    {% if impersonate_user_id %}
+      <form method="post" action="{{ url_for('main.usuarios_salir_soporte') }}" class="d-inline">
+        <button type="submit" class="btn btn-warning btn-sm">Salir de soporte</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Admin</th>
+            <th>Estado</th>
+            <th class="text-end">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          {% set up = (perms_map[u.id] if perms_map is defined and perms_map and (u.id in perms_map) else {}) %}
+          <tr>
+            <td>{{ u.username }}</td>
+            <td>{% if u.is_admin %}Sí{% else %}No{% endif %}</td>
+            <td>
+              {% if impersonate_user_id and impersonate_user_id == u.id %}
+                <span class="badge text-bg-warning">En soporte</span>
+              {% else %}
+                <span class="badge text-bg-secondary">Normal</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#perms{{ u.id }}">Permisos</button>
+              {% if impersonate_user_id and impersonate_user_id == u.id %}
+                <form method="post" action="{{ url_for('main.usuarios_salir_soporte') }}" class="d-inline">
+                  <button type="submit" class="btn btn-outline-warning btn-sm">Salir</button>
+                </form>
+              {% else %}
+                <form method="post" action="{{ url_for('main.usuarios_soporte', user_id=u.id) }}" class="d-inline">
+                  <button type="submit" class="btn btn-primary btn-sm">Soporte</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+
+          <div class="modal fade" id="perms{{ u.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Permisos - {{ u.username }}</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <form method="post" action="{{ url_for('main.usuarios_set_permisos', user_id=u.id) }}">
+                  <div class="modal-body">
+                    <div class="row g-2">
+                      {% for m in modules %}
+                        {% set default_allowed = false if m in ['usuarios','mail_pagos'] else true %}
+                        {% set allowed = (up[m] if (up is defined and up and (m in up)) else default_allowed) %}
+                        <div class="col-12 col-md-6">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="modules" id="{{ u.id }}_{{ m }}" value="{{ m }}" {{ 'checked' if allowed else '' }}>
+                            <label class="form-check-label" for="{{ u.id }}_{{ m }}">{{ module_labels[m] if module_labels is defined and m in module_labels else m }}</label>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                    <div class="small text-muted mt-2">
+                      Si desactivás un módulo, el usuario no verá el ítem en el menú y tampoco podrá entrar por URL.
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar permisos</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="small text-muted mt-2">
+      El botón "Soporte" te permite ver la app como ese usuario. Para volver a ver todo, usá "Salir de soporte".
+    </div>
+  </div>
+</div>
+{% endblock %}

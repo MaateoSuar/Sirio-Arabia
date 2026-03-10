@@ -23,7 +23,10 @@ function openGmailDraft(to, subject, body){
 // Generic: Table -> Cards (mobile)
 (function(){
   const MQ = 768; // <768 mobile
-  function isMobile(){ return window.innerWidth < MQ; }
+  function isMobilePortrait(){
+    try { return window.innerWidth < MQ && window.matchMedia && window.matchMedia('(orientation: portrait)').matches; }
+    catch(e){ return window.innerWidth < MQ; }
+  }
 
   function buildCardsFor(wrapper){
     try{
@@ -45,7 +48,7 @@ function openGmailDraft(to, subject, body){
         if(!tds.length) return;
         // Heurística de título: primera col no vacía, o que contenga Cliente/Apellido/Nombre/Empresa
         let titleIdx = 0;
-        const preferred = ['Cliente','Apellido','Nombre','Empresa','Título','Titulo'];
+        const preferred = ['Razón social','Razon social','Razón','Razon','Empresa','Cliente','Apellido','Nombre','Marca','Título','Titulo'];
         for(let i=0;i<heads.length;i++){
           if(preferred.some(p => (heads[i]||'').toLowerCase().includes(p.toLowerCase()))){ titleIdx = i; break; }
         }
@@ -126,7 +129,7 @@ function openGmailDraft(to, subject, body){
     const wrappers = document.querySelectorAll('.desktop-table');
     wrappers.forEach(w => {
       const cards = w.nextElementSibling && w.nextElementSibling.classList.contains('mobile-cards') ? w.nextElementSibling : null;
-      if(isMobile()) buildCardsFor(w);
+      if(isMobilePortrait()) buildCardsFor(w);
       else if(cards) cards.innerHTML = '';
     });
   }

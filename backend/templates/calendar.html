@@ -1,9 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center gap-2 mb-3">
   <h1 class="h4 mb-0">Calendario</h1>
   <div class="d-flex align-items-center gap-2">
-    <div class="btn-group" role="group" aria-label="Vistas de calendario">
+    <div class="btn-group w-100" role="group" aria-label="Vistas de calendario">
       <button type="button" class="btn btn-outline-secondary btn-sm" data-view="dayGridMonth">Mes</button>
       <button type="button" class="btn btn-outline-secondary btn-sm" data-view="listWeek">Lista</button>
     </div>
@@ -26,6 +26,12 @@
   .fc .fc-list-event-time { display: none; }
   .fc .fc-list-event-title { padding-left: 0; }
   .calendar-card { border-radius:.75rem; box-shadow:0 8px 24px rgba(0,0,0,.08); border:1px solid #e5e7eb; overflow:hidden; }
+
+  @media (max-width: 575.98px) {
+    .fc .fc-toolbar { flex-wrap: wrap; gap: .5rem; }
+    .fc .fc-toolbar-title { font-size: 1.05rem; }
+    .fc .fc-button { padding: .35rem .55rem; font-size: .9rem; }
+  }
 </style>
 <div class="card calendar-card">
   <div class="card-body p-0">
@@ -39,6 +45,8 @@
   var calendarEl = document.getElementById('sirioCalendar');
   if (!calendarEl || !window.FullCalendar) return;
   var initialDate = '{{ today }}';
+  var isMobile = false;
+  try { isMobile = window.innerWidth <= 575; } catch(e) { isMobile = false; }
   var cal = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     initialDate: initialDate,
@@ -47,12 +55,12 @@
     buttonText: { today: '↻ Hoy', month: 'Mes', list: 'Lista' },
     noEventsText: 'Sin eventos para mostrar',
     headerToolbar: {
-      left: 'prev,next today',
+      left: isMobile ? 'prev,next' : 'prev,next today',
       center: 'title',
-      right: ''
+      right: isMobile ? 'today' : ''
     },
     height: 'auto',
-    contentHeight: 720,
+    contentHeight: isMobile ? 560 : 720,
     expandRows: true,
     themeSystem: 'standard',
     eventDisplay: 'block',

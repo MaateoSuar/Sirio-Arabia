@@ -5,7 +5,419 @@
 </div>
 <div class="card">
   <div class="card-body">
-    <div class="text-muted">—</div>
+    <form id="commFilter" class="row g-2 align-items-end" method="get" action="{{ url_for('main.comisiones') }}">
+      {% set from_val = from_val if from_val is defined else '' %}
+      {% set to_val = to_val if to_val is defined else '' %}
+      <input type="hidden" name="from" id="commFrom" value="{{ from_val }}">
+      <input type="hidden" name="to" id="commTo" value="{{ to_val }}">
+      <div class="col-12 col-md-4">
+        <label class="form-label">Empresa</label>
+        <select class="form-select" name="company_id" id="commCompany">
+          <option value="">Todas</option>
+          {% for c in companies or [] %}
+            <option value="{{ c.id }}" {{ 'selected' if company_id and (company_id|int)==(c.id|int) else '' }}>{{ c.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label">Filtrar por período</label>
+        <div class="input-group">
+          <input type="text" class="form-control" id="commDateRange" readonly value="{{ (from_val ~ ' to ' ~ to_val) if from_val and to_val else '' }}">
+          <button class="btn btn-outline-secondary" type="button" id="commClearRange">×</button>
+        </div>
+      </div>
+      <div class="col-12 col-md-4">
+        <a class="btn btn-outline-danger ms-2" href="{{ url_for('main.comisiones') }}" id="commClearAll">Limpiar</a>
+      </div>
+    </form>
+
+    <hr class="my-4">
+
+    <form class="row g-2 align-items-end" method="post" action="{{ url_for('main.comisiones_marcar') }}">
+      <div class="col-12 col-md-4">
+        <label class="form-label">Fecha última comisión cobrada</label>
+        <input class="form-control" type="text" data-datepicker name="paid_at" value="{{ (last_paid_iso[8:10] ~ '/' ~ last_paid_iso[5:7] ~ '/' ~ last_paid_iso[0:4]) if last_paid_iso else '' }}">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label">Fecha de comisión</label>
+        <input class="form-control" type="text" data-datepicker name="commission_date" value="{{ (commission_date_iso[8:10] ~ '/' ~ commission_date_iso[5:7] ~ '/' ~ commission_date_iso[0:4]) if commission_date_iso else '' }}" disabled>
+      </div>
+      <div class="col-12 col-md-4">
+        <button class="btn btn-outline-primary" type="submit">Guardar fecha</button>
+      </div>
+    </form>
+
+    <hr class="my-4">
+
+    {% if not grouped %}
+      <div class="text-muted">No hay cobranzas nuevas para comisiones desde esa fecha.</div>
+    {% else %}
+      {% for empresa, months in grouped.items() %}
+        <div class="mb-4" data-company="{{ empresa|e }}">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary js-toggle" data-target="#cmpBody{{ loop.index }}" aria-expanded="true">▾</button>
+              <h2 class="h5 mb-2 fw-bold">{{ empresa }}</h2>
+            </div>
+            {% set _t = (totals.get(empresa, 0) or 0) %}
+            <div class="text-muted small">Total: $ <span class="js-total" data-total="{{ _t }}">{{ '{:,.2f}'.format(_t)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }}</span></div>
+          </div>
+
+          <div id="cmpBody{{ loop.index }}" class="js-collapsible">
+
+          {% set cmp_idx = loop.index %}
+
+          {% set months_sorted = months|dictsort(reverse=True) %}
+          {% for mk, mo in months_sorted %}
+            <div class="mt-3 ms-4" data-month="{{ mk }}">
+              <div class="d-flex justify-content-between align-items-center mb-2 text-success">
+                <div class="d-flex align-items-center gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary js-toggle" data-target="#moBody{{ loop.index0 }}_{{ cmp_idx }}" aria-expanded="true">▾</button>
+                  <h3 class="h6 m-0 fw-bold text-success">{{ mo.label }}</h3>
+                </div>
+                {% set mt = 0 %}
+                {% if month_totals is defined and month_totals.get(empresa) is defined %}
+                  {% set mt = (month_totals.get(empresa, {}).get(mk, 0) or 0) %}
+                {% endif %}
+                <div class="small text-success">Mes: $ {{ '{:,.2f}'.format(mt)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }}</div>
+              </div>
+
+              <div id="moBody{{ loop.index0 }}_{{ cmp_idx }}" class="js-collapsible">
+              <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-0" style="table-layout: fixed; width:100%;">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width:40px;"></th>
+                      <th style="width:90px; white-space:nowrap;" class="js-sort" data-sort-key="id">Id</th>
+                      <th style="width:220px; white-space:nowrap;" class="js-sort" data-sort-key="part">Pago</th>
+                      <th style="width:auto; text-align:center;" class="js-sort" data-sort-key="client">Cliente</th>
+                      <th style="width:120px; white-space:nowrap;" class="js-sort" data-sort-key="date">Fecha</th>
+                      <th style="width:120px; white-space:nowrap;" class="js-sort" data-sort-key="state">Estado</th>
+                      <th class="text-end" style="width:140px; white-space:nowrap;">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for r in mo.rows %}
+                      <tr data-id="{{ (r.order_id or 0) }}" data-client="{{ (r.client or '')|lower }}" data-date="{{ (r.date or '') }}" data-state="{{ '1' if r.is_complete else '0' }}" data-part-idx="{{ (r.part_label.split('/')[0]|int) if r.part_label else 0 }}" data-part-total="{{ (r.part_label.split('/')[1]|int) if r.part_label else 0 }}">
+                        <td>
+                          <input class="form-check-input js-pay-check" type="checkbox" checked
+                                 data-company="{{ empresa|e }}" data-amount="{{ (r.amount or 0) }}" data-payment-id="{{ r.payment_id or '' }}">
+                        </td>
+                        <td class="text-muted" style="white-space:nowrap;">{{ r.order_id }}</td>
+                        <td>
+                          {% if r.part_label %}
+                            <span class="badge bg-secondary">{{ r.part_label }}</span>
+                            {% set _ot = (r.order_total or 0) %}
+                            {% set _pa = (r.amount or 0) %}
+                            <span class="text-muted">{{ '{:,.2f}'.format(_pa)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }} de {{ '{:,.2f}'.format(_ot)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }}</span>
+                          {% else %}
+                            <span class="text-muted">-</span>
+                          {% endif %}
+                        </td>
+                        <td style="text-align:center;">{{ r.client }}</td>
+                        <td style="white-space:nowrap;">{{ (r.date[8:10] ~ '/' ~ r.date[5:7] ~ '/' ~ r.date[0:4]) if r.date else '' }}</td>
+                        <td>
+                          {% if r.is_complete %}
+                            <span class="badge bg-success">COMPLETA</span>
+                          {% else %}
+                            <span class="badge bg-warning text-dark">PARCIAL</span>
+                          {% endif %}
+                        </td>
+                        {% set _a = (r.amount or 0) %}
+                        <td class="text-end">$ {{ '{:,.2f}'.format(_a)|replace(',', 'X')|replace('.', ',')|replace('X', '.') }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              </div>
+            </div>
+          {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
   </div>
 </div>
+
+<script>
+  (function(){
+    function mount(){
+      try {
+        document.querySelectorAll('input[data-datepicker]').forEach(function(el){
+          flatpickr(el, {
+            altInput: true,
+            altFormat: 'd/m/Y',
+            dateFormat: 'Y-m-d',
+            allowInput: true,
+            disableMobile: true
+          });
+        });
+      } catch(e) {}
+    }
+    if (typeof window.flatpickr === 'function') {
+      mount();
+    } else {
+      try {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+        s.onload = mount;
+        document.head.appendChild(s);
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+        document.head.appendChild(l);
+      } catch(e) {}
+    }
+  })();
+</script>
+<script>
+  (function(){
+    function fmtMoney(v){
+      try {
+        var n = Number(v || 0);
+        if (isNaN(n)) n = 0;
+        return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } catch(e) {
+        try { return String(v || 0); } catch(e2) { return '0'; }
+      }
+    }
+
+    function recalc(){
+      var totals = {};
+      document.querySelectorAll('input.js-pay-check').forEach(function(ch){
+        if (!ch.checked) return;
+        var comp = (ch.getAttribute('data-company') || '-');
+        var amt = Number(ch.getAttribute('data-amount') || 0);
+        if (isNaN(amt)) amt = 0;
+        totals[comp] = (totals[comp] || 0) + Math.abs(amt);
+      });
+
+      document.querySelectorAll('[data-company]').forEach(function(box){
+        var comp = box.getAttribute('data-company') || '-';
+        var val = totals[comp] || 0;
+        var span = box.querySelector('.js-total');
+        if (!span) return;
+        span.textContent = fmtMoney(val);
+        try { span.setAttribute('data-total', String(val)); } catch(e) {}
+      });
+    }
+
+    document.addEventListener('change', function(e){
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains('js-pay-check')) return;
+      recalc();
+    });
+    recalc();
+  })();
+</script>
+<script>
+  (function(){
+    function parseYmd(s){
+      var v = (s || '').trim();
+      if (!v) return null;
+      var m = v.match(/^\d{4}-\d{2}-\d{2}$/);
+      if (m) return v;
+      return null;
+    }
+
+    function sortTable(table, key, dir){
+      if (!table) return;
+      var tbody = table.querySelector('tbody');
+      if (!tbody) return;
+      var rows = Array.from(tbody.querySelectorAll('tr'));
+
+      function getVal(tr){
+        if (!tr) return null;
+        if (key === 'id') {
+          var n = parseInt(tr.getAttribute('data-id') || '0', 10);
+          return isNaN(n) ? 0 : n;
+        }
+        if (key === 'client') {
+          return (tr.getAttribute('data-client') || '').toLowerCase();
+        }
+        if (key === 'date') {
+          var d = parseYmd(tr.getAttribute('data-date') || '');
+          return d || '';
+        }
+        if (key === 'state') {
+          var st = parseInt(tr.getAttribute('data-state') || '0', 10);
+          return isNaN(st) ? 0 : st;
+        }
+        if (key === 'part') {
+          var idx = parseInt(tr.getAttribute('data-part-idx') || '0', 10);
+          var tot = parseInt(tr.getAttribute('data-part-total') || '0', 10);
+          if (isNaN(idx)) idx = 0;
+          if (isNaN(tot)) tot = 0;
+          // sin partes => 0
+          if (tot <= 1) return 0;
+          // ordenar por idx (1..tot)
+          return idx;
+        }
+        return '';
+      }
+
+      rows.sort(function(a, b){
+        // Orden especial: Pago siempre debe mostrar la última parte arriba dentro de cada Id.
+        if (key === 'part') {
+          var ida = parseInt(a.getAttribute('data-id') || '0', 10);
+          var idb = parseInt(b.getAttribute('data-id') || '0', 10);
+          if (isNaN(ida)) ida = 0;
+          if (isNaN(idb)) idb = 0;
+          // Agrupar por Id (más nuevo primero)
+          if (ida !== idb) return idb - ida;
+
+          var ia = parseInt(a.getAttribute('data-part-idx') || '0', 10);
+          var ib = parseInt(b.getAttribute('data-part-idx') || '0', 10);
+          var ta = parseInt(a.getAttribute('data-part-total') || '0', 10);
+          var tb = parseInt(b.getAttribute('data-part-total') || '0', 10);
+          if (isNaN(ia)) ia = 0;
+          if (isNaN(ib)) ib = 0;
+          if (isNaN(ta)) ta = 0;
+          if (isNaN(tb)) tb = 0;
+          // Si alguno no es parcial (tot<=1), mandarlo abajo
+          var pa = (ta > 1) ? 1 : 0;
+          var pb = (tb > 1) ? 1 : 0;
+          if (pa !== pb) return pb - pa;
+          // Último pago primero: idx desc
+          if (ia !== ib) return ib - ia;
+          return 0;
+        }
+
+        var va = getVal(a);
+        var vb = getVal(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+
+        var cmp = 0;
+        if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+        else cmp = String(va).localeCompare(String(vb), 'es', { sensitivity: 'base' });
+
+        return (dir === 'desc') ? -cmp : cmp;
+      });
+      rows.forEach(function(r){ tbody.appendChild(r); });
+    }
+
+    document.querySelectorAll('table').forEach(function(table){
+      var thead = table.querySelector('thead');
+      if (!thead) return;
+      thead.querySelectorAll('th.js-sort').forEach(function(th){
+        th.addEventListener('click', function(){
+          var key = th.getAttribute('data-sort-key');
+          if (!key) return;
+          // Para 'Pago' no hay toggle: siempre último primero.
+          if (key === 'part') {
+            try {
+              thead.querySelectorAll('th.js-sort').forEach(function(x){ x.removeAttribute('data-sort-dir'); });
+            } catch(e) {}
+            th.setAttribute('data-sort-dir', 'desc');
+            sortTable(table, key, 'desc');
+            return;
+          }
+
+          var current = th.getAttribute('data-sort-dir') || 'desc';
+          var next = (current === 'desc') ? 'asc' : 'desc';
+          try {
+            thead.querySelectorAll('th.js-sort').forEach(function(x){ x.removeAttribute('data-sort-dir'); });
+          } catch(e) {}
+          th.setAttribute('data-sort-dir', next);
+          sortTable(table, key, next);
+        });
+      });
+
+      // Orden por defecto: Pago (último primero)
+      try { sortTable(table, 'part', 'desc'); } catch(e) {}
+    });
+  })();
+</script>
+<script>
+  (function(){
+    function mountRange(){
+      try {
+        var input = document.getElementById('commDateRange');
+        var fromH = document.getElementById('commFrom');
+        var toH = document.getElementById('commTo');
+        var form = document.getElementById('commFilter');
+        if (!input || !fromH || !toH) return;
+
+        function submit(){
+          try {
+            if (form) (form.requestSubmit ? form.requestSubmit() : form.submit());
+          } catch(e) {}
+        }
+
+        var fp = flatpickr(input, {
+          mode: 'range',
+          dateFormat: 'Y-m-d',
+          allowInput: false,
+          disableMobile: true,
+          onChange: function(selectedDates, dateStr){
+            try {
+              var parts = (dateStr || '').split(' to ');
+              fromH.value = (parts[0] || '').trim();
+              toH.value = (parts[1] || '').trim();
+            } catch(e) {}
+            try {
+              // Auto-aplicar solo cuando el rango está completo (desde + hasta)
+              if ((fromH.value || '').trim() && (toH.value || '').trim()) submit();
+            } catch(e2) {}
+          }
+        });
+        window.__commRangePicker = fp;
+
+        var clearBtn = document.getElementById('commClearRange');
+        if (clearBtn){
+          clearBtn.addEventListener('click', function(){
+            try {
+              if (fp && typeof fp.clear === 'function') fp.clear();
+            } catch(e) {}
+            try {
+              input.value = '';
+              fromH.value = '';
+              toH.value = '';
+            } catch(e2) {}
+            submit();
+          });
+        }
+      } catch(e){}
+    }
+
+    if (typeof window.flatpickr === 'function') {
+      mountRange();
+    } else {
+      try {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+        s.onload = mountRange;
+        document.head.appendChild(s);
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+        document.head.appendChild(l);
+      } catch(e2) {}
+    }
+  })();
+</script>
+<script>
+  (function(){
+    function setBtn(btn, open){
+      try {
+        btn.textContent = open ? '▾' : '▸';
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      } catch(e) {}
+    }
+    document.addEventListener('click', function(e){
+      var btn = e.target;
+      if (!btn || !btn.classList || !btn.classList.contains('js-toggle')) return;
+      var sel = btn.getAttribute('data-target');
+      if (!sel) return;
+      var body = document.querySelector(sel);
+      if (!body) return;
+      var isHidden = (body.style.display === 'none');
+      body.style.display = isHidden ? '' : 'none';
+      setBtn(btn, isHidden);
+    });
+  })();
+</script>
 {% endblock %}

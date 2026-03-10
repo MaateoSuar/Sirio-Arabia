@@ -1,9 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center gap-2 mb-4">
   <h1 class="h4 mb-0">{% if edit_order %}Editando pedido{% else %}Registro de Venta / Pedido{% endif %}</h1>
-  <div>
-    <button class="btn btn-outline-success" type="button" id="pending-open-btn">Pendientes</button>
+  <div class="d-grid d-sm-block">
+    <button class="btn btn-outline-success position-relative" type="button" id="pending-open-btn">Pendientes</button>
   </div>
 </div>
 <!-- Modal Pendientes -->
@@ -15,7 +15,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="table-responsive">
+        <div class="table-responsive table-mobile-cards">
           <table class="table table-sm align-middle mb-0">
             <thead>
               <tr>
@@ -65,6 +65,7 @@
         "branch_id": edit_order.branch_id,
         "tipo_comprobante": (edit_order.tipo_comprobante or ""),
         "forma_pago": (edit_order.forma_pago.value if edit_order.forma_pago else ""),
+        "forma_pago_detalle": (edit_order.forma_pago_detalle or ""),
         "plazo_pago_dias": edit_order.plazo_pago_dias,
         "monto": (edit_logistics.precio if edit_logistics and edit_logistics.precio is not none else edit_order.precio_final),
       } | tojson }}</script>
@@ -72,6 +73,9 @@
     <form id="pedido-form" class="row g-2 g-md-3" method="post" action="{{ url_for('main.pedidos_create') }}" enctype="multipart/form-data">
       {% if edit_order %}
         <input type="hidden" name="order_id" value="{{ edit_order.id }}">
+      {% endif %}
+      {% if return_to %}
+        <input type="hidden" name="return_to" value="{{ return_to }}">
       {% endif %}
       <div class="col-md-3">
         <label class="form-label">Fecha de compra</label>
@@ -102,6 +106,9 @@
         <input type="text" class="form-control" id="pedido_nota" name="nota" placeholder="Nota" value="{{ (edit_order.nota or '') if edit_order else '' }}">
       </div>
       <div class="col-12">
+        <div class="d-flex justify-content-end mb-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-nota-pedido" title="Copiar Nota de Pedido de la empresa a las Notas">Nota de Pedido</button>
+        </div>
         <textarea class="form-control" id="pedido_descripcion" name="descripcion" rows="6" placeholder="Descripción del pedido (puedes pegar texto desde WhatsApp)">{{ (edit_order.descripcion or '') if edit_order else '' }}</textarea>
       </div>
       <div class="col-12">
@@ -122,10 +129,10 @@
         <textarea class="form-control mt-2" id="pedido_preview" rows="4" placeholder="Borrador del pedido"></textarea>
       </div>
       <div class="col-12">
-        <div class="d-flex align-items-center justify-content-between">
+        <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center justify-content-between gap-2">
           <label class="form-label m-0" style="color:#0f766e; font-weight:600">Destinatarios del pedido</label>
-          <div class="d-flex gap-2">
-            <input type="email" class="form-control form-control-sm" id="new_to_input" placeholder="Agregar mail" style="max-width:260px">
+          <div class="d-flex flex-column flex-sm-row gap-2">
+            <input type="email" class="form-control form-control-sm flex-grow-1" id="new_to_input" placeholder="Agregar mail">
             <button class="btn btn-sm btn-outline-secondary" type="button" id="btnAddTo">Agregar</button>
           </div>
         </div>
@@ -140,7 +147,7 @@
       </div>
       <div class="col-md-4">
         <label class="form-label">Monto</label>
-        <input type="number" step="0.01" class="form-control" id="pedido_precio" name="precio_final" placeholder="Monto" value="{{ (edit_logistics.precio if edit_logistics and edit_logistics.precio is not none else (edit_order.precio_final if edit_order and edit_order.precio_final is not none else '')) }}">
+        <input type="text" class="form-control" id="pedido_precio" name="precio_final" inputmode="decimal" placeholder="Monto" value="{{ (edit_logistics.precio if edit_logistics and edit_logistics.precio is not none else (edit_order.precio_final if edit_order and edit_order.precio_final is not none else '')) }}">
       </div>
       <div class="col-md-4">
         <div id="pedido_pago_box" class="border border-secondary rounded-3 p-2">
@@ -154,6 +161,7 @@
           </div>
           <label class="form-label">Forma de pago</label>
           <select class="form-select" id="pedido_forma_pago" name="forma_pago"></select>
+          <input type="hidden" id="pedido_forma_pago_detalle" name="forma_pago_detalle" value="{{ (edit_order.forma_pago_detalle or '') if edit_order else '' }}">
         </div>
       </div>
       <div class="col-md-4">
@@ -175,8 +183,10 @@
     const mailInput = document.getElementById('pedido_mail_pedido');
     const notaInput = document.getElementById('pedido_nota');
     const descInput = document.getElementById('pedido_descripcion');
+    const notaPedidoBtn = document.getElementById('btn-nota-pedido');
     const precioInput = document.getElementById('pedido_precio');
     const formaPagoSel = document.getElementById('pedido_forma_pago');
+    const formaPagoDetalleInput = document.getElementById('pedido_forma_pago_detalle');
     const plazoPagoInput = document.getElementById('pedido_plazo_pago');
     const fechaInput = document.getElementById('pedido_fecha');
     const branchSel = document.getElementById('pedido_branch');
@@ -210,60 +220,276 @@
         { value: '', label: '-' },
         { value: 'EFECTIVO', label: 'Efectivo' },
         { value: 'TRANSFERENCIA', label: 'Transferencia' },
-        { value: 'CHEQUE', label: 'E-cheq' },
-        { value: 'CHEQUE', label: 'Cheque Físico Terceros' },
-        { value: 'CHEQUE', label: 'Cheque Físico Propio' },
+        { value: 'CHEQUE', label: 'E-cheq', detail: 'E-CHEQ' },
+        { value: 'CHEQUE', label: 'Cheque Físico Terceros', detail: 'CHEQUE_TERCEROS' },
+        { value: 'CHEQUE', label: 'Cheque Físico Propio', detail: 'CHEQUE_PROPIO' },
       ],
       REMITO: [
         { value: '', label: '-' },
         { value: 'EFECTIVO', label: 'Efectivo' },
         { value: 'TRANSFERENCIA', label: 'Transferencia' },
-        { value: 'CHEQUE', label: 'E-cheq' },
-        { value: 'CHEQUE', label: 'Cheque Físico Terceros' },
-        { value: 'CHEQUE', label: 'Cheque Físico Propio' },
+        { value: 'CHEQUE', label: 'E-cheq', detail: 'E-CHEQ' },
+        { value: 'CHEQUE', label: 'Cheque Físico Terceros', detail: 'CHEQUE_TERCEROS' },
+        { value: 'CHEQUE', label: 'Cheque Físico Propio', detail: 'CHEQUE_PROPIO' },
       ],
     };
+
+    function getSelectedFormaPagoDetalle(){
+      if (!formaPagoSel) return '';
+      try {
+        const opt = formaPagoSel.options[formaPagoSel.selectedIndex];
+        return opt ? (opt.getAttribute('data-detalle') || '') : '';
+      } catch(e) {
+        return '';
+      }
+
+    }
+
+    function htmlToPlainWithBullets(html){
+      try{
+        var tmp = document.createElement('div');
+        tmp.innerHTML = String(html || '');
+
+        function normSpaces(s){
+          return String(s || '').replace(/\u00A0/g, ' ');
+        }
+
+        function pushLine(out, line){
+          line = normSpaces(line);
+          line = line.replace(/[ \t]+$/g, '');
+          if (!line) return;
+          out.push(line);
+        }
+
+        function convertNode(node, out, state){
+          state = state || { olStack: [] };
+          if (!node) return;
+
+          if (node.nodeType === Node.TEXT_NODE) {
+            var t = normSpaces(node.nodeValue || '');
+            if (t) out.push(t);
+            return;
+          }
+
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          var tag = (node.tagName || '').toUpperCase();
+
+          if (tag === 'BR') {
+            out.push('\n');
+            return;
+          }
+
+          if (tag === 'OL') {
+            state.olStack.push(0);
+          }
+
+          if (tag === 'LI') {
+            var prefix = '- ';
+            try {
+              var p = node.parentElement;
+              if (p && (p.tagName || '').toUpperCase() === 'OL') {
+                var idx = (state.olStack.length ? (state.olStack[state.olStack.length - 1] + 1) : 1);
+                if (state.olStack.length) state.olStack[state.olStack.length - 1] = idx;
+                prefix = String(idx) + '. ';
+              }
+            } catch(e_idx) {}
+            out.push(prefix);
+          }
+
+          var isBlock = ['P','DIV','SECTION','ARTICLE','HEADER','FOOTER','TR','TABLE'].indexOf(tag) !== -1;
+          var isList = (tag === 'UL' || tag === 'OL');
+
+          Array.from(node.childNodes || []).forEach(function(ch){
+            convertNode(ch, out, state);
+          });
+
+          if (tag === 'LI' || isBlock) {
+            out.push('\n');
+          }
+          if (isList) {
+            out.push('\n');
+          }
+
+          if (tag === 'OL') {
+            try { state.olStack.pop(); } catch(e_pop) {}
+          }
+        }
+
+        var buf = [];
+        Array.from(tmp.childNodes || []).forEach(function(n){
+          convertNode(n, buf, { olStack: [] });
+          buf.push('\n');
+        });
+
+        var raw = normSpaces(buf.join(''));
+        raw = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        raw = raw.replace(/[ \t]*\n[ \t]*/g, '\n');
+        raw = raw.replace(/\n{3,}/g, '\n\n');
+        raw = raw.replace(/^[\n\s]+|[\n\s]+$/g, '');
+
+        if (raw) return raw;
+
+        // Fallback
+        var txt = (tmp.innerText || tmp.textContent || '').replace(/\r\n/g, '\n');
+        txt = txt.replace(/\n{3,}/g, '\n\n');
+        return txt.trim();
+      }catch(e){
+        return String(html || '').trim();
+      }
+    }
+
+    function syncFormaPagoDetalle(){
+      if (!formaPagoDetalleInput) return;
+      formaPagoDetalleInput.value = getSelectedFormaPagoDetalle();
+    }
 
     function populateFormaPago(tipo){
       if (!formaPagoSel) return;
       const opts = paymentOptions[tipo] || paymentOptions.FACTURA;
       const current = formaPagoSel.value;
+      const currentDetail = getSelectedFormaPagoDetalle();
       formaPagoSel.innerHTML = '';
       opts.forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.value;
         opt.textContent = o.label;
+        if (o.detail) opt.setAttribute('data-detalle', o.detail);
         formaPagoSel.appendChild(opt);
       });
-      const hasCurrent = opts.some(o => o.value && o.value === current);
-      if (hasCurrent) {
-        formaPagoSel.value = current;
+      if (current === 'CHEQUE' && currentDetail) {
+        try {
+          const found = Array.from(formaPagoSel.options).find(o => o.value === 'CHEQUE' && (o.getAttribute('data-detalle') || '') === currentDetail);
+          if (found) formaPagoSel.value = 'CHEQUE';
+          if (found) found.selected = true;
+        } catch(e) {}
+      } else {
+        const hasCurrent = opts.some(o => o.value && o.value === current);
+        if (hasCurrent) {
+          formaPagoSel.value = current;
+        }
       }
+      syncFormaPagoDetalle();
+    }
+
+    function setFormaPago(fp, detalle){
+      if (!formaPagoSel) return;
+      const v = (fp || '').toString().trim().toUpperCase();
+      const d = (detalle || '').toString().trim().toUpperCase();
+      formaPagoSel.value = v;
+      if (v === 'CHEQUE' && d) {
+        try {
+          const opt = Array.from(formaPagoSel.options).find(o => o.value === 'CHEQUE' && (o.getAttribute('data-detalle') || '').toUpperCase() === d);
+          if (opt) opt.selected = true;
+        } catch(e) {}
+      }
+      if (formaPagoDetalleInput) formaPagoDetalleInput.value = d || getSelectedFormaPagoDetalle();
+    }
+
+    function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+    function fmtThousands(v){ if(!v) return ''; v = v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+    // Normaliza a entero (string de dígitos) desde variantes:
+    // - "3040" => "3040"
+    // - "3.040" => "3040" (miles)
+    // - "3040.00" => "3040" (decimal)
+    // - "3040,00" => "3040" (decimal)
+    function amountToIntDigits(v){
+      var s = String(v == null ? '' : v).trim().replace(/\s+/g,'');
+      if (!s) return '';
+      // decimal con coma: tomar parte entera y quitar miles
+      if (s.indexOf(',') !== -1) {
+        s = s.split(',')[0];
+        s = s.replace(/\./g,'');
+        return onlyDigits(s);
+      }
+      // decimal con punto (solo un punto y 1-2 decimales)
+      var m = s.match(/^(\d+)\.(\d{1,2})$/);
+      if (m) {
+        return m[1];
+      }
+      // miles con puntos (más de un punto, o último grupo de 3 dígitos)
+      var parts = s.split('.');
+      if (parts.length > 1) {
+        var last = parts[parts.length - 1];
+        var allDigits = parts.every(function(p){ return /^\d+$/.test(p); });
+        if (allDigits && (parts.length > 2 || last.length === 3)) {
+          return parts.join('');
+        }
+      }
+      return onlyDigits(s);
+    }
+
+    function syncPrecioFormat(){
+      if (!precioInput) return;
+      try {
+        const raw = amountToIntDigits(precioInput.value);
+        precioInput.value = fmtThousands(raw);
+      } catch(e) {}
     }
 
     // =========================
     // Borradores (localStorage)
     // =========================
     function draftKey(clientId, companyId){
-      return `pedido_draft_${clientId}_${companyId}`;
+      return `pedido_draft_${clientId || '0'}_${companyId || '0'}`;
     }
+
+    async function apiDraftsList(){
+      try{
+        const res = await fetch('/api/pedidos/drafts', { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('bad_status');
+        const ct = (res.headers && res.headers.get) ? (res.headers.get('content-type') || '') : '';
+        if (ct.toLowerCase().indexOf('application/json') === -1) throw new Error('bad_ct');
+        const items = await res.json();
+        return Array.isArray(items) ? items : [];
+      }catch(e){
+        return null;
+      }
+    }
+
+    async function apiDraftUpsert(d){
+      try{
+        const fd = new FormData();
+        Object.keys(d || {}).forEach(k=>{
+          if (d[k] == null) return;
+          fd.append(k, String(d[k]));
+        });
+        const res = await fetch('/api/pedidos/drafts', { method:'POST', body: fd, headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('bad_status');
+        return true;
+      }catch(e){
+        return false;
+      }
+    }
+
+    async function apiDraftDelete(id){
+      try{
+        const res = await fetch(`/api/pedidos/drafts/${encodeURIComponent(id)}`, { method:'DELETE', headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('bad_status');
+        return true;
+      }catch(e){
+        return false;
+      }
+    }
+
     function collectDraft(){
       const cid = clienteSel?.value || '';
       const eid = empresaSel?.value || '';
-      if (!cid || !eid) return null;
-      const clienteOpt = clienteSel.options[clienteSel.selectedIndex];
-      const empresaOpt = empresaSel.options[empresaSel.selectedIndex];
+      if (!cid && !eid) return null;
+      const clienteOpt = (clienteSel && clienteSel.selectedIndex >= 0) ? clienteSel.options[clienteSel.selectedIndex] : null;
+      const empresaOpt = (empresaSel && empresaSel.selectedIndex >= 0) ? empresaSel.options[empresaSel.selectedIndex] : null;
       return {
-        client_id: String(cid),
-        company_id: String(eid),
-        client_label: (clienteOpt?.getAttribute('data-razon') || clienteOpt?.text || ''),
-        company_label: (empresaOpt?.text || ''),
+        client_id: cid ? String(cid) : '0',
+        company_id: eid ? String(eid) : '0',
+        client_label: cid ? (clienteOpt?.getAttribute('data-razon') || clienteOpt?.text || '') : '',
+        company_label: eid ? (empresaOpt?.text || '') : '',
         branch_id: branchSel?.value || '',
         sucursal: (branchSel && branchSel.value) ? (branchSel.options[branchSel.selectedIndex]?.text || '') : '',
         nota: notaInput?.value || '',
         descripcion: descInput?.value || '',
         precio_final: precioInput?.value || '',
         forma_pago: formaPagoSel?.value || '',
+        forma_pago_detalle: formaPagoDetalleInput?.value || '',
         plazo_pago_dias: plazoPagoInput?.value || '',
         fecha_compra: fechaInput?.value || ''
       };
@@ -272,7 +498,13 @@
       try{
         const d = collectDraft();
         if (!d) return;
-        localStorage.setItem(draftKey(d.client_id, d.company_id), JSON.stringify(d));
+        // Intentar persistir en servidor (sync cross-device). Si falla, fallback a local.
+        apiDraftUpsert(d).then(function(ok){
+          if (!ok) {
+            try { localStorage.setItem(draftKey(d.client_id, d.company_id), JSON.stringify(d)); } catch(_) {}
+          }
+          try { updatePendingBadge(); } catch(e) {}
+        });
       }catch(e){/* noop */}
     }
     function listDrafts(){
@@ -283,7 +515,7 @@
           if (!k || !k.startsWith('pedido_draft_')) continue;
           try{
             const v = JSON.parse(localStorage.getItem(k)||'null');
-            if (v && v.client_id && v.company_id) items.push(v);
+            if (v && (String(v.client_id||'0') !== '0' || String(v.company_id||'0') !== '0')) items.push(v);
           }catch(err){/* ignore bad */}
         }
       }catch(e){}
@@ -295,9 +527,36 @@
       });
       return items;
     }
-    function populateDraftsModal(){
+
+    async function updatePendingBadge(){
+      const btn = draftsOpenBtn;
+      if (!btn) return;
+      let n = 0;
+      try{
+        const apiItems = await apiDraftsList();
+        if (apiItems !== null) n = (apiItems || []).length;
+        else n = (listDrafts() || []).length;
+      }catch(e){ n = (listDrafts() || []).length; }
+
+      const old = btn.querySelector('.js-pending-badge');
+      if (old) old.remove();
+      if (!n) return;
+      const b = document.createElement('span');
+      b.className = 'js-pending-badge position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger';
+      b.textContent = String(n);
+      btn.appendChild(b);
+    }
+
+    async function populateDraftsModal(){
       if (!draftsTbody) return;
-      const drafts = listDrafts();
+      let drafts = [];
+      try{
+        const apiItems = await apiDraftsList();
+        drafts = (apiItems !== null) ? (apiItems || []) : (listDrafts() || []);
+      }catch(e){
+        drafts = (listDrafts() || []);
+      }
+
       draftsTbody.innerHTML = '';
       if (!drafts.length){
         draftsTbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Sin borradores</td></tr>';
@@ -335,7 +594,7 @@
         });
         const delBtn = document.createElement('button'); delBtn.type='button'; delBtn.className='btn btn-sm btn-outline-danger'; delBtn.textContent='Eliminar';
         delBtn.addEventListener('click', ()=>{
-          pendingDeleteDraft = { client_id: String(d.client_id), company_id: String(d.company_id), client_label: d.client_label, company_label: d.company_label };
+          pendingDeleteDraft = { id: (d.id != null ? String(d.id) : ''), client_id: String(d.client_id), company_id: String(d.company_id), client_label: d.client_label, company_label: d.company_label };
           if (confirmDelText){
             const cl = d.client_label || d.client_id; const co = d.company_label || d.company_id;
             confirmDelText.textContent = `¿Querés eliminar el borrador de ${cl} - ${co}?`;
@@ -357,8 +616,8 @@
         if (fechaInput) fechaInput.value = d.fecha_compra || fechaInput.value || '';
         if (notaInput) notaInput.value = d.nota || '';
         if (descInput) descInput.value = d.descripcion || '';
-        if (precioInput) precioInput.value = d.precio_final || '';
-        if (formaPagoSel) formaPagoSel.value = d.forma_pago || '';
+        if (precioInput) { precioInput.value = d.precio_final || ''; syncPrecioFormat(); }
+        setFormaPago(d.forma_pago || '', d.forma_pago_detalle || '');
         if (plazoPagoInput) plazoPagoInput.value = d.plazo_pago_dias || '';
         if (branchSel){
           // asegurar opción de sucursal si viene un ID que aún no está cargado
@@ -382,7 +641,7 @@
       if (document.querySelector('input[name="order_id"]')) return;
       const cid = clienteSel?.value || '';
       const eid = empresaSel?.value || '';
-      if (!cid || !eid) return;
+      if (!cid && !eid) return;
       try{
         const raw = localStorage.getItem(draftKey(cid, eid));
         if (!raw) return;
@@ -432,6 +691,7 @@
           opt.setAttribute('data-mail', e.mail_pedido || '');
           opt.setAttribute('data-mail-pago', e.mail_pago || '');
           opt.setAttribute('data-pedido-std', e.pedido_estandar_recomendado || '');
+          opt.setAttribute('data-nota-pedido', e.nota_pedido || '');
           opt.setAttribute('data-tipo-default', (e.comprobante_tipo || '').toString());
           opt.setAttribute('data-pago-default', (e.forma_pago_default || '').toString());
           opt.setAttribute('data-plazo', ((e.plazo_pago_dias != null ? e.plazo_pago_dias : e.plazo_pago_promedio_dias) || '').toString());
@@ -439,6 +699,21 @@
         }
       }catch(e){/* noop */}
     }
+
+    notaPedidoBtn?.addEventListener('click', function(){
+      try{
+        if (!empresaSel || !descInput) return;
+        const opt = empresaSel.options[empresaSel.selectedIndex];
+        if (!opt) return;
+        const raw = opt.getAttribute('data-nota-pedido') || '';
+        const plain = htmlToPlainWithBullets(raw);
+        if (!plain) return;
+        const cur = (descInput.value || '').trim();
+        descInput.value = cur ? (cur + '\n' + plain) : plain;
+        try { descInput.focus(); } catch(e) {}
+        try { saveDraft(); } catch(e) {}
+      } catch(e){ /* noop */ }
+    });
 
     // Cargar empresas al seleccionar cliente
     clienteSel?.addEventListener('change', async ()=>{
@@ -471,6 +746,7 @@
         delete document.body.dataset.tipoTouched;
         if (formaPagoSel) delete formaPagoSel.dataset.touched;
         if (plazoPagoInput) delete plazoPagoInput.dataset.touched;
+        if (precioInput) delete precioInput.dataset.touched;
       }
       lastCompanyId = currCompanyId;
       if (mailInput){
@@ -478,6 +754,15 @@
           mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
         } catch(e) {}
       }
+
+      // Default tipo de comprobante por vínculo Cliente+Empresa (si existe) y si el usuario todavía no lo tocó
+      try{
+        const defTipo = opt ? (opt.getAttribute('data-tipo-default') || '') : '';
+        const t = String(defTipo || '').trim().toUpperCase();
+        if (!document.body.dataset.tipoTouched && (t === 'FACTURA' || t === 'REMITO')) {
+          setTipo(t);
+        }
+      }catch(e) {}
 
       // Default plazo de pago por vínculo Cliente+Empresa (si el usuario todavía no lo tocó)
       try{
@@ -510,6 +795,7 @@
       const eid = (empresaSel && empresaSel.value) || '';
       const tipo = (document.getElementById('pedido_tipo_comprobante') && document.getElementById('pedido_tipo_comprobante').value) || '';
       let msg = '';
+      let focusEl = null;
       if (!cid) msg = 'Debe seleccionar un cliente registrado.';
       else if (!eid) msg = 'Debe seleccionar una empresa vinculada al cliente.';
       else if (!tipo) msg = 'Debe seleccionar si es Factura o Remito.';
@@ -518,13 +804,34 @@
         if (alertBox) {
           alertBox.textContent = msg;
           alertBox.classList.remove('d-none');
+          try {
+            alertBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } catch(e) {
+            try { window.scrollTo(0, 0); } catch(_) {}
+          }
         } else {
           alert(msg);
         }
+
+        try {
+          if (!cid) focusEl = clienteSel;
+          else if (!eid) focusEl = empresaSel;
+          else if (!tipo) focusEl = document.getElementById('pedido_tipo_group') || document.getElementById('btn_tipo_factura') || document.getElementById('btn_tipo_remito');
+          if (focusEl && typeof focusEl.focus === 'function') focusEl.focus();
+        } catch(e) {}
         return false;
       }
       // ocultar alerta si todo ok
       if (alertBox) alertBox.classList.add('d-none');
+
+      // Enviar monto como número sin separadores (3040), aunque el usuario vea 3.040
+      try {
+        if (precioInput) {
+          const raw = amountToIntDigits(precioInput.value);
+          precioInput.value = raw;
+        }
+      } catch(err) {}
+
       // eliminar borrador del par al crear pedido
       try{
         const cid = clienteSel?.value || '';
@@ -571,7 +878,25 @@
     if (formaPagoSel) {
       formaPagoSel.addEventListener('change', function(){
         formaPagoSel.dataset.touched = '1';
+        syncFormaPagoDetalle();
       });
+    }
+
+    if (precioInput) {
+      // Miles en tiempo real mientras se escribe
+      precioInput.addEventListener('input', function(){
+        try {
+          const start = precioInput.selectionStart || 0;
+          const before = precioInput.value;
+          const raw = amountToIntDigits(before);
+          const formatted = fmtThousands(raw);
+          precioInput.value = formatted;
+          // Cursor al final (simple y robusto)
+          try { precioInput.setSelectionRange(formatted.length, formatted.length); } catch(e) {}
+          precioInput.dataset.touched = '1';
+        } catch(e) {}
+      });
+      precioInput.addEventListener('blur', function(){ syncPrecioFormat(); });
     }
 
     // Marcar cuando el usuario tocó el plazo de pago
@@ -582,8 +907,8 @@
     }
 
     // Abrir modal de borradores
-    draftsOpenBtn?.addEventListener('click', ()=>{
-      populateDraftsModal();
+    draftsOpenBtn?.addEventListener('click', async ()=>{
+      try { await populateDraftsModal(); } catch(e) {}
       const modalEl = document.getElementById('draftsModal');
       const M = window.bootstrap && window.bootstrap.Modal;
       if (M) {
@@ -601,11 +926,19 @@
     // Confirmación de eliminación de borrador
     confirmDelBtn?.addEventListener('click', ()=>{
       if (!pendingDeleteDraft) return;
-      try {
-        localStorage.removeItem(draftKey(pendingDeleteDraft.client_id, pendingDeleteDraft.company_id));
-      } catch(e) {}
-      // Actualizar tabla
-      try { populateDraftsModal(); } catch(e) {}
+      (async function(){
+        let deleted = false;
+        try {
+          if (pendingDeleteDraft.id) {
+            deleted = await apiDraftDelete(pendingDeleteDraft.id);
+          }
+        } catch(e) { deleted = false; }
+        if (!deleted) {
+          try { localStorage.removeItem(draftKey(pendingDeleteDraft.client_id, pendingDeleteDraft.company_id)); } catch(e) {}
+        }
+        try { await populateDraftsModal(); } catch(e) {}
+        try { await updatePendingBadge(); } catch(e) {}
+      })();
       // Cerrar modal de confirmación
       const M = window.bootstrap && window.bootstrap.Modal;
       if (M && confirmDelModalEl){ try{ M.getOrCreateInstance(confirmDelModalEl).hide(); }catch(e){} }
@@ -618,15 +951,19 @@
     savePendingBtn?.addEventListener('click', ()=>{
       const cid = clienteSel?.value || '';
       const eid = empresaSel?.value || '';
-      if (!cid || !eid){
-        alert('Seleccioná Cliente y Empresa antes de dejar pendiente.');
+      if (!cid && !eid){
+        alert('Seleccioná Cliente o Empresa antes de dejar pendiente.');
         return;
       }
       const d = collectDraft();
-      if (!d){ alert('Seleccioná Cliente y Empresa antes.'); return; }
-      try { localStorage.setItem(draftKey(d.client_id, d.company_id), JSON.stringify(d)); } catch(e){}
-      // feedback simple
-      try { populateDraftsModal(); } catch(e){}
+      if (!d){ alert('Seleccioná Cliente o Empresa antes.'); return; }
+      apiDraftUpsert(d).then(async function(ok){
+        if (!ok) {
+          try { localStorage.setItem(draftKey(d.client_id, d.company_id), JSON.stringify(d)); } catch(e){}
+        }
+        try { await populateDraftsModal(); } catch(e){}
+        try { await updatePendingBadge(); } catch(e){}
+      });
       // Limpiar el formulario como preticket
       clearFormForClientChange();
       // opcional: limpiar preview
@@ -634,6 +971,9 @@
       // limpiar destinatarios
       resetRecipients();
     });
+
+    // Init badge
+    try { updatePendingBadge(); } catch(e) {}
 
     // Exponer handler para onchange inline de selects
     window.__onSelChange = function(){
@@ -682,6 +1022,16 @@
     }
     // Inicial: sin tipo seleccionado; opciones de forma de pago disponibles igual
     populateFormaPago('FACTURA');
+    // Si viene un detalle desde backend (por edición), no pisarlo en el init.
+    try {
+      if (formaPagoDetalleInput && (formaPagoDetalleInput.value || '').trim()) {
+        const curr = (formaPagoSel && (formaPagoSel.value || '').trim()) ? formaPagoSel.value : '';
+        setFormaPago(curr || 'CHEQUE', formaPagoDetalleInput.value);
+      } else {
+        syncFormaPagoDetalle();
+      }
+    } catch(e) { syncFormaPagoDetalle(); }
+    syncPrecioFormat();
     // Si al cargar la página ya hay selección, intentar cargar borrador
     tryLoadDraftForSelection();
 
@@ -714,8 +1064,11 @@
 
         try {
           if (precioInput && editOrder.monto != null && String(editOrder.monto).trim() !== '') {
-            precioInput.value = String(editOrder.monto);
+            const asNum = Number(editOrder.monto);
+            if (!isNaN(asNum)) precioInput.value = String(Math.trunc(asNum));
+            else precioInput.value = String(editOrder.monto);
             precioInput.dataset.touched = '1';
+            syncPrecioFormat();
           }
         } catch(e) {}
 
@@ -728,10 +1081,8 @@
 
         try {
           const fp = (editOrder.forma_pago || '').toString().trim().toUpperCase();
-          if (formaPagoSel && fp) {
-            formaPagoSel.value = fp;
-            formaPagoSel.dataset.touched = '1';
-          }
+          const fd = (editOrder.forma_pago_detalle || '').toString().trim().toUpperCase();
+          if (formaPagoSel && fp) { setFormaPago(fp, fd); formaPagoSel.dataset.touched = '1'; }
         } catch(e) {}
 
         try {
@@ -775,6 +1126,7 @@
         }
         const items = await res.json();
         if(!Array.isArray(items) || items.length===0){ prevWrap.innerHTML = '<div class="text-muted">Sin pedidos anteriores</div>'; return; }
+
         const fr = document.createDocumentFragment();
         items.forEach((o)=>{
           const row = document.createElement('div');
