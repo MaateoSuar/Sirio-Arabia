@@ -1,1483 +1,3086 @@
 {% extends 'layout.html' %}
+
 {% block content %}
+
 <div class="d-flex justify-content-between align-items-center mb-4">
+
   <div>
+
     <h1 class="h4 mb-0">Deudas pendientes</h1>
+
   </div>
+
   <style>
+
     .cob-filter .btn { 
+
       border-width: 2px; 
+
       transition: transform .12s ease, box-shadow .12s ease, background-color .15s, color .15s, border-color .15s;
+
       box-shadow: 0 4px 0 rgba(0,0,0,.18), 0 8px 16px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.22);
+
       border-radius: .5rem;
+
       position: relative; overflow: hidden;
+
     }
+
     .cob-filter .btn:hover { transform: translateY(-1px); box-shadow: 0 5px 0 rgba(0,0,0,.2), 0 10px 18px rgba(0,0,0,.1), inset 0 1px 0 rgba(255,255,255,.22); }
+
     .cob-filter .btn:active, .cob-filter .btn.btn-pressed { transform: translateY(2px) scale(.985); box-shadow: 0 1px 0 rgba(0,0,0,.18), inset 0 2px 0 rgba(255,255,255,.18); }
+
     .cob-filter .btn.active { transform: translateY(1px) scale(.99); box-shadow: inset 0 4px 10px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.2); }
+
     .cob-filter .btn .ripple { position:absolute; border-radius:999px; transform:translate(-50%,-50%); pointer-events:none; width:14px; height:14px; animation:ripple .6s ease-out forwards; opacity:.9; }
+
     @keyframes ripple { from{width:14px;height:14px;opacity:.45;} to{width:420px;height:420px;opacity:0;} }
+
     .date-soft { border-radius:.75rem; box-shadow:0 4px 10px rgba(0,0,0,.06); background:#fff; }
+
     .date-soft .input-group-text { background:#f3f4f6; border:1px solid #e5e7eb; }
+
     .date-soft .form-control { background:#fafafa; border:1px solid #e5e7eb; min-height:36px; font-size:.9rem; }
+
     .date-soft .form-control:focus { background:#fff; border-color:#86b7fe; box-shadow:0 0 0 .2rem rgba(13,110,253,.15); }
+
     .date-soft .btn-clear { border:1px solid #e5e7eb; background:#fff; padding:.25rem .5rem; color:#6c757d; }
+
     .date-soft .btn-clear:hover { background:#f8f9fa; }
+
     /* Asegurar calendario por encima de componentes Bootstrap */
+
     .flatpickr-calendar { z-index: 2000; }
+
     .flatpickr-calendar.open { z-index: 3050; }
+
     /* Colores activos */
+
     .cob-filter .btn-outline-primary:hover,
+
     .cob-filter .btn-outline-primary.active,
+
     .cob-filter .btn-outline-primary.active:hover { background:#0d6efd; color:#fff; border-color:#0d6efd; }
+
     .cob-filter .btn-outline-success:hover,
+
     .cob-filter .btn-outline-success.active,
+
     .cob-filter .btn-outline-success.active:hover { background:#198754; color:#fff; border-color:#198754; }
+
     .cob-filter .btn-outline-warning:hover,
+
     .cob-filter .btn-outline-warning.active,
+
     .cob-filter .btn-outline-warning.active:hover { background:#ffc107; color:#000; border-color:#ffc107; }
+
     .cob-filter .btn-outline-danger:hover,
+
     .cob-filter .btn-outline-danger.active,
+
     .cob-filter .btn-outline-danger.active:hover { background:#dc3545; color:#fff; border-color:#dc3545; }
+
     .cob-filter .btn-outline-secondary:hover,
+
     .cob-filter .btn-outline-secondary.active,
+
     .cob-filter .btn-outline-secondary.active:hover { background:#6c757d; color:#fff; border-color:#6c757d; }
+
     /* Asegurar espacio para Acciones */
+
     .w-actions { min-width: 56px; width: 56px; }
+
     .table-cobranzas { table-layout: auto; width: 100%; }
+
     .table-cobranzas thead th { white-space: normal; overflow: visible; text-overflow: clip; padding-left: .65rem; padding-right: .65rem; }
+
     .table-cobranzas tbody td { padding-left: .65rem; padding-right: .65rem; vertical-align: middle; }
 
+
+
     /* Inputs dentro de la tabla: que no se deformen ni rompan el layout */
+
     .table-cobranzas td .form-control,
+
     .table-cobranzas td .form-select { max-width: 100%; }
 
+
+
     /* Monto: ancho usable (sin compactar al extremo) */
+
     .table-cobranzas th.col-money,
+
     .table-cobranzas td.col-money { width: 118px; min-width: 118px; padding-left: .25rem; padding-right: .25rem; }
+
     .table-cobranzas td.col-money .input-group { display: inline-flex; width: auto; max-width: none; flex-wrap: nowrap; }
+
     .table-cobranzas td.col-money .input-group-text { flex: 0 0 18px; padding-left: .2rem; padding-right: .2rem; }
+
     .table-cobranzas td.col-money .form-control { flex: 1 1 auto; width: 1%; min-width: 0; }
+
     .table-cobranzas td.col-money input.js-cob-monto { width: 96px; max-width: 96px; flex: 0 0 96px; }
 
+
+
     /* Fechas: tamaño consistente, pero permitiendo wrap del header */
+
     .table-cobranzas th.col-date,
+
     .table-cobranzas td.col-date { width: 120px; min-width: 120px; }
+
     .table-cobranzas td.col-date .form-control { max-width: 120px; width: 100%; }
 
+
+
     /* Alinear controles por columna */
+
     .table-cobranzas td.col-entrega .form-control,
+
     .table-cobranzas td.col-date .form-control { width: 120px; }
+
     .table-cobranzas th.col-forma,
+
     .table-cobranzas td.col-forma { width: 110px; min-width: 110px; }
+
     .table-cobranzas td.col-forma .form-select { width: 110px; }
 
+
+
     /* Cliente/Empresa: permitir 2 líneas si hace falta */
+
     .table-cobranzas td.col-client,
+
     .table-cobranzas td.col-company { white-space: normal; }
+
     .table-cobranzas th.col-orderdate,
+
     .table-cobranzas td.col-orderdate { padding-right: .25rem; }
+
     .table-cobranzas th.col-entrega,
+
     .table-cobranzas td.col-entrega { padding-left: .25rem; }
+
   </style>
+
   <form id="cobFilter" class="d-flex align-items-end gap-2 mt-3 flex-wrap" method="get">
+
     <div class="btn-group cob-filter" role="group" aria-label="Filtros de cobranza">
+
       <button type="button" class="btn btn-sm btn-outline-info {{ 'active' if 'A_COBRAR' in request.args.getlist('status') else '' }}" data-status="A_COBRAR" aria-pressed="{{ 'true' if 'A_COBRAR' in request.args.getlist('status') else 'false' }}">A cobrar</button>
+
       <button type="button" class="btn btn-sm btn-outline-secondary {{ 'active' if 'EN_CAMINO' in request.args.getlist('status') else '' }}" data-status="EN_CAMINO" aria-pressed="{{ 'true' if 'EN_CAMINO' in request.args.getlist('status') else 'false' }}">En camino</button>
+
       <button type="button" class="btn btn-sm btn-outline-warning {{ 'active' if 'PARCIAL' in request.args.getlist('status') else '' }}" data-status="PARCIAL" aria-pressed="{{ 'true' if 'PARCIAL' in request.args.getlist('status') else 'false' }}">Parcial</button>
+
       <button type="button" class="btn btn-sm btn-outline-danger {{ 'active' if 'ATRASADO' in request.args.getlist('status') else '' }}" data-status="ATRASADO" aria-pressed="{{ 'true' if 'ATRASADO' in request.args.getlist('status') else 'false' }}">Atrasado</button>
+
       <button type="button" class="btn btn-sm btn-outline-success {{ 'active' if 'COBRADO' in request.args.getlist('status') else '' }}" data-status="COBRADO" aria-pressed="{{ 'true' if 'COBRADO' in request.args.getlist('status') else 'false' }}">Cobrado</button>
+
     </div>
+
     {% for st in request.args.getlist('status') %}
+
       <input type="hidden" name="status" value="{{ st }}">
+
     {% endfor %}
+
     <div class="btn-group ms-2" role="group" aria-label="Tipo de comprobante">
+
       {% set tipos_sel = request.args.getlist('tipo') %}
+
       <button type="button" class="btn btn-sm btn-outline-primary {{ 'active' if 'FACTURA' in tipos_sel else '' }}" data-tipo="FACTURA" aria-pressed="{{ 'true' if 'FACTURA' in tipos_sel else 'false' }}">Factura</button>
+
       <button type="button" class="btn btn-sm btn-outline-danger {{ 'active' if 'REMITO' in tipos_sel else '' }}" data-tipo="REMITO" aria-pressed="{{ 'true' if 'REMITO' in tipos_sel else 'false' }}">Remito</button>
+
     </div>
+
     {% for tp in request.args.getlist('tipo') %}
+
       <input type="hidden" name="tipo" value="{{ tp }}">
+
     {% endfor %}
+
     {% set from_val = request.args.get('from','') %}
+
     {% set to_val = request.args.get('to','') %}
+
     <input type="hidden" name="from" id="cobFrom" value="{{ from_val }}">
+
     <input type="hidden" name="to" id="cobTo" value="{{ to_val }}">
+
     <input type="hidden" name="page" id="cobPage" value="{{ page if page is defined else 1 }}">
+
     <input type="hidden" name="per_page" id="cobPerPageH" value="{{ per_page if per_page is defined else 20 }}">
+
     <div class="input-group input-group-sm date-soft" style="width: 320px; overflow: hidden;">
+
       <span class="input-group-text" id="cob-range-addon" style="background:#f8f9fa">
+
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H1a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 1 0V1zm11 4H1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1z"/></svg>
+
       </span>
+
       <input type="text" class="form-control" aria-describedby="cob-range-addon" placeholder="Filtrar fechas" id="cobDateRange" readonly value="{{ (from_val ~ ' to ' ~ to_val) if from_val and to_val else '' }}">
+
       <button class="btn btn-clear btn-sm" type="button" data-clear="range">×</button>
+
     </div>
+
     <button class="btn btn-sm btn-outline-dark" type="button" id="cobBtnClearAll">Limpiar filtros</button>
+
   </form>
+
 </div>
+
 <div class="d-flex justify-content-end mb-2 gap-2 flex-wrap">
+
   <input type="text" id="cobClientQ" name="client_q" form="cobFilter" class="form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar cliente" value="{{ request.args.get('client_q','') }}">
+
   <input type="text" id="cobCompanyQ" name="company_q" form="cobFilter" class="form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar empresa" value="{{ request.args.get('company_q','') }}">
+
 </div>
+
 <div id="cobResults">
+
 <div class="card table-sticky-card">
+
   <div class="card-body p-0">
+
     <div class="table-responsive table-mobile-cards">
+
       <table class="table table-hover align-middle mb-0 table-cobranzas table-sticky">
+
         <thead class="table-light">
+
           <tr>
+
             <th class="col-client js-sort-text" data-sort-type="text" style="cursor:pointer;">Cliente</th>
+
             <th class="col-company js-sort-text" data-sort-type="text" style="cursor:pointer;">Empresa</th>
+
             <th class="d-none d-md-table-cell js-sort-date col-orderdate" data-sort-type="date" style="cursor:pointer;">Fecha pedido</th>
+
             <th class="d-none d-md-table-cell js-sort-date col-date col-entrega" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
+
             <th class="col-money">Monto</th>
+
             <th class="col-forma">Forma de pago</th>
+
             <th class="js-sort-date col-date" data-sort-type="date" style="cursor:pointer;">Vencimiento</th>
+
             <th>Días</th>
+
             <th class="d-none d-md-table-cell js-sort-date col-date" data-sort-type="date" style="cursor:pointer;">Cobro efectivo</th>
+
             <th class="col-status">Status</th>
+
             <th class="text-end w-actions">Acciones</th>
+
           </tr>
+
         </thead>
+
         <tbody id="cob-tbody">
+
         {% for c in items %}
+
           <tr data-cliente="{{ ((c.order.client.apellido or '') ~ ' ' ~ (c.order.client.nombre or ''))|lower }}" data-empresa="{{ (c.order.company.nombre or '')|lower }}">
+
             <td class="col-client">{{ c.order.client.apellido }}
+
               <form id="upd{{ c.order.id }}" method="post" action="{{ url_for('main.cobranzas_update', order_id=c.order.id) }}" class="d-none"></form>
+
             </td>
+
             <td class="col-company">{{ c.order.company.nombre }}</td>
+
             <td class="d-none d-md-table-cell col-orderdate">{{ c.order.created_at.strftime('%d/%m/%Y') if c.order and c.order.created_at else '' }}</td>
+
             <td class="d-none d-md-table-cell col-date col-entrega">
+
               {% set lg_entrega_input = (c.order.logistics.fecha_entrega_efectiva if c.order and c.order.logistics else None) %}
+
               {% set lg_entrega_est = (c.order.logistics.fecha_entrega_estimada if c.order and c.order.logistics else None) %}
+
               {% set entrega_input = (lg_entrega_input if lg_entrega_input else (c.fecha_entrega_efectiva if c and c.fecha_entrega_efectiva else None)) %}
+
               {% if not entrega_input %}
+
                 {% set entrega_input = (lg_entrega_est if lg_entrega_est else None) %}
+
               {% endif %}
+
               <input name="fecha_entrega_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-entrega"
-                     value="{{ entrega_input.strftime('%Y-%m-%d') if entrega_input else '' }}" {{ 'disabled' if not lg_entrega_input else '' }} form="upd{{ c.order.id }}">
+
+                     value="{{ entrega_input.strftime('%Y-%m-%d') if entrega_input else '' }}" form="upd{{ c.order.id }}">
+
             </td>
+
             <td class="col-money">
+
                 <div class="input-group input-group-sm js-cob-price-group">
+
                   <span class="input-group-text">$</span>
+
                   <input id="montoDisp{{ c.order.id }}" type="text" class="form-control form-control-sm js-cob-monto js-currency" data-hidden="montoHid{{ c.order.id }}" data-raw="{{ c.monto or '' }}" value="" autocomplete="off" inputmode="numeric" form="upd{{ c.order.id }}">
+
                   <input type="hidden" name="monto" id="montoHid{{ c.order.id }}" value="" form="upd{{ c.order.id }}">
+
                 </div>
+
             </td>
+
             <td class="col-forma">
+
                 <select name="forma_pago" class="form-select form-select-sm js-cob-forma" form="upd{{ c.order.id }}">
+
                   <option value="">-</option>
+
                   {% set fp_det = (c.forma_pago_detalle if c.forma_pago_detalle else (c.forma_pago.value if c.forma_pago else '')) %}
+
                   {% if not fp_det %}
+
                     {% set fp_det = (c.order.forma_pago_detalle if c.order and c.order.forma_pago_detalle else (c.order.forma_pago.value if c.order and c.order.forma_pago else '')) %}
+
                   {% endif %}
+
                   {% if not fp_det %}
+
                     {% set fp_det = (c.order.client.forma_pago_habitual if c.order and c.order.client and c.order.client.forma_pago_habitual else '') %}
+
                   {% endif %}
+
                   {% if not fp_det %}
+
                     {% set fp_det = (c.order.company.forma_pago_default if c.order and c.order.company and c.order.company.forma_pago_default else '') %}
+
                   {% endif %}
+
                   {% set fp_det = (fp_det or '')|upper %}
+
                   <option value="EFECTIVO" {{ 'selected' if fp_det=='EFECTIVO' else '' }}>Efectivo</option>
+
                   <option value="TRANSFERENCIA" {{ 'selected' if fp_det=='TRANSFERENCIA' else '' }}>Transferencia</option>
+
                   <option value="E-CHEQ" {{ 'selected' if fp_det=='E-CHEQ' else '' }}>E-CHEQ</option>
+
                   <option value="CHEQUE_TERCEROS" {{ 'selected' if fp_det=='CHEQUE_TERCEROS' else '' }}>Cheque terceros</option>
+
                   <option value="CHEQUE_PROPIO" {{ 'selected' if fp_det=='CHEQUE_PROPIO' else '' }}>Cheque propio</option>
+
                   <option value="CHEQUE" {{ 'selected' if fp_det=='CHEQUE' else '' }}>Cheque (genérico)</option>
+
                   <option value="VARIAS" {{ 'selected' if fp_det=='VARIAS' else '' }}>Varias</option>
+
                   <option value="NO_SE_SABE" {{ 'selected' if fp_det=='NO_SE_SABE' else '' }}>No se sabe</option>
+
                 </select>
+
             </td>
+
             <td class="col-date">
+
                 {% set venc_value = (c.fecha_pago_estimada if c and c.fecha_pago_estimada else None) %}
+
                 {% if not venc_value and entrega_input %}
+
                   {% set plazo_dias = (c.order.plazo_pago_dias if c.order and c.order.plazo_pago_dias is not none else (c.order.company.plazo_pago_promedio_dias if c.order and c.order.company and c.order.company.plazo_pago_promedio_dias is not none else 30)) %}
+
                   {% set venc_value = (entrega_input + timedelta(days=plazo_dias|int)) %}
+
                 {% endif %}
+
                 <input name="pago_estimado" type="text" data-datepicker class="form-control form-control-sm js-cob-estimado" placeholder="Vencimiento" value="{{ venc_value.strftime('%Y-%m-%d') if venc_value else '' }}" form="upd{{ c.order.id }}">
+
             </td>
+
             <td>
+
               {% set lg_entrega_dias = (c.order.logistics.fecha_entrega_efectiva if c.order and c.order.logistics else None) %}
+
               {% set coll_entrega_dias = (c.fecha_entrega_efectiva if c and c.fecha_entrega_efectiva else None) %}
+
               {% set entrega_dias = (lg_entrega_dias if lg_entrega_dias else coll_entrega_dias) %}
+
               {% if not entrega_dias %}
+
                 {% set entrega_dias = entrega_input %}
+
               {% endif %}
+
               {% if not entrega_dias %}
+
                 <span class="text-muted">-</span>
+
               {% else %}
+
                 {% if c.fecha_pago_estimada %}
+
                   {% if c.fecha_cobro_efectiva %}
+
                     {% set dd_paid = (c.fecha_cobro_efectiva.date() - c.fecha_pago_estimada.date()).days %}
+
                     {% if dd_paid > 0 %}
+
                       <span class="badge bg-danger">Atraso {{ dd_paid }} día(s)</span>
+
                     {% elif dd_paid < 0 %}
+
                       <span class="badge bg-success">Antes {{ (dd_paid * -1) }} día(s)</span>
+
                     {% else %}
+
                       <span class="badge bg-success">En término</span>
+
                     {% endif %}
+
                   {% else %}
+
                     {% set dd = (c.fecha_pago_estimada.date() - (now_date if now_date else c.fecha_pago_estimada.date())).days %}
+
                     {% if dd >= 0 %}
+
                       <span class="badge bg-success">Faltan {{ dd }} día(s)</span>
+
                     {% else %}
+
                       <span class="badge bg-danger">Atraso {{ (dd * -1) }} día(s)</span>
+
                     {% endif %}
+
                   {% endif %}
+
                 {% else %}
+
                   <span class="text-muted">-</span>
+
                 {% endif %}
+
               {% endif %}
+
             </td>
+
             <td class="d-none d-md-table-cell col-date">
+
               <input name="fecha_cobro_efectiva" type="text" data-datepicker class="form-control form-control-sm js-cob-cobro"
+
                      value="{{ c.fecha_cobro_efectiva.strftime('%Y-%m-%d') if c.fecha_cobro_efectiva else '' }}" form="upd{{ c.order.id }}">
+
             </td>
+
             <td class="col-status">
+
               {% set is_partial = (partial_order_ids is defined and c.order and (c.order.id in partial_order_ids)) %}
-              {% set is_overdue = (c.status == 'ATRASADO') %}
-              {% set lg_entrega2 = (c.order.logistics.fecha_entrega_efectiva if c.order and c.order.logistics else None) %}
-              {% set coll_entrega2 = (c.fecha_entrega_efectiva if c and c.fecha_entrega_efectiva else None) %}
-              {% set is_undelivered = (not lg_entrega2) and (not coll_entrega2) %}
+
+              {% set has_due = (c and c.fecha_pago_estimada) %}
+
+              {% set is_overdue = (has_due and now_date and (c.fecha_pago_estimada.date() < now_date)) %}
+
               {% if c.status == 'COBRADO' %}
+
                 <span class="badge bg-success js-status-badge">COBRADO</span>
+
               {% else %}
-                {% if is_undelivered %}
-                  <span class="badge bg-secondary" title="Pedido sin entrega efectiva">EN CAMINO</span>
-                {% else %}
-                  {% if is_partial %}
-                    <span class="badge bg-warning text-dark me-1">PARCIAL</span>
-                  {% endif %}
-                  {% if is_overdue %}
-                    <span class="badge bg-danger js-status-badge">ATRASADO</span>
-                  {% else %}
-                    <span class="badge bg-info text-dark js-status-badge">A COBRAR</span>
-                  {% endif %}
+
+                {% if is_partial %}
+
+                  <span class="badge bg-warning text-dark me-1">PARCIAL</span>
+
                 {% endif %}
+
+                {% if is_overdue %}
+
+                  <span class="badge bg-danger js-status-badge">ATRASADO</span>
+
+                {% elif not has_due %}
+
+                  <span class="badge bg-secondary js-status-badge" title="Pedido sin vencimiento">EN CAMINO</span>
+
+                {% else %}
+
+                  <span class="badge bg-info text-dark js-status-badge">A COBRAR</span>
+
+                {% endif %}
+
               {% endif %}
+
+              {% endif %}
+
             </td>
+
             <td class="text-end">
+
               <div class="dropdown">
+
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Acciones">
+
                   <i class="bi bi-three-dots-vertical"></i>
+
                 </button>
+
                 <div class="dropdown-menu dropdown-menu-end js-actions-menu">
+
                   <a class="dropdown-item" href="{{ url_for('main.nueva_cobranza', order_id=c.order.id) }}">Editar</a>
+
                   {% set lg_entrega3 = (c.order.logistics.fecha_entrega_efectiva if c.order and c.order.logistics else None) %}
+
                   {% if (not lg_entrega3) %}
+
                     <form method="post" action="{{ url_for('main.cobranzas_mark_entregado', order_id=c.order.id) }}" data-js="cob-entregar">
+
                       <button type="submit" class="dropdown-item text-primary">Marcar entregado</button>
+
                     </form>
+
                   {% endif %}
+
                   {% if (not c.fecha_cobro_efectiva) and lg_entrega3 %}
+
                     <button type="button" class="dropdown-item js-action-cobrar" data-bs-toggle="modal" data-bs-target="#markPaid{{ c.order.id }}">Cobrado</button>
+
                   {% else %}
+
                     <form method="post" action="{{ url_for('main.cobranzas_unmark_cobrado', order_id=c.order.id) }}" data-js="cob-desmarcar">
+
                       <button type="submit" class="dropdown-item text-warning">Desmarcar</button>
+
                     </form>
+
                   {% endif %}
+
                   <div class="dropdown-divider"></div>
+
                   <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#delOrder{{ c.order.id }}">
+
                     Eliminar
+
                   </button>
+
                 </div>
+
               </div>
+
+
 
               <div class="modal fade" id="delOrder{{ c.order.id }}" tabindex="-1" aria-hidden="true">
+
                 <div class="modal-dialog">
+
                   <div class="modal-content">
+
                     <div class="modal-header">
+
                       <h5 class="modal-title">Eliminar Pedido</h5>
+
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+
                     </div>
+
                     <div class="modal-body text-center">
+
                       ¿Confirmas eliminar el pedido?
+
                     </div>
+
                     <div class="modal-footer">
+
                       <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+
                       <form method="post" action="{{ url_for('main.pedidos_delete', order_id=c.order.id) }}">
+
                         <input type="hidden" name="return_to" value="{{ request.full_path|default('/deudas') }}">
+
                         <button class="btn btn-danger">Eliminar</button>
+
                       </form>
+
                     </div>
+
                   </div>
+
                 </div>
+
               </div>
+
+
 
               {% if not c.fecha_cobro_efectiva %}
+
               <div class="modal fade" id="markPaid{{ c.order.id }}" tabindex="-1" aria-hidden="true">
+
                 <div class="modal-dialog">
+
                   <div class="modal-content">
+
                     <div class="modal-header bg-success text-white">
+
                       <h5 class="modal-title">Confirmar cobro</h5>
+
                       <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+
                     </div>
+
                     <div class="modal-body text-center">
+
                       ¿Confirmas marcar este pedido como COBRADO?
+
                     </div>
+
                     <div class="modal-footer">
+
                       <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+
                       <form method="post" action="{{ url_for('main.cobranzas_mark_cobrado', order_id=c.order.id) }}" data-js="cob-cobrar">
+
                         <button class="btn btn-success">Confirmar</button>
+
                       </form>
+
                     </div>
+
                   </div>
+
                 </div>
+
               </div>
+
               {% endif %}
 
+
+
               <div class="modal fade" id="editOrder{{ c.order.id }}" tabindex="-1" aria-hidden="true">
+
                 <div class="modal-dialog modal-lg">
+
                   <div class="modal-content">
+
                     <div class="modal-header">
+
                       <h5 class="modal-title">Editar pedido</h5>
+
                       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+
                     </div>
+
                     <div class="modal-body">
+
                       <div class="row g-2">
+
                         <div class="col-12">
+
                           <label class="form-label">Nota</label>
+
                           <input type="text" class="form-control" name="nota" form="editOrderForm{{ c.order.id }}" value="{{ c.order.nota or '' }}">
+
                         </div>
+
                         <div class="col-12">
+
                           <label class="form-label">Descripción</label>
+
                           <textarea class="form-control" rows="6" name="descripcion" form="editOrderForm{{ c.order.id }}">{{ c.order.descripcion or '' }}</textarea>
+
                         </div>
+
                       </div>
+
                     </div>
+
                     <div class="modal-footer">
+
                       <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+
                       <form id="editOrderForm{{ c.order.id }}" method="post" action="{{ url_for('main.pedidos_edit', order_id=c.order.id) }}">
+
                         <button type="submit" class="btn btn-primary">Guardar</button>
+
                       </form>
+
                     </div>
+
                   </div>
+
                 </div>
+
               </div>
+
             </td>
+
           </tr>
+
         {% else %}
+
           <tr><td colspan="11" class="text-center text-muted py-4">Sin deudas</td></tr>
+
         {% endfor %}
+
         </tbody>
+
       </table>
+
     </div>
+
   </div>
+
 </div>
+
+
 
 <div class="modal fade" id="confirmEntregarModal" tabindex="-1" aria-hidden="true">
+
   <div class="modal-dialog modal-dialog-centered">
+
     <div class="modal-content">
+
       <div class="modal-header">
+
         <h5 class="modal-title">Marcar como entregado</h5>
+
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+
       </div>
+
       <div class="modal-body">
+
         ¿Confirmas marcar este pedido como ENTREGADO?
+
       </div>
+
       <div class="modal-footer">
+
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+
         <button type="button" class="btn btn-primary" id="confirmEntregarBtn">Confirmar</button>
+
       </div>
+
     </div>
+
   </div>
+
 </div>
+
+
 
 {% if total_count is defined and per_page is defined and page is defined %}
+
   <div class="d-flex justify-content-between align-items-center mt-2">
+
     <div class="d-flex align-items-center gap-2">
+
       <div class="small text-muted">
+
         Mostrando {{ ((page-1)*per_page + 1) if total_count|int > 0 else 0 }} - {{ ([page*per_page, total_count|int]|min) if total_count|int > 0 else 0 }} de {{ total_count|int }}
+
       </div>
+
       <select class="form-select form-select-sm" style="width: 110px;" id="cobPerPage" name="per_page">
+
         {% set pp = (per_page if per_page is defined else 20)|int %}
+
         <option value="10" {{ 'selected' if pp==10 else '' }}>10</option>
+
         <option value="20" {{ 'selected' if pp==20 else '' }}>20</option>
+
         <option value="50" {{ 'selected' if pp==50 else '' }}>50</option>
+
       </select>
+
     </div>
+
     <div class="btn-group" role="group" aria-label="Paginación">
+
       {% if prev_url %}
+
         <a class="btn btn-sm btn-outline-secondary" href="{{ prev_url }}">Anterior</a>
+
       {% else %}
+
         <button class="btn btn-sm btn-outline-secondary" type="button" disabled>Anterior</button>
+
       {% endif %}
+
       {% if next_url %}
+
         <a class="btn btn-sm btn-outline-secondary" href="{{ next_url }}">Siguiente</a>
+
       {% else %}
+
         <button class="btn btn-sm btn-outline-secondary" type="button" disabled>Siguiente</button>
+
       {% endif %}
+
     </div>
+
   </div>
+
 {% endif %}
+
 </div>
+
 <script>
+
 (function(){
+
   var table = document.querySelector('table.table-cobranzas');
+
   if (!table) return;
+
   var thead = table.querySelector('thead');
+
   var tbody = table.querySelector('tbody');
+
   if (!thead || !tbody) return;
 
+
+
   function textValue(cell){
+
     if (!cell) return '';
+
     var inp = cell.querySelector && cell.querySelector('input');
+
     if (inp) return (inp.value || '').trim().toLowerCase();
+
     return (cell.textContent || '').trim().toLowerCase();
+
   }
+
+
 
   function parseDateValue(cell){
+
     if (!cell) return null;
+
     var inp = cell.querySelector && cell.querySelector('input');
+
     var v = '';
+
     if (inp) v = (inp.value || '').trim();
+
     else v = (cell.textContent || '').trim();
+
     if (!v) return null;
-    var t = Date.parse(v);
-    if (!isNaN(t)) return t;
-    var m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) {
-      var dd = parseInt(m[1], 10);
-      var mm = parseInt(m[2], 10) - 1;
-      var yy = parseInt(m[3], 10);
-      var dt = new Date(yy, mm, dd);
-      var tt = dt.getTime();
-      return isNaN(tt) ? null : tt;
+
+    var mIso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+
+    if (mIso) {
+
+      var yy0 = parseInt(mIso[1], 10);
+
+      var mm0 = parseInt(mIso[2], 10) - 1;
+
+      var dd0 = parseInt(mIso[3], 10);
+
+      var dt0 = new Date(yy0, mm0, dd0);
+
+      var tt0 = dt0.getTime();
+
+      return isNaN(tt0) ? null : tt0;
+
     }
+
+    var m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+
+    if (m) {
+
+      var dd = parseInt(m[1], 10);
+
+      var mm = parseInt(m[2], 10) - 1;
+
+      var yy = parseInt(m[3], 10);
+
+      var dt = new Date(yy, mm, dd);
+
+      var tt = dt.getTime();
+
+      return isNaN(tt) ? null : tt;
+
+    }
+
+    var t = Date.parse(v);
+
+    if (!isNaN(t)) return t;
+
     return null;
+
   }
+
+
 
   function sortByDateColumn(colIndex, direction){
+
     var rows = Array.from(tbody.querySelectorAll('tr'));
+
     rows.sort(function(a, b){
+
       var ta = parseDateValue(a.children[colIndex]);
+
       var tb = parseDateValue(b.children[colIndex]);
+
       if (ta == null && tb == null) return 0;
+
       if (ta == null) return 1;
+
       if (tb == null) return -1;
+
       return direction === 'desc' ? (tb - ta) : (ta - tb);
+
     });
+
     rows.forEach(function(r){ tbody.appendChild(r); });
+
   }
+
+
 
   function sortByTextColumn(colIndex, direction){
+
     var rows = Array.from(tbody.querySelectorAll('tr'));
+
     rows.sort(function(a, b){
+
       var sa = textValue(a.children[colIndex]);
+
       var sb = textValue(b.children[colIndex]);
+
       if (!sa && !sb) return 0;
+
       if (!sa) return 1;
+
       if (!sb) return -1;
+
       var cmp = sa.localeCompare(sb);
+
       return direction === 'desc' ? -cmp : cmp;
+
     });
+
     rows.forEach(function(r){ tbody.appendChild(r); });
+
   }
+
+
 
   var current = { idx: null, dir: 'desc' };
+
   Array.from(thead.querySelectorAll('th.js-sort-date')).forEach(function(th){
+
     th.addEventListener('click', function(){
+
       var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+
       var dir = 'desc';
+
       if (current.idx === idx) dir = (current.dir === 'desc') ? 'asc' : 'desc';
+
       current.idx = idx;
+
       current.dir = dir;
+
       sortByDateColumn(idx, dir);
+
     });
+
   });
+
+
 
   Array.from(thead.querySelectorAll('th.js-sort-text')).forEach(function(th){
+
     th.addEventListener('click', function(){
+
       var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+
       var dir = 'asc';
+
       if (current.idx === idx) dir = (current.dir === 'asc') ? 'desc' : 'asc';
+
       current.idx = idx;
+
       current.dir = dir;
+
       sortByTextColumn(idx, dir);
+
     });
+
   });
+
 })();
+
 </script>
+
 <script>
+
 (function(){
+
+  function moveModalToBody(modalEl){
+
+    try {
+
+      if (!modalEl || modalEl.parentElement === document.body) return;
+
+      document.body.appendChild(modalEl);
+
+    } catch(e) {}
+
+  }
+
+  function moveActionModalsToBody(){
+
+    try {
+
+      document.querySelectorAll('.modal[id^="markPaid"], .modal[id^="delOrder"], .modal[id^="editOrder"], #confirmEntregarModal').forEach(moveModalToBody);
+
+    } catch(e) {}
+
+  }
+
+  function safeHideDropdown(fromEl){
+
+    try {
+
+      var dd = fromEl && fromEl.closest ? fromEl.closest('.dropdown') : null;
+
+      if (!dd) return;
+
+      var toggle = dd.querySelector('[data-bs-toggle="dropdown"]');
+
+      if (!toggle) return;
+
+      if (window.bootstrap && window.bootstrap.Dropdown){
+
+        try { window.bootstrap.Dropdown.getOrCreateInstance(toggle).hide(); } catch(e0) {}
+
+      }
+
+    } catch(e) {}
+
+  }
+
+  function cleanupOrphanModalState(){
+
+    try {
+
+      var hasVisibleModal = !!document.querySelector('.modal.show');
+
+      if (hasVisibleModal) return;
+
+      document.querySelectorAll('.modal-backdrop').forEach(function(bd){
+
+        try { bd.remove(); } catch(e0) {}
+
+      });
+
+      document.body.classList.remove('modal-open');
+
+      document.body.style.removeProperty('overflow');
+
+      document.body.style.removeProperty('padding-right');
+
+    } catch(e) {}
+
+  }
+
+
+
+  if (document.readyState === 'loading') {
+
+    document.addEventListener('DOMContentLoaded', moveActionModalsToBody);
+
+  } else {
+
+    moveActionModalsToBody();
+
+  }
+
+
+
+  document.addEventListener('click', function(e){
+
+    try {
+
+      var btn = e.target && e.target.closest ? e.target.closest('[data-bs-toggle="modal"][data-bs-target^="#markPaid"], [data-bs-toggle="modal"][data-bs-target^="#delOrder"], [data-bs-toggle="modal"][data-bs-target^="#editOrder"]') : null;
+
+      if (!btn) return;
+
+      safeHideDropdown(btn);
+
+      setTimeout(cleanupOrphanModalState, 0);
+
+    } catch(err) {}
+
+  });
+
+
+
+  document.addEventListener('hidden.bs.modal', function(){
+
+    setTimeout(cleanupOrphanModalState, 0);
+
+  });
+
+})();
+
+</script>
+
+<script>
+
+(function(){
+
   var form = document.getElementById('cobFilter');
+
   if (!form) return;
+
   var results = document.getElementById('cobResults');
+
   if (!results) return;
+
   var pageH = document.getElementById('cobPage');
 
+
+
   function persistDeudasFiltersFromLocation(urlOverride){
+
     try {
+
       var pathOk = (window.location && window.location.pathname) ? (window.location.pathname.indexOf('/deudas') !== -1) : false;
+
       if (!pathOk) return;
+
       var raw = '';
+
       try {
+
         if (typeof urlOverride === 'string' && urlOverride.indexOf('?') !== -1) raw = urlOverride.split('?')[1] || '';
+
       } catch(e0) { raw = ''; }
+
       var params = new URLSearchParams(raw || (window.location.search || ''));
+
       params.delete('page');
+
       var qs = params.toString();
+
       if (qs) localStorage.setItem('deudas_filters_qs', '?' + qs);
+
     } catch(e) {}
+
   }
+
+
 
   function buildUrl(){
+
     var fd = new FormData(form);
+
     var params = new URLSearchParams();
+
     fd.forEach(function(v, k){
+
       if (v == null) return;
+
       params.append(k, String(v));
+
     });
+
     return window.location.pathname + '?' + params.toString();
+
   }
+
+
 
   var ajaxSeq = 0;
+
   function fetchAndReplace(){
+
     var my = ++ajaxSeq;
+
     var url = buildUrl();
+
     fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+
       .then(function(r){ return r.text(); })
+
       .then(function(html){
+
         if (my !== ajaxSeq) return;
+
         var doc = new DOMParser().parseFromString(html, 'text/html');
+
         var next = doc.getElementById('cobResults');
+
         if (!next) return;
+
         results.innerHTML = next.innerHTML;
+
         try { window.history.replaceState({}, '', url); } catch(e) {}
+
         persistDeudasFiltersFromLocation(url);
+
         try { if (typeof window.cobMountAll === 'function') window.cobMountAll(results); } catch(e) {}
+
       })
+
       .catch(function(){ /* ignore */ });
+
   }
 
+
+
   try {
+
     window.cobFetchAndReplace = fetchAndReplace;
+
     window.__cobAjaxLive = true;
+
   } catch(e) {}
+
+
 
   persistDeudasFiltersFromLocation();
 
+
+
   var clientEl = document.getElementById('cobClientQ');
+
   var companyEl = document.getElementById('cobCompanyQ');
+
   var timer = null;
+
   function schedule(){
+
     try { if (pageH) pageH.value = '1'; } catch(e) {}
+
     if (timer) clearTimeout(timer);
+
     timer = setTimeout(fetchAndReplace, 250);
+
   }
+
+
 
   if (clientEl) clientEl.addEventListener('input', schedule);
+
   if (companyEl) companyEl.addEventListener('input', schedule);
+
 })();
+
 </script>
+
 <script>
+
 (function(){
+
   // Utilidad compartida: sincroniza inputs monetarios ocultos y envía el form
+
   function resolveFormFromEl(el){
+
     if (!el) return null;
+
     if (el.form) return el.form;
+
     try {
+
       var fid = el.getAttribute && el.getAttribute('form');
+
       if (fid) return document.getElementById(fid);
+
     } catch(e) {}
+
     return null;
+
   }
+
+
 
   function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+
   function integerPart(v){
+
     if (v == null) return '';
+
     var s = String(v).trim();
+
     if (!s) return '';
+
     s = s.replace(/\s+/g, '');
+
     // Normalizar: si viene con decimales (250000.00 / 250000,00), quedarse con la parte entera.
+
     if (s.indexOf(',') !== -1) {
+
       s = s.split(',')[0];
+
       s = s.replace(/\./g, '');
+
       return (onlyDigits(s) || '').replace(/^0+(?!$)/,'');
+
     }
+
     var m = s.match(/^(\d+)\.(\d{1,2})$/);
+
     if (m) {
+
       return (m[1] || '').replace(/^0+(?!$)/,'');
+
     }
+
     var parts = s.split('.');
+
     if (parts.length > 1) {
+
       var last = parts[parts.length - 1];
+
       var allDigits = parts.every(function(p){ return /^\d+$/.test(p); });
+
       if (allDigits && (parts.length > 2 || last.length === 3)) {
+
         return (parts.join('') || '').replace(/^0+(?!$)/,'');
+
       }
+
     }
+
     return (onlyDigits(s) || '').replace(/^0+(?!$)/,'');
+
   }
+
   function fmtThousands(v){ if(!v) return ''; v=v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
+
+
   function syncAndSubmit(formEl){
+
     if (!formEl) return;
+
     formEl.querySelectorAll('.js-currency').forEach(function(inp){
+
       var hidId = inp.getAttribute('data-hidden');
+
       var hid = hidId ? document.getElementById(hidId) : null;
+
       var raw = integerPart(String((inp.value != null) ? inp.value : (inp.getAttribute('data-raw') || '')));
+
       if (hid) hid.value = raw;
+
     });
+
     (formEl.requestSubmit ? formEl.requestSubmit() : formEl.submit());
+
   }
+
+
 
   try { window.syncAndSubmit = syncAndSubmit; } catch(e) {}
 
+
+
   // Exponer para re-montar después de reemplazo AJAX
+
   try {
+
     window.cobMountAll = function(root){
+
       root = root || document;
 
+
+
       function bindOnce(el, key){
+
         try {
+
           if (!el || !el.dataset) return false;
+
           if (el.dataset[key] === '1') return false;
+
           el.dataset[key] = '1';
+
           return true;
+
         } catch(e) {
+
           return true;
+
         }
+
       }
+
+
 
       // Inputs de fila: autosubmit
+
       try {
+
         root.querySelectorAll('.js-cob-monto').forEach(function(el){
+
           if (!bindOnce(el, 'cobBound')) return;
+
           el.addEventListener('change', function(){
+
             try{
+
               var hidId = el.getAttribute('data-hidden');
+
               var hid = hidId ? document.getElementById(hidId) : null;
+
               if (hid) hid.value = integerPart(String(el.value||''));
+
             }catch(e){}
+
             var f = resolveFormFromEl(el);
+
             syncAndSubmit(f);
+
           });
+
         });
+
         root.querySelectorAll('.js-cob-forma, .js-cob-estimado, .js-cob-entrega, .js-cob-cobro').forEach(function(el){
+
           if (!bindOnce(el, 'cobBound')) return;
+
           el.addEventListener('change', function(){
+
             var f = resolveFormFromEl(el);
+
             syncAndSubmit(f);
+
           });
+
         });
+
       } catch(e) {}
+
+
 
       // Currency formatting + hidden sync
+
       function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+
       function fmtThousands(v){ if(!v) return ''; v=v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
+
+
       try {
+
         root.querySelectorAll('.js-currency').forEach(function(el){
+
           if (!bindOnce(el, 'currencyBound')) return;
+
           var hid = document.getElementById(el.getAttribute('data-hidden'));
+
           function setCaretByDigitIndex(formattedValue, digitIndex){
+
             if (digitIndex <= 0) return 0;
+
             var count = 0;
+
             for (var i = 0; i < formattedValue.length; i++) {
+
               if (/\d/.test(formattedValue.charAt(i))) {
+
                 count++;
+
                 if (count >= digitIndex) return i + 1;
+
               }
+
             }
+
             return formattedValue.length;
+
           }
+
           var syncRaw = function(){ var raw=integerPart(el.value); if(hid) hid.value=raw; };
+
           var syncFormat = function(){
+
             var sel = (typeof el.selectionStart === 'number') ? el.selectionStart : null;
+
             var digitsBefore = null;
+
             if (sel != null) {
+
               try { digitsBefore = onlyDigits((el.value || '').slice(0, sel)).length; } catch(e) { digitsBefore = null; }
+
             }
+
             var raw=integerPart(el.value);
+
             var formatted = fmtThousands(raw);
+
             el.value = formatted;
+
             if (digitsBefore != null) {
+
               var caret = setCaretByDigitIndex(formatted, digitsBefore);
+
               try { el.setSelectionRange(caret, caret); } catch(e) {}
+
             }
+
           };
+
           el.addEventListener('input', function(e){
+
             if (e && e.isComposing) return;
+
             syncRaw();
+
             syncFormat();
+
           });
+
           el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
 
+
+
           // init
+
           var initial = el.getAttribute('data-raw') || el.value;
+
           el.value = fmtThousands(integerPart(initial));
+
           syncRaw();
+
         });
+
       } catch(e) {}
+
+
 
       // Datepickers
+
       try { if (typeof window.cobMountFlatpickr === 'function') window.cobMountFlatpickr(); } catch(e) {}
+
     };
+
   } catch(e) {}
+
+
 
   document.querySelectorAll('.js-cob-monto').forEach(function(el){
+
     el.addEventListener('change', function(){
+
       // asegurar sincronización antes de enviar
+
       try{
+
         var hidId = el.getAttribute('data-hidden');
+
         var hid = hidId ? document.getElementById(hidId) : null;
+
         if (hid) {
+
           var raw = integerPart(String(el.value||''));
+
           hid.value = raw;
+
         }
+
       }catch(e){}
+
       var f = resolveFormFromEl(el);
+
       syncAndSubmit(f);
+
     });
+
   });
+
   document.querySelectorAll('.js-cob-forma').forEach(function(el){
+
   function onlyDigits(v){ return (v||'').replace(/\D+/g,''); }
+
   function integerPart(v){
+
     if (v == null) return '';
+
     var s = String(v).trim();
+
     if (!s) return '';
+
     s = s.replace(/\s+/g, '');
+
     // Normalizar: si viene con decimales (250000.00 / 250000,00), quedarse con la parte entera.
+
     if (s.indexOf(',') !== -1) {
+
       s = s.split(',')[0];
+
       s = s.replace(/\./g, '');
+
       return (onlyDigits(s) || '').replace(/^0+(?!$)/,'');
+
     }
+
     var m = s.match(/^(\d+)\.(\d{1,2})$/);
+
     if (m) {
+
       return (m[1] || '').replace(/^0+(?!$)/,'');
+
     }
+
     var parts = s.split('.');
+
     if (parts.length > 1) {
+
       var last = parts[parts.length - 1];
+
       var allDigits = parts.every(function(p){ return /^\d+$/.test(p); });
+
       if (allDigits && (parts.length > 2 || last.length === 3)) {
+
         return (parts.join('') || '').replace(/^0+(?!$)/,'');
+
       }
+
     }
+
     return (onlyDigits(s) || '').replace(/^0+(?!$)/,'');
+
   }
+
   function fmtThousands(v){ if(!v) return ''; v=v.replace(/^0+(?!$)/,''); return v.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
   document.querySelectorAll('.js-currency').forEach(function(el){
+
     var hid = document.getElementById(el.getAttribute('data-hidden'));
+
     function setCaretByDigitIndex(formattedValue, digitIndex){
+
       if (digitIndex <= 0) return 0;
+
       var count = 0;
+
       for (var i = 0; i < formattedValue.length; i++) {
+
         if (/\d/.test(formattedValue.charAt(i))) {
+
           count++;
+
           if (count >= digitIndex) return i + 1;
+
         }
+
       }
+
       return formattedValue.length;
+
     }
+
     var syncRaw = function(){ var raw=integerPart(el.value); if(hid) hid.value=raw; };
+
     var syncFormat = function(){
+
       var sel = (typeof el.selectionStart === 'number') ? el.selectionStart : null;
+
       var digitsBefore = null;
+
       if (sel != null) {
+
         try { digitsBefore = onlyDigits((el.value || '').slice(0, sel)).length; } catch(e) { digitsBefore = null; }
+
       }
+
       var raw=integerPart(el.value);
+
       var formatted = fmtThousands(raw);
+
       el.value = formatted;
+
       if (digitsBefore != null) {
+
         var caret = setCaretByDigitIndex(formatted, digitsBefore);
+
         try { el.setSelectionRange(caret, caret); } catch(e) {}
+
       }
+
     };
+
     el.addEventListener('input', function(e){
+
       if (e && e.isComposing) return;
+
       syncRaw();
+
       syncFormat();
+
     });
+
     el.addEventListener('blur', function(){ syncRaw(); syncFormat(); });
+
     // init con data-raw para evitar mostrar .00
+
     var initial = el.getAttribute('data-raw') || el.value;
+
     el.value = fmtThousands(integerPart(initial));
+
     syncRaw();
+
   });
+
   el.addEventListener('change', function(){
+
     var f = resolveFormFromEl(el);
+
     syncAndSubmit(f);
+
   });
+
   });
+
   document.querySelectorAll('.js-cob-estimado').forEach(function(el){
+
     el.addEventListener('change', function(){
+
       var f = resolveFormFromEl(el);
+
       syncAndSubmit(f);
+
     });
+
   });
+
+
 
   document.querySelectorAll('.js-cob-entrega, .js-cob-cobro').forEach(function(el){
+
     el.addEventListener('change', function(){
+
       var f = resolveFormFromEl(el);
+
       syncAndSubmit(f);
+
     });
+
   });
+
 })();
+
 </script>
+
 <script>
+
 (function(){
+
   var form = document.getElementById('cobFilter');
+
   if (!form) return;
+
   var perSel = document.getElementById('cobPerPage');
+
   var pageH = document.getElementById('cobPage');
+
   var perH = document.getElementById('cobPerPageH');
+
   // Normalizar: por diseño, el filtro de status es excluyente.
+
   // Si llegaron múltiples status (URL/localStorage), quedarse con el último.
+
   try {
+
     var statusHids = Array.from(form.querySelectorAll('input[type="hidden"][name="status"]'));
+
     if (statusHids.length > 1) {
+
       var keep = statusHids[statusHids.length - 1].value;
+
       statusHids.forEach(function(i, idx){ if (idx !== statusHids.length - 1) i.remove(); });
+
       Array.from(form.querySelectorAll('button[data-status]')).forEach(function(b){
+
         var st0 = b.getAttribute('data-status');
+
         if (st0 === keep) { b.classList.add('active'); b.setAttribute('aria-pressed','true'); }
+
         else { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); }
+
       });
+
     }
+
   } catch(e_norm) {}
+
   function submitOrAjax(){
+
     try {
+
       if (window.__cobAjaxLive && typeof window.cobFetchAndReplace === 'function') { window.cobFetchAndReplace(); return; }
+
     } catch(e) {}
+
     form.submit();
+
   }
+
   if (perSel) {
+
     perSel.addEventListener('change', function(){
+
       try { if (perH) perH.value = String(perSel.value || ''); } catch(e) {}
+
       try { if (pageH) pageH.value = '1'; } catch(e) {}
+
       submitOrAjax();
+
     });
+
   }
+
   function addHidden(name, value) {
+
     var input = document.createElement('input'); input.type='hidden'; input.name=name; input.value=value; form.appendChild(input); return input;
+
   }
+
   function removeHidden(name, value) {
+
     Array.from(form.querySelectorAll('input[type="hidden"][name="'+name+'"]')).forEach(function(i){ if(i.value===value) i.remove(); });
+
   }
+
   Array.from(form.querySelectorAll('button[data-status]')).forEach(function(btn){
+
     btn.addEventListener('click', function(ev){
+
       // ripple + pressed
+
       try {
+
         var rect = btn.getBoundingClientRect();
+
         var ripple = document.createElement('span');
+
         ripple.className = 'ripple';
+
         var stc = btn.getAttribute('data-status');
+
         ripple.style.background = (stc==='A_COBRAR') ? 'rgba(13,110,253,.30)' : ((stc==='EN_CAMINO') ? 'rgba(13,202,240,.30)' : ((stc==='PARCIAL') ? 'rgba(255,193,7,.30)' : ((stc==='ATRASADO') ? 'rgba(220,53,69,.30)' : 'rgba(25,135,84,.30)')));
+
         ripple.style.left = (ev.clientX - rect.left) + 'px';
+
         ripple.style.top  = (ev.clientY - rect.top) + 'px';
+
         btn.appendChild(ripple); setTimeout(function(){ ripple.remove(); }, 600);
+
       } catch(e){}
+
       btn.classList.add('btn-pressed'); setTimeout(function(){ btn.classList.remove('btn-pressed'); }, 160);
+
       var st = btn.getAttribute('data-status');
+
       var active = btn.classList.contains('active');
+
       // Selección única de estado
+
       Array.from(form.querySelectorAll('input[type="hidden"][name="status"]')).forEach(function(i){ i.remove(); });
+
       Array.from(form.querySelectorAll('button[data-status].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+
       if (!active) { btn.classList.add('active'); btn.setAttribute('aria-pressed','true'); addHidden('status', st); }
+
       try { if (pageH) pageH.value = '1'; } catch(e) {}
+
       submitOrAjax();
+
     });
+
   });
+
   Array.from(form.querySelectorAll('button.btn-clear')).forEach(function(btn){
+
     btn.addEventListener('click', function(){
+
       var target = btn.getAttribute('data-clear');
+
       if (target === 'range') {
+
         var fromH = document.getElementById('cobFrom');
+
         var toH = document.getElementById('cobTo');
+
         if (fromH) fromH.value = '';
+
         if (toH) toH.value = '';
+
         if (window.__cobRangePicker) window.__cobRangePicker.clear();
+
         var range = document.getElementById('cobDateRange');
+
         if (range) range.value = '';
+
         submitOrAjax();
+
         return;
+
       }
+
     });
+
   });
+
   var clearAll = document.getElementById('cobBtnClearAll');
+
   if (clearAll) {
+
     clearAll.addEventListener('click', function(){
+
       try { localStorage.removeItem('deudas_filters_qs'); } catch(e) {}
+
       Array.from(form.querySelectorAll('input[type="hidden"][name="status"]')).forEach(function(i){ i.remove(); });
+
       Array.from(form.querySelectorAll('button[data-status].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+
       Array.from(form.querySelectorAll('input[type="hidden"][name="tipo"]')).forEach(function(i){ i.remove(); });
+
       Array.from(form.querySelectorAll('button[data-tipo].active')).forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+
       var fromH = document.getElementById('cobFrom');
+
       var toH = document.getElementById('cobTo');
+
       if (fromH) fromH.value = '';
+
       if (toH) toH.value = '';
+
       if (window.__cobRangePicker) window.__cobRangePicker.clear();
+
       var range = document.getElementById('cobDateRange');
+
       if (range) range.value = '';
+
       var cli = document.getElementById('cobClientQ');
+
       var emp = document.getElementById('cobCompanyQ');
+
       if (cli) cli.value = '';
+
       if (emp) emp.value = '';
+
       try { if (pageH) pageH.value = '1'; } catch(e) {}
+
       submitOrAjax();
+
     });
+
   }
+
 })();
+
 (function(){
+
   // Mantener compatibilidad con la lógica previa: si existe AJAX live, no recargar
+
   try {
+
     if (window.__cobAjaxLive) return;
+
   } catch(e) {}
+
   var form = document.getElementById('cobFilter');
+
   if (!form) return;
+
   var clientEl = document.getElementById('cobClientQ');
+
   var companyEl = document.getElementById('cobCompanyQ');
+
   var pageH = document.getElementById('cobPage');
+
   var timer = null;
+
   function schedule(){
+
     try { if (pageH) pageH.value = '1'; } catch(e) {}
+
     if (timer) clearTimeout(timer);
+
     timer = setTimeout(function(){ form.submit(); }, 350);
+
   }
+
   if (clientEl) clientEl.addEventListener('input', schedule);
+
   if (companyEl) companyEl.addEventListener('input', schedule);
+
 })();
+
 (function(){
+
   try {
+
     var pathOk = (window.location && window.location.pathname) ? (window.location.pathname.indexOf('/deudas') !== -1) : false;
+
     if (!pathOk) return;
+
     var params = new URLSearchParams(window.location.search || '');
+
     var qs0 = (window.location && window.location.search) ? window.location.search : '';
+
     params.delete('page');
+
     var qs = params.toString();
+
     if (qs0 && qs0 !== '?' && qs) {
+
       localStorage.setItem('deudas_filters_qs', '?' + qs);
+
     } else {
+
       var saved = localStorage.getItem('deudas_filters_qs') || '';
+
       if (saved && saved !== '?') {
+
         window.location.replace(window.location.pathname + saved);
+
       }
+
     }
+
   } catch(e) {}
+
 })();
+
 (function(){
+
   var form = document.getElementById('cobFilter');
+
   if (!form) return;
+
   function addHidden(name, value) {
+
     var input = document.createElement('input'); input.type='hidden'; input.name=name; input.value=value; form.appendChild(input); return input;
+
   }
+
   function removeHidden(name, value) {
+
     Array.from(form.querySelectorAll('input[type="hidden"][name="'+name+'"]')).forEach(function(i){ if(i.value===value) i.remove(); });
+
   }
+
   Array.from(form.querySelectorAll('button[data-tipo]')).forEach(function(btn){
+
     btn.addEventListener('click', function(){
+
       var tp = btn.getAttribute('data-tipo');
+
       var active = btn.classList.contains('active');
+
       if (active) {
+
         btn.classList.remove('active'); btn.setAttribute('aria-pressed','false'); removeHidden('tipo', tp);
+
       } else {
+
         btn.classList.add('active'); btn.setAttribute('aria-pressed','true'); addHidden('tipo', tp);
+
       }
+
       try { var pageH = document.getElementById('cobPage'); if (pageH) pageH.value = '1'; } catch(e) {}
+
       try {
+
         if (window.__cobAjaxLive && typeof window.cobFetchAndReplace === 'function') { window.cobFetchAndReplace(); return; }
+
       } catch(e) {}
+
       form.submit();
+
     });
+
   });
+
 })();
+
 (function(){
+
   function mountFlatpickr(){
+
     var nodes = document.querySelectorAll('input[data-datepicker]');
+
     if (!nodes.length) return;
+
     nodes.forEach(function(el){
+
       try { if (el && el._flatpickr) return; } catch(e) {}
+
       var isRowPago = el.classList && el.classList.contains('js-cob-estimado');
+
       flatpickr(el, {
+
         altInput: true,
+
         altFormat: 'd/m/Y',
+
         dateFormat: 'Y-m-d',
+
         allowInput: true,
+
         disableMobile: true,
+
         onChange: function(){
+
           if (isRowPago){
+
             var f = el.form || el.closest('form');
+
             // Reutilizar syncAndSubmit si existe
+
             try{ if (typeof window.syncAndSubmit === 'function') { window.syncAndSubmit(f); return; } }catch(e){}
+
             if (f) { (f.requestSubmit ? f.requestSubmit() : f.submit()); }
+
           }
+
         }
+
       });
+
     });
+
+
 
     // Range picker (filtros)
+
     var rangeEl = document.getElementById('cobDateRange');
+
     if (rangeEl){
+
       var fromH = document.getElementById('cobFrom');
+
       var toH = document.getElementById('cobTo');
+
       window.__cobRangePicker = flatpickr(rangeEl, {
+
         mode: 'range',
+
         altInput: true,
+
         altFormat: 'd/m/Y',
+
         dateFormat: 'Y-m-d',
+
         allowInput: false,
+
         clickOpens: true,
+
         disableMobile: true,
+
         onReady: function(selectedDates, dateStr, instance){
+
           try {
+
             rangeEl.setAttribute('readonly', 'readonly');
+
             if (instance && instance.altInput) instance.altInput.setAttribute('readonly', 'readonly');
+
           } catch(e) {}
+
         },
+
         onChange: function(selectedDates, dateStr, instance){
+
           if (!fromH || !toH) return;
+
           if (selectedDates && selectedDates.length === 2){
+
             fromH.value = instance.formatDate(selectedDates[0], 'Y-m-d');
+
             toH.value = instance.formatDate(selectedDates[1], 'Y-m-d');
+
             var form = document.getElementById('cobFilter');
+
             if (form) {
+
               try {
+
                 if (window.__cobAjaxLive && typeof window.cobFetchAndReplace === 'function') { window.cobFetchAndReplace(); return; }
+
               } catch(e) {}
+
               form.submit();
+
             }
+
           }
+
         }
+
       });
+
     }
+
   }
+
   try { window.cobMountFlatpickr = mountFlatpickr; } catch(e) {}
+
   if (typeof window.flatpickr === 'function') {
+
     mountFlatpickr();
+
   } else {
+
     var s = document.createElement('script');
+
     s.src = 'https://cdn.jsdelivr.net/npm/flatpickr';
+
     s.onload = mountFlatpickr;
+
     document.head.appendChild(s);
+
     var l = document.createElement('link');
+
     l.rel = 'stylesheet';
+
     l.href = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+
     document.head.appendChild(l);
+
   }
+
 })();
+
 </script>
+
 <script>
+
 (function(){
+
   function isoToday(){
+
     var d = new Date();
+
     var y = d.getFullYear();
+
     var m = String(d.getMonth() + 1).padStart(2, '0');
+
     var dd = String(d.getDate()).padStart(2, '0');
+
     return y + '-' + m + '-' + dd;
+
   }
+
+
 
   function showRowFlash(tr, ok){
+
     if (!tr || !tr.classList) return;
+
     var cls = ok ? 'table-success' : 'table-danger';
+
     tr.classList.add(cls);
+
     setTimeout(function(){
+
       try { tr.classList.remove(cls); } catch(e) {}
+
     }, 900);
+
   }
+
+
 
   function setBadge(tr, status){
+
     if (!tr) return;
+
     var tds = tr.querySelectorAll ? tr.querySelectorAll('td') : null;
+
     var statusCell = (tds && tds.length >= 2) ? tds[tds.length - 2] : null;
+
     var badge = statusCell ? statusCell.querySelector('.badge.js-status-badge') : null;
+
     if (!badge) badge = statusCell ? statusCell.querySelector('.badge') : null;
+
     if (!badge) return;
+
     if (status === 'COBRADO') {
+
       badge.className = 'badge bg-success';
+
       badge.textContent = 'COBRADO';
+
     } else if (status === 'ATRASADO') {
+
       badge.className = 'badge bg-danger';
+
       badge.textContent = 'ATRASADO';
+
     } else if (status === 'EN_CAMINO') {
+
       badge.className = 'badge bg-secondary';
+
       badge.textContent = 'EN CAMINO';
+
     } else {
+
       badge.className = 'badge bg-info text-dark';
+
       badge.textContent = 'A COBRAR';
+
     }
+
   }
+
+
 
   function parseIsoDate(s){
+
     s = (s || '').trim();
+
     if (!s) return null;
+
     var t = Date.parse(s);
+
     return isNaN(t) ? null : new Date(t);
+
   }
+
+
 
   function computeStatusFromRow(tr){
+
     if (!tr) return 'A_COBRAR';
-    var entrega = tr.querySelector('input.js-cob-entrega');
-    var entregaVal = entrega ? (entrega.value || '').trim() : '';
-    if (!entregaVal) return 'EN_CAMINO';
+
     var cobro = tr.querySelector('input.js-cob-cobro');
+
     var cobroVal = cobro ? (cobro.value || '').trim() : '';
+
     if (cobroVal) return 'COBRADO';
+
     var venc = tr.querySelector('input.js-cob-estimado');
+
     var vencDt = venc ? parseIsoDate(venc.value) : null;
-    if (!vencDt) return 'A_COBRAR';
+
+    if (!vencDt) return 'EN_CAMINO';
+
     var today = new Date();
+
     today.setHours(0,0,0,0);
+
     vencDt.setHours(0,0,0,0);
+
     return (today.getTime() > vencDt.getTime()) ? 'ATRASADO' : 'A_COBRAR';
+
   }
+
+
 
   function updateDiasBadge(tr){
+
     if (!tr) return;
+
     var venc = tr.querySelector('input.js-cob-estimado');
+
     var entrega = tr.querySelector('input.js-cob-entrega');
+
     var entregaVal = entrega ? (entrega.value || '').trim() : '';
+
     var tds = tr.querySelectorAll ? tr.querySelectorAll('td') : null;
+
     // Índice fijo (0-based) de la columna "Días" para esta tabla:
+
     // Cliente(0), Empresa(1), Fecha pedido(2), Entrega efectiva(3), Monto(4), Forma pago(5), Vencimiento(6), Días(7), Cobro efectivo(8), Status(9), Acciones(10)
+
     var cell = (tds && tds.length > 7) ? tds[7] : null;
+
     if (!cell || !venc) return;
 
+
+
     if (!entregaVal) {
+
       cell.innerHTML = '<span class="text-muted">-</span>';
+
       return;
+
     }
+
+
 
     var vencDt = parseIsoDate(venc.value);
+
     if (!vencDt) {
+
       cell.innerHTML = '<span class="text-muted">-</span>';
+
       return;
+
     }
+
     var today = new Date();
+
     today.setHours(0,0,0,0);
+
     vencDt.setHours(0,0,0,0);
+
     var diff = Math.round((vencDt.getTime() - today.getTime()) / (24*60*60*1000));
+
     if (diff >= 0) {
+
       cell.innerHTML = '<span class="badge bg-success">Faltan ' + diff + ' día(s)</span>';
+
     } else {
+
       cell.innerHTML = '<span class="badge bg-danger">Atraso ' + (diff * -1) + ' día(s)</span>';
+
     }
+
   }
+
+
 
   function fetchForm(form){
+
     var fd = new FormData(form);
+
     return fetch(form.action, {
+
       method: (form.method || 'POST').toUpperCase(),
+
       body: fd,
+
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
+
       credentials: 'same-origin'
+
     }).then(function(resp){
+
       var ct = (resp.headers.get('content-type') || '').toLowerCase();
+
       if (ct.indexOf('application/json') !== -1) {
+
         return resp.json().catch(function(){ return { ok: resp.ok }; });
+
       }
+
       return resp.text().then(function(){ return { ok: resp.ok }; }).catch(function(){ return { ok: resp.ok }; });
+
     });
+
   }
+
+
 
   // Modal de confirmación: Marcar entregado (delegación global para sobrevivir a reemplazos AJAX)
+
   (function(){
+
     try {
+
       document.addEventListener('click', function(ev){
+
         var t = ev && ev.target;
+
         if (!t) return;
+
         if (t.id !== 'confirmEntregarBtn') return;
 
+
+
         var modalEl = document.getElementById('confirmEntregarModal');
+
         var f = null;
+
         var oid = null;
+
         try { oid = window.__pendingEntregarOrderId; } catch(e0) { oid = null; }
+
         try { f = window.__pendingEntregarForm; } catch(e2) { f = null; }
+
         if ((!f || !document.contains(f)) && oid) {
+
           try {
+
             f = document.querySelector('form[data-js="cob-entregar"][action*="/cobranzas/' + String(oid) + '/entregar"]');
+
           } catch(e3) { f = null; }
+
         }
+
         if (!f) return;
+
         try { if (f.dataset) f.dataset.entregarConfirmed = '1'; } catch(e4) {}
+
         try {
+
           if (modalEl && window.bootstrap && bootstrap.Modal) {
+
             bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+
           }
+
         } catch(e5) {}
+
         try {
+
           if (typeof f.requestSubmit === 'function') f.requestSubmit();
+
           else f.submit();
+
         } catch(e6) {}
+
       }, true);
+
     } catch(e) {}
+
   })();
 
+
+
   function hideContainingModal(el){
+
     try {
+
       var modal = el && el.closest ? el.closest('.modal') : null;
+
       if (!modal) return;
+
       if (window.bootstrap && window.bootstrap.Modal) {
+
         var inst = window.bootstrap.Modal.getInstance(modal);
+
         if (inst) inst.hide();
+
       }
+
     } catch(e) {}
+
   }
+
+
 
   function isEditPedidoForm(form){
+
     try {
+
       if (!form) return false;
+
       var id = (form.getAttribute && form.getAttribute('id')) ? String(form.getAttribute('id')) : '';
+
       return id.indexOf('editOrderForm') === 0;
+
     } catch(e) {
+
       return false;
+
     }
+
   }
+
+
 
   function ensureUnmarkForm(actionsCell, orderId){
+
     if (!actionsCell || !orderId) return null;
+
     var existing = actionsCell.querySelector('form[data-js="cob-desmarcar"]');
+
     if (existing) return existing;
+
     var menu = actionsCell.querySelector('.js-actions-menu');
+
     if (!menu) return null;
+
     var f = document.createElement('form');
+
     f.method = 'post';
+
     f.action = '/cobranzas/' + orderId + '/desmarcar';
+
     f.setAttribute('data-js', 'cob-desmarcar');
+
     var b = document.createElement('button');
+
     b.type = 'submit';
+
     b.className = 'dropdown-item text-warning';
+
     b.textContent = 'Desmarcar';
+
     f.appendChild(b);
+
     // Insertar antes del divisor (si existe)
+
     var div = menu.querySelector('.dropdown-divider');
+
     if (div && div.parentNode === menu) menu.insertBefore(f, div);
+
     else menu.appendChild(f);
+
     return f;
+
   }
 
+
+
   document.addEventListener('submit', function(e){
+
     var form = e.target;
+
     if (!form || !form.action) return;
+
     var action = String(form.action);
 
+
+
     // Confirmación con modal (estética app) para marcar ENTREGADO
+
     try {
+
       if (form.getAttribute && form.getAttribute('data-js') === 'cob-entregar') {
+
         e.preventDefault();
+
         var already = (form.dataset && form.dataset.entregarConfirmed === '1');
+
         if (already) {
+
           try { delete form.dataset.entregarConfirmed; } catch(e_del) {}
+
           // dejar continuar el flujo normal del handler (abajo)
+
         } else {
+
           try {
+
             window.__pendingEntregarForm = form;
+
             try {
+
               var m0 = String(action).match(/\/cobranzas\/(\d+)\/entregar/);
+
               window.__pendingEntregarOrderId = m0 ? m0[1] : null;
+
             } catch(e_id0) { window.__pendingEntregarOrderId = null; }
+
           } catch(e_set) {}
+
           try {
+
             var mEl = document.getElementById('confirmEntregarModal');
+
             if (mEl && window.bootstrap && bootstrap.Modal) {
+
               var inst = bootstrap.Modal.getOrCreateInstance(mEl);
+
               inst.show();
+
               return;
+
             }
+
           } catch(e_modal) {}
+
           // Fallback: si no se pudo abrir el modal, continuar igual
+
           try { if (form.dataset) form.dataset.entregarConfirmed = '1'; } catch(e_fb) {}
+
         }
+
       }
+
     } catch(e_conf) {}
 
+
+
     // Editar pedido (modal) -> AJAX sin recargar
+
     if (isEditPedidoForm(form)) {
+
       e.preventDefault();
+
       var btn0 = null;
+
       try { btn0 = form.querySelector('button[type="submit"], button:not([type])'); } catch(err0) { btn0 = null; }
+
       if (btn0) btn0.disabled = true;
+
       fetchForm(form).then(function(resp){
+
         var ok0 = !!(resp && resp.ok);
+
         if (btn0) btn0.disabled = false;
+
         if (!ok0) {
+
           if (window.showToast) window.showToast('No se pudo guardar el pedido', 'danger');
+
           return;
+
         }
+
         hideContainingModal(form);
+
         if (window.showToast) window.showToast('Pedido actualizado', 'success');
+
       }).catch(function(){
+
         if (btn0) btn0.disabled = false;
+
         if (window.showToast) window.showToast('Error de conexión al guardar', 'danger');
+
       });
+
       return;
+
     }
 
+
+
     if (action.indexOf('/cobranzas/') === -1) return;
+
     if ((form.method || '').toUpperCase() !== 'POST') return;
 
+
+
     e.preventDefault();
+
     var tr = form.closest ? form.closest('tr') : null;
+
     var btn = null;
+
     try { btn = form.querySelector('button[type="submit"], button:not([type])'); } catch(err) { btn = null; }
+
     if (btn) btn.disabled = true;
 
+
+
     fetchForm(form).then(function(resp){
+
       var ok = !!(resp && resp.ok);
+
       if (btn) btn.disabled = false;
+
       showRowFlash(tr, ok);
+
       if (!ok) {
+
         if (window.showToast) window.showToast('No se pudo actualizar', 'danger');
+
         return;
+
       }
+
+
 
       // Si el backend recalculó fechas (ej: vencimiento por cambio de entrega), reflejarlo en la UI.
+
       try {
+
         if (tr && resp) {
+
           var entregaVal = (resp.fecha_entrega_efectiva || '').toString().trim();
+
           if (entregaVal) {
+
             var entregaInp = tr.querySelector('input.js-cob-entrega');
+
             if (entregaInp) {
+
               if (entregaInp._flatpickr) {
+
                 try { entregaInp._flatpickr.setDate(entregaVal, false, 'Y-m-d'); } catch(e0) {}
+
               }
+
               entregaInp.value = entregaVal;
+
             }
+
           }
+
           var vencVal = (resp.fecha_pago_estimada || '').toString().trim();
+
           if (vencVal) {
+
             var vencInp = tr.querySelector('input.js-cob-estimado');
+
             if (vencInp) {
+
               if (vencInp._flatpickr) {
+
                 try { vencInp._flatpickr.setDate(vencVal, false, 'Y-m-d'); } catch(e1) {}
+
               }
+
               vencInp.value = vencVal;
+
             }
+
           }
+
           var cobroVal = (resp.fecha_cobro_efectiva || '').toString().trim();
+
           if (cobroVal) {
+
             var cobroInp0 = tr.querySelector('input.js-cob-cobro');
+
             if (cobroInp0) {
+
               if (cobroInp0._flatpickr) {
+
                 try { cobroInp0._flatpickr.setDate(cobroVal, false, 'Y-m-d'); } catch(e2) {}
+
               }
+
               cobroInp0.value = cobroVal;
+
             }
+
           }
+
         }
+
       } catch(e_dates) {}
 
+
+
       if (action.indexOf('/cobrar') !== -1) {
+
         // Marcar COBRADO
+
         try {
+
           var fp = resp && (resp.forma_pago_detalle || resp.forma_pago || resp.fp_det);
+
           fp = (fp || '').toString().trim().toUpperCase();
+
           if (fp && tr) {
+
             var sel = tr.querySelector('select.js-cob-forma');
+
             if (sel) sel.value = fp;
+
           }
+
         } catch(e0) {}
+
         var cobroInp = tr ? tr.querySelector('input.js-cob-cobro') : null;
+
         var val = isoToday();
+
         if (cobroInp) {
+
           if (cobroInp._flatpickr) {
+
             try { cobroInp._flatpickr.setDate(val, false, 'Y-m-d'); } catch(e1) {}
+
           } else {
+
             cobroInp.value = val;
+
           }
+
         }
+
         var status = 'COBRADO';
+
         setBadge(tr, status);
+
         var actions = tr ? tr.querySelector('td.text-end') : null;
+
         // ocultar opción Cobrado (modal trigger)
+
         if (actions) {
+
           var markBtn = actions.querySelector('button.js-action-cobrar[data-bs-target^="#markPaid"]');
+
           if (markBtn) markBtn.style.display = 'none';
+
           var orderId = null;
+
           try {
+
             var m = action.match(/\/cobranzas\/(\d+)\/cobrar/);
+
             if (m) orderId = m[1];
+
           } catch(e2) { orderId = null; }
+
           if (orderId) ensureUnmarkForm(actions, orderId);
+
         }
+
         hideContainingModal(form);
+
       } else if (action.indexOf('/desmarcar') !== -1) {
+
         // Quitar COBRADO
+
         var cobroInp2 = tr ? tr.querySelector('input.js-cob-cobro') : null;
+
         if (cobroInp2) {
+
           if (cobroInp2._flatpickr) {
+
             try { cobroInp2._flatpickr.clear(); } catch(e3) {}
+
           }
+
           cobroInp2.value = '';
+
         }
+
         var status2 = computeStatusFromRow(tr);
+
         setBadge(tr, status2);
+
         updateDiasBadge(tr);
+
         var actions2 = tr ? tr.querySelector('td.text-end') : null;
+
         if (actions2) {
+
           // mostrar opción Cobrado
+
           var markBtn2 = actions2.querySelector('button.js-action-cobrar[data-bs-target^="#markPaid"]');
+
           if (markBtn2) markBtn2.style.display = '';
+
           // eliminar form Desmarcar
+
           try {
+
             var unmark = actions2.querySelector('form[data-js="cob-desmarcar"]');
+
             if (unmark) unmark.remove();
+
           } catch(e4) {}
+
         }
+
       } else if (action.indexOf('/entregar') !== -1) {
+
         // Marcar ENTREGADO
+
         try {
+
           var entregaVal2 = (resp.fecha_entrega_efectiva || '').toString().trim();
+
           if (tr && entregaVal2) {
+
             var entregaInp2 = tr.querySelector('input.js-cob-entrega');
+
             if (entregaInp2) {
+
               try { entregaInp2.removeAttribute('disabled'); } catch(e) {}
+
               entregaInp2.value = entregaVal2;
+
             }
+
             try {
+
               var actionsE = tr.querySelector('td.text-end');
+
               var menuE = actionsE ? actionsE.querySelector('.js-actions-menu') : null;
+
               if (menuE) {
+
                 try {
+
                   var fEnt = menuE.querySelector('form[data-js="cob-entregar"]');
+
                   if (fEnt) fEnt.remove();
+
                 } catch(e_rem) {}
 
+
+
                 var orderId = null;
+
                 try {
+
                   var mE = action.match(/\/cobranzas\/(\d+)\/entregar/);
+
                   if (mE) orderId = mE[1];
+
                 } catch(e_id) { orderId = null; }
 
+
+
                 var markBtnE = menuE.querySelector('button.js-action-cobrar[data-bs-target^="#markPaid"]');
+
                 if (markBtnE) {
+
                   markBtnE.style.display = '';
+
                 } else if (orderId) {
+
                   var b = document.createElement('button');
+
                   b.type = 'button';
+
                   b.className = 'dropdown-item js-action-cobrar';
+
                   b.setAttribute('data-bs-toggle', 'modal');
+
                   b.setAttribute('data-bs-target', '#markPaid' + orderId);
+
                   b.textContent = 'Cobrado';
+
                   // Insertar antes del divisor (si existe)
+
                   var divE = menuE.querySelector('.dropdown-divider');
+
                   if (divE && divE.parentNode === menuE) menuE.insertBefore(b, divE);
+
                   else menuE.appendChild(b);
+
                 }
+
               }
+
             } catch(e3) {}
+
             var statusE = computeStatusFromRow(tr);
+
             setBadge(tr, statusE);
+
             updateDiasBadge(tr);
+
           }
+
         } catch(e_ent) {}
+
       } else {
+
         // Update general (monto/forma/fechas)
+
         var status3 = computeStatusFromRow(tr);
+
         setBadge(tr, status3);
+
         updateDiasBadge(tr);
+
       }
 
+
+
       if (window.showToast) window.showToast('Actualizado', 'success');
+
     }).catch(function(){
+
       if (btn) btn.disabled = false;
+
       showRowFlash(tr, false);
+
       if (window.showToast) window.showToast('Error de conexión al actualizar', 'danger');
+
     });
+
   });
+
 })();
+
 </script>
+
 {% endblock %}
+

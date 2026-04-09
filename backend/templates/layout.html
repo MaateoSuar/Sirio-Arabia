@@ -583,6 +583,38 @@
       })();
     </script>
     <script>
+      (function(){
+        function cleanupOrphanModalState(){
+          try {
+            var hasVisibleModal = !!document.querySelector('.modal.show');
+            if (hasVisibleModal) return;
+            document.querySelectorAll('.modal-backdrop').forEach(function(bd){
+              try { bd.remove(); } catch(e0) {}
+            });
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
+          } catch(e) {}
+        }
+
+        document.addEventListener('hidden.bs.modal', function(){
+          setTimeout(cleanupOrphanModalState, 0);
+        });
+
+        document.addEventListener('click', function(e){
+          try {
+            var trigger = e.target && e.target.closest ? e.target.closest('[data-bs-toggle="modal"]') : null;
+            if (!trigger) return;
+            setTimeout(cleanupOrphanModalState, 250);
+          } catch(err) {}
+        });
+
+        window.addEventListener('pageshow', function(){
+          setTimeout(cleanupOrphanModalState, 0);
+        });
+      })();
+    </script>
+    <script>
       // Helper global para mostrar toasts con variantes: success | warning | danger | info | primary
       (function(){
         window.showToast = function(message, variant){

@@ -15,6 +15,11 @@
     .empresa-search-input { min-width: 0; max-width: none; width: 100%; }
     .btn-create-company { width: 100%; }
   }
+
+  @media (max-width: 575.98px) {
+    .empresa-search-input { min-width: 0; max-width: none; width: 100%; }
+    .btn-create-company { width: 100%; }
+  }
 </style>
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
   <div>
@@ -311,6 +316,20 @@
         {% endfor %}
         </tbody>
         </table>
+        {% if not show_all %}
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+          <div class="text-muted small">
+            Página {{ page or 1 }}
+          </div>
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_prev else '' }}"
+               href="{{ url_for('main.empresas', q=q, page=(page-1), per_page=per_page) }}">Anterior</a>
+            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_next else '' }}"
+               href="{{ url_for('main.empresas', q=q, page=(page+1), per_page=per_page) }}">Siguiente</a>
+            <a class="btn btn-sm btn-outline-dark" href="{{ url_for('main.empresas', q=q, all=1) }}">Ver todos</a>
+          </div>
+        </div>
+        {% endif %}
         {% if not show_all %}
         <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
           <div class="text-muted small">
@@ -877,33 +896,42 @@
         document.body.appendChild(modalEl);
       } catch(e) {}
     }
-    function showModal(modalEl){
+    function moveAllLinkModalsToBody(){
       try {
-        if (!modalEl) return;
-        if (window.bootstrap && window.bootstrap.Modal){
-          window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
-        } else {
-          modalEl.classList.add('show');
-          modalEl.style.display = 'block';
-        }
+        document.querySelectorAll('.modal[id^="links"]').forEach(moveModalToBody);
       } catch(e) {}
     }
+    function cleanupOrphanModalState(){
+      try {
+        var hasVisibleModal = !!document.querySelector('.modal.show');
+        if (hasVisibleModal) return;
+        document.querySelectorAll('.modal-backdrop').forEach(function(bd){
+          try { bd.remove(); } catch(e0) {}
+        });
+        document.body.classList.remove('modal-open');
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('padding-right');
+      } catch(e) {}
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', moveAllLinkModalsToBody);
+    } else {
+      moveAllLinkModalsToBody();
+    }
+
+    document.addEventListener('hidden.bs.modal', function(){
+      setTimeout(cleanupOrphanModalState, 0);
+    });
 
     document.addEventListener('click', function(e){
       try {
         var btn = e.target && e.target.closest ? e.target.closest('button[data-bs-toggle="modal"][data-bs-target^="#links"]') : null;
         if (!btn) return;
-        var sel = btn.getAttribute('data-bs-target');
-        if (!sel) return;
-        var modalEl = document.querySelector(sel);
-        if (!modalEl) return;
-        e.preventDefault();
-        try { e.stopImmediatePropagation(); } catch(e0) { try { e.stopPropagation(); } catch(e1) {} }
         safeHideDropdown(btn);
-        moveModalToBody(modalEl);
-        setTimeout(function(){ showModal(modalEl); }, 0);
+        setTimeout(cleanupOrphanModalState, 0);
       } catch(err) {}
-    }, true);
-  })();
+    });
+})();
 </script>
 {% endblock %}

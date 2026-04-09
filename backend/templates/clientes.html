@@ -981,6 +981,32 @@
 <script>
 // Reabrir modal de empresas desde Clientes si viene ?open_links=
 (function(){
+  function closest(el, sel){
+    try { return el && el.closest ? el.closest(sel) : null; } catch(e){ return null; }
+  }
+  function safeHideDropdown(fromEl){
+    try {
+      var dd = closest(fromEl, '.dropdown');
+      if (!dd) return;
+      var toggle = dd.querySelector('[data-bs-toggle="dropdown"]');
+      if (!toggle) return;
+      if (window.bootstrap && window.bootstrap.Dropdown){
+        try { window.bootstrap.Dropdown.getOrCreateInstance(toggle).hide(); } catch(e0) {}
+      }
+    } catch(e) {}
+  }
+  function moveModalToBody(modalEl){
+    try {
+      if (!modalEl || modalEl.parentElement === document.body) return;
+      document.body.appendChild(modalEl);
+    } catch(e) {}
+  }
+  function moveAllLinkModalsToBody(){
+    try {
+      document.querySelectorAll('.modal[id^="links"]').forEach(moveModalToBody);
+    } catch(e) {}
+  }
+
   function reopenModal(){
     try {
       var params = new URLSearchParams(window.location.search || '');
@@ -988,10 +1014,17 @@
       if (!id) return;
       var el = document.getElementById('links' + id);
       if (!el) return;
+      moveModalToBody(el);
       var M = window.bootstrap && window.bootstrap.Modal;
       if (M) M.getOrCreateInstance(el).show();
       else { el.classList.add('show'); el.style.display='block'; }
     } catch(e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', moveAllLinkModalsToBody);
+  } else {
+    moveAllLinkModalsToBody();
   }
 
   if (document.readyState === 'complete'){
@@ -999,6 +1032,14 @@
   } else {
     window.addEventListener('load', reopenModal);
   }
+
+  document.addEventListener('click', function(e){
+    try {
+      var btn = e.target && e.target.closest ? e.target.closest('button[data-bs-toggle="modal"][data-bs-target^="#links"]') : null;
+      if (!btn) return;
+      safeHideDropdown(btn);
+    } catch(err) {}
+  });
 })();
 </script>
 <script>

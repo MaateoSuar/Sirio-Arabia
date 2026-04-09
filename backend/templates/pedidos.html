@@ -850,14 +850,16 @@
       const desc = descInput?.value || '';
       let title = `Pedido ${clienteText} - ${empresaText}`;
       if (branchSel && branchSel.value && branchOpt2) { title += ` / Sucursal: ${branchOpt2.text}`; }
-      const lines = [
-        title,
-        '',
-        nota,
-        '',
-        desc
-      ];
-      return lines.join('\n');
+      const normalizeBlock = function(txt){
+        return (txt || '')
+          .replace(/\r\n/g, '\n')
+          .replace(/^\s*\n+/, '')
+          .replace(/\n+\s*$/, '');
+      };
+      const sections = [title, normalizeBlock(nota), normalizeBlock(desc)].filter(function(s){
+        return (s || '').trim() !== '';
+      });
+      return sections.join('\n\n');
     }
 
     // Guardado automático al escribir
