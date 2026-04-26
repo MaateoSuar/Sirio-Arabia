@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 
-ALLOWED_EXTENSIONS = {".csv", ".xlsx"}
+ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
 
 @dataclass
@@ -38,7 +38,7 @@ def validate_filename(filename: str) -> Tuple[bool, str]:
         return False, "Archivo inválido"
     ext = os.path.splitext(name)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        return False, "Tipo de archivo no permitido. Subí .xlsx o .csv"
+        return False, "Tipo de archivo no permitido. Subí .xlsx, .xls o .csv"
     return True, ""
 
 
@@ -47,8 +47,11 @@ def read_dataframe_from_bytes(filename: str, content: bytes) -> pd.DataFrame:
     if ext == ".csv":
         # Mantener todo como string para no perder ceros a la izquierda / formatos
         return pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False)
-    if ext == ".xlsx":
-        return pd.read_excel(io.BytesIO(content), dtype=str, keep_default_na=False, engine="openpyxl")
+    if ext in {".xlsx", ".xls"}:
+        try:
+            return pd.read_excel(io.BytesIO(content), dtype=str, keep_default_na=False)
+        except Exception:
+            return pd.read_excel(io.BytesIO(content), dtype=str, keep_default_na=False, engine="openpyxl")
     raise ValueError("unsupported_file")
 
 

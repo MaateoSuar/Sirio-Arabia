@@ -104,6 +104,7 @@ class ClientBirthday(db.Model):
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     owner_user_id = db.Column(db.Integer, db.ForeignKey("app_user.id"))
+    archived = db.Column(db.Boolean, nullable=False, default=False)
     apellido = db.Column(db.String(120), nullable=False)
     nombre = db.Column(db.String(120), nullable=False)
     sucursal = db.Column(db.String(120))

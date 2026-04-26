@@ -54,6 +54,24 @@
     </div>
   </div>
 </div>
+<!-- Modal Confirmación Eliminar Pedido Anterior (ocultar referencia) -->
+<div class="modal fade" id="confirmDeletePrevOrderModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Eliminar pedido anterior</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0" id="confirmDeletePrevOrderText">¿Querés eliminar este pedido anterior? Esta acción quitará el borrador del listado.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirmDeletePrevOrderBtn">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="card mb-4">
   <div class="card-body">
     <div id="pedido-alert" class="alert alert-warning py-2 px-3 mb-3 d-none" role="alert" style="font-size:.9rem"></div>
@@ -122,8 +140,8 @@
         <div id="prev-orders" class="list-group small"></div>
       </div>
       <div class="col-12">
-        <div class="d-flex gap-2 flex-wrap">
-          <button class="btn btn-outline-secondary" type="button" id="preview-btn">Vista previa</button>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <h6 class="mb-0" style="color:#0f766e; font-weight:600">Vista previa</h6>
           <button class="btn btn-secondary" type="button" id="copy-preview-btn">Copiar borrador</button>
         </div>
         <textarea class="form-control mt-2" id="pedido_preview" rows="4" placeholder="Borrador del pedido"></textarea>
@@ -195,7 +213,6 @@
     const alertBox = document.getElementById('pedido-alert');
     const prevWrap = document.getElementById('prev-orders');
     const refreshPrevBtn = document.getElementById('refresh-prev');
-    const previewBtn = document.getElementById('preview-btn');
     const copyPrevBtn = document.getElementById('copy-preview-btn');
     const previewTa = document.getElementById('pedido_preview');
     const draftsOpenBtn = document.getElementById('pending-open-btn');
@@ -203,6 +220,9 @@
     const confirmDelModalEl = document.getElementById('confirmDeleteDraftModal');
     const confirmDelText = document.getElementById('confirmDeleteDraftText');
     const confirmDelBtn = document.getElementById('confirmDeleteDraftBtn');
+    const confirmPrevDelModalEl = document.getElementById('confirmDeletePrevOrderModal');
+    const confirmPrevDelText = document.getElementById('confirmDeletePrevOrderText');
+    const confirmPrevDelBtn = document.getElementById('confirmDeletePrevOrderBtn');
     // destinatarios
     const toBox = document.getElementById('to-checklist');
     const toList = document.getElementById('to-selected');
@@ -212,7 +232,32 @@
     // Guardar opciones completas de empresas por si se requiere restaurar (no usado actualmente)
     const empresaAllOptions = Array.from(empresaSel?.options || []);
     let pendingDeleteDraft = null;
+    let pendingDeletePrevOrder = null;
     let lastCompanyId = '';
+
+    function hiddenPrevKey(clientId, companyId){
+      return `pedido_prev_hidden_${clientId || '0'}_${companyId || '0'}`;
+    }
+    function getHiddenPrevIds(clientId, companyId){
+      try {
+        const raw = localStorage.getItem(hiddenPrevKey(clientId, companyId));
+        const arr = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(arr)) return [];
+        return arr.map(function(v){ return String(v); });
+      } catch(e){
+        return [];
+      }
+    }
+    function setHiddenPrevIds(clientId, companyId, ids){
+      try {
+        localStorage.setItem(hiddenPrevKey(clientId, companyId), JSON.stringify(Array.from(new Set((ids || []).map(function(v){ return String(v); })) )));
+      } catch(e) {}
+    }
+    function hidePrevOrderId(clientId, companyId, orderId){
+      const ids = getHiddenPrevIds(clientId, companyId);
+      ids.push(String(orderId));
+      setHiddenPrevIds(clientId, companyId, ids);
+    }
 
     // Opciones de forma de pago según tipo de comprobante
     const paymentOptions = {
@@ -613,7 +658,6 @@
     function applyDraft(d){
       if (!d) return;
       try{
-        if (fechaInput) fechaInput.value = d.fecha_compra || fechaInput.value || '';
         if (notaInput) notaInput.value = d.nota || '';
         if (descInput) descInput.value = d.descripcion || '';
         if (precioInput) { precioInput.value = d.precio_final || ''; syncPrecioFormat(); }
@@ -634,7 +678,7 @@
             branchSel.value = '';
           }
         }
-        if (previewTa) previewTa.value = buildPreviewText();
+        refreshPreview();
       }catch(e){}
     }
     function tryLoadDraftForSelection(){
@@ -711,6 +755,7 @@
         const cur = (descInput.value || '').trim();
         descInput.value = cur ? (cur + '\n' + plain) : plain;
         try { descInput.focus(); } catch(e) {}
+        try { refreshPreview(); } catch(e) {}
         try { saveDraft(); } catch(e) {}
       } catch(e){ /* noop */ }
     });
@@ -727,6 +772,7 @@
       if (!id){
         if (empresaSel) empresaSel.innerHTML = '<option value="">Empresa...</option>';
         if (prevWrap) prevWrap.innerHTML = '';
+        refreshPreview();
         updateEnabledBySelection();
         return;
       }
@@ -777,6 +823,7 @@
       // Intentar cargar borrador si ya hay empresa seleccionada
       tryLoadDraftForSelection();
       try { loadPrevOrders(); } catch(e) {}
+      refreshPreview();
 
       // Default forma de pago del cliente (si existe) o EFECTIVO
       try {
@@ -862,11 +909,16 @@
       return sections.join('\n\n');
     }
 
+    function refreshPreview(){
+      if (!previewTa) return;
+      previewTa.value = buildPreviewText();
+    }
+
     // Guardado automático al escribir
-    ;[notaInput, descInput, precioInput, formaPagoSel, branchSel, fechaInput].forEach(el=>{
+    ;[notaInput, descInput, precioInput, formaPagoSel, branchSel, fechaInput, clienteSel, empresaSel].forEach(el=>{
       if (!el) return;
-      el.addEventListener('input', saveDraft);
-      el.addEventListener('change', saveDraft);
+      el.addEventListener('input', function(){ saveDraft(); refreshPreview(); });
+      el.addEventListener('change', function(){ saveDraft(); refreshPreview(); });
     });
 
     // Marcar cuando el usuario tocó la descripción para no pisarla con defaults
@@ -976,6 +1028,7 @@
 
     // Init badge
     try { updatePendingBadge(); } catch(e) {}
+    try { refreshPreview(); } catch(e) {}
 
     // Exponer handler para onchange inline de selects
     window.__onSelChange = function(){
@@ -1127,20 +1180,38 @@
           return;
         }
         const items = await res.json();
-        if(!Array.isArray(items) || items.length===0){ prevWrap.innerHTML = '<div class="text-muted">Sin pedidos anteriores</div>'; return; }
+        const hiddenIds = new Set(getHiddenPrevIds(cid, eid));
+        const visibleItems = (Array.isArray(items) ? items : []).filter(function(o){ return !hiddenIds.has(String(o.id)); });
+        if(!visibleItems.length){ prevWrap.innerHTML = '<div class="text-muted">Sin pedidos anteriores para este cliente y empresa.</div>'; return; }
 
         const fr = document.createDocumentFragment();
-        items.forEach((o)=>{
+        visibleItems.forEach((o)=>{
           const row = document.createElement('div');
           row.className = 'list-group-item';
           const showDate = String((o.fecha_compra_date || o.created_date || '')).trim();
           const dtTxt = showDate ? showDate.split('-').reverse().join('/') : '';
           const prev = (o.descripcion||'').split('\n').find(Boolean) || (o.nota||'');
+          const top = document.createElement('div');
+          top.className = 'd-flex align-items-center justify-content-between gap-2';
           const header = document.createElement('button');
           header.type = 'button';
           header.className = 'btn btn-link p-0 text-decoration-none';
           header.style.fontWeight = '600';
           header.textContent = dtTxt || 'Pedido';
+          const deleteBtn = document.createElement('button');
+          deleteBtn.type = 'button';
+          deleteBtn.className = 'btn btn-sm btn-outline-danger';
+          deleteBtn.textContent = 'Eliminar';
+          deleteBtn.addEventListener('click', function(){
+            pendingDeletePrevOrder = { order_id: String(o.id), client_id: String(cid), company_id: String(eid) };
+            if (confirmPrevDelText) {
+              confirmPrevDelText.textContent = '¿Querés eliminar este pedido anterior? Esta acción quitará el borrador del listado.';
+            }
+            const M = window.bootstrap && window.bootstrap.Modal;
+            if (M && confirmPrevDelModalEl) {
+              M.getOrCreateInstance(confirmPrevDelModalEl).show();
+            }
+          });
           const preview = document.createElement('div');
           preview.className = 'text-muted';
           preview.textContent = prev || '';
@@ -1158,24 +1229,16 @@
           copyBtn.addEventListener('click', ()=>{
             notaInput.value = o.nota || '';
             descInput.value = o.descripcion || '';
-            try {
-              const iso = String((o.fecha_compra_date || o.created_date || '')).trim();
-              if (fechaInput) {
-                if (fechaInput._flatpickr) {
-                  fechaInput._flatpickr.setDate(iso || '', true, 'Y-m-d');
-                } else {
-                  fechaInput.value = iso || '';
-                }
-              }
-            } catch(e) {}
-            if (previewTa) previewTa.value = buildPreviewText();
+            refreshPreview();
           });
           detail.appendChild(pre);
           detail.appendChild(copyBtn);
           header.addEventListener('click', ()=>{
             detail.classList.toggle('d-none');
           });
-          row.appendChild(header);
+          top.appendChild(header);
+          top.appendChild(deleteBtn);
+          row.appendChild(top);
           row.appendChild(preview);
           row.appendChild(detail);
           fr.appendChild(row);
@@ -1185,10 +1248,20 @@
     }
 
     refreshPrevBtn?.addEventListener('click', loadPrevOrders);
-    previewBtn?.addEventListener('click', ()=>{ previewTa.value = buildPreviewText(); });
     copyPrevBtn?.addEventListener('click', async ()=>{
       const txt = previewTa?.value || buildPreviewText();
       try{ await navigator.clipboard.writeText(txt); }catch(e){}
+    });
+
+    confirmPrevDelBtn?.addEventListener('click', async ()=>{
+      if (!pendingDeletePrevOrder) return;
+      hidePrevOrderId(pendingDeletePrevOrder.client_id, pendingDeletePrevOrder.company_id, pendingDeletePrevOrder.order_id);
+      const M = window.bootstrap && window.bootstrap.Modal;
+      if (M && confirmPrevDelModalEl) {
+        try { M.getOrCreateInstance(confirmPrevDelModalEl).hide(); } catch(e) {}
+      }
+      pendingDeletePrevOrder = null;
+      try { await loadPrevOrders(); } catch(e) {}
     });
 
     function resetRecipients(){

@@ -3492,6 +3492,8 @@ def clientes():
 
     )
 
+    base = base.filter(Client.archived.is_(False))
+
     if not _has_global_access():
 
         uid = _effective_user_id()
@@ -3553,6 +3555,18 @@ def clientes():
 
 
     companies = Company.query.order_by(Company.nombre).all()
+
+    archived_base = Client.query.filter(Client.archived.is_(True))
+
+    if not _has_global_access():
+
+        uid = _effective_user_id()
+
+        if uid is not None:
+
+            archived_base = archived_base.filter(Client.owner_user_id == uid)
+
+    archived_items = archived_base.order_by(Client.apellido, Client.nombre).all()
 
 
 
@@ -3793,6 +3807,8 @@ def clientes():
         companies=companies,
 
         alerts_by_client=alerts_by_client,
+
+        archived_items=archived_items,
 
         total_active_alerts=total_active_alerts,
 
@@ -6066,6 +6082,28 @@ def empresas_productos_upload(company_id: int):
 
     company = Company.query.get_or_404(company_id)
 
+    existing_sheet = (
+
+        CompanyProductSheet.query
+
+        .filter_by(company_id=company.id)
+
+        .order_by(CompanyProductSheet.uploaded_at.desc())
+
+        .first()
+
+    )
+
+    if existing_sheet is not None:
+
+        return redirect(
+
+            url_for("main.empresas_edit_view", company_id=company.id)
+
+            + "?sheet_error=replace_required#empresaProductosCollapse"
+
+        )
+
     f = request.files.get("sheet")
 
     if not f or not getattr(f, "filename", None):
@@ -6140,7 +6178,7 @@ def empresas_productos_upload(company_id: int):
 
         filepath=(url or None),
 
-        data=(None if url else content),
+        data=content,
 
         mimetype=mtype,
 
@@ -6365,6 +6403,72 @@ def empresas_productos_view(company_id: int):
         filename=filename,
 
     )
+
+
+
+
+
+@bp.get("/empresas/<int:company_id>/productos/download")
+
+def empresas_productos_download(company_id: int):
+
+    sheet = (
+
+        CompanyProductSheet.query
+
+        .filter_by(company_id=company_id)
+
+        .order_by(CompanyProductSheet.uploaded_at.desc())
+
+        .first_or_404()
+
+    )
+
+    try:
+
+        if getattr(sheet, "data", None):
+
+            return send_file(
+
+                BytesIO(sheet.data),
+
+                mimetype=sheet.mimetype or "application/octet-stream",
+
+                as_attachment=True,
+
+                download_name=sheet.filename or "planilla_productos",
+
+            )
+
+    except Exception:
+
+        pass
+
+    if getattr(sheet, "filepath", None):
+
+        return redirect(sheet.filepath)
+
+    abort(404)
+
+
+
+
+
+@bp.post("/empresas/<int:company_id>/productos/delete")
+
+def empresas_productos_delete(company_id: int):
+
+    company = Company.query.get_or_404(company_id)
+
+    sheets = CompanyProductSheet.query.filter_by(company_id=company.id).all()
+
+    for sheet in sheets:
+
+        db.session.delete(sheet)
+
+    db.session.commit()
+
+    return redirect(url_for("main.empresas_edit_view", company_id=company.id) + "#empresaProductosCollapse")
 
 
 
@@ -6744,6 +6848,54 @@ def clientes_delete(client_id: int):
 
 
 
+@bp.post("/clientes/<int:client_id>/archive")
+
+def clientes_archive(client_id: int):
+
+    obj = Client.query.get_or_404(client_id)
+
+    _require_owner(obj)
+
+    obj.archived = True
+
+    db.session.commit()
+
+    return_to = (request.form.get("return_to") or "").strip()
+
+    if return_to.startswith("/clientes"):
+
+        return redirect(return_to)
+
+    return redirect(url_for("main.clientes"))
+
+
+
+
+
+@bp.post("/clientes/<int:client_id>/unarchive")
+
+def clientes_unarchive(client_id: int):
+
+    obj = Client.query.get_or_404(client_id)
+
+    _require_owner(obj)
+
+    obj.archived = False
+
+    db.session.commit()
+
+    return_to = (request.form.get("return_to") or "").strip()
+
+    if return_to.startswith("/clientes"):
+
+        return redirect(return_to)
+
+    return redirect(url_for("main.clientes"))
+
+
+
+
+
 @bp.post("/clientes/<int:client_id>/edit")
 
 def clientes_edit(client_id: int):
@@ -6787,6 +6939,44 @@ def api_clientes():
     res = [{"id": c.id, "label": f"{c.apellido} {c.nombre}"} for c in base.order_by(Client.apellido).limit(20)]
 
     return jsonify(res)
+
+
+
+
+
+@bp.get("/api/clientes/archivados")
+
+def api_clientes_archivados():
+
+    q = Client.query.filter(Client.archived.is_(True))
+
+    if not _has_global_access():
+
+        uid = _effective_user_id()
+
+        if uid is not None:
+
+            q = q.filter(Client.owner_user_id == uid)
+
+    items = [
+
+        {
+
+            "id": c.id,
+
+            "razon_social": c.apellido,
+
+            "nombre": c.nombre,
+
+            "provincia": c.provincia,
+
+        }
+
+        for c in q.order_by(Client.apellido, Client.nombre).all()
+
+    ]
+
+    return jsonify(items)
 
 
 

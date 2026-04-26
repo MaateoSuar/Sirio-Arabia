@@ -299,25 +299,45 @@
         <div class="col-12 collapse" id="empresaProductosCollapse">
           <div class="card shadow-sm mt-2">
             <div class="card-body">
-              <div class="row g-2 align-items-end">
-                <div class="col-12 col-md-8">
-                  <label class="form-label">Subir planilla</label>
-                  <input class="form-control" type="file" name="sheet" accept=".csv,.xlsx" required form="productSheetUploadForm">
+              {% set last_sheet = (company.product_sheets|sort(attribute='uploaded_at', reverse=True)|first) if company.product_sheets else none %}
+              {% set sheet_error = request.args.get('sheet_error') %}
+
+              {% if sheet_error == 'replace_required' %}
+                <div class="alert alert-warning py-2" role="alert">
+                  Ya existe una planilla cargada. Eliminá la planilla actual para subir una nueva.
                 </div>
-                <div class="col-12 col-md-4 d-flex gap-2">
-                  <button class="btn btn-primary w-100" type="submit" form="productSheetUploadForm">Subir</button>
-                  <a class="btn btn-outline-secondary w-100" href="{{ url_for('main.empresas_productos_view', company_id=company.id) }}">Ver</a>
+              {% endif %}
+
+              {% if last_sheet %}
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                  <div class="text-muted small">
+                    Última subida: <strong>{{ last_sheet.filename }}</strong>
+                    {% if last_sheet.uploaded_at %} ({{ last_sheet.uploaded_at.strftime('%d/%m/%Y %H:%M') }}){% endif %}
+                  </div>
+                  <div class="d-flex align-items-center gap-2" style="white-space: nowrap;">
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_productos_download', company_id=company.id) }}" title="Descargar planilla" aria-label="Descargar planilla">
+                      <i class="bi bi-download"></i>
+                    </a>
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_productos_view', company_id=company.id) }}">Ver</a>
+                    <form method="post" action="{{ url_for('main.empresas_productos_delete', company_id=company.id) }}" class="d-inline js-sheet-delete-form" data-sheet-name="{{ last_sheet.filename }}">
+                      <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                    </form>
+                  </div>
                 </div>
-              </div>
-              <div class="text-muted small mt-2">
-                {% set last_sheet = (company.product_sheets|sort(attribute='uploaded_at', reverse=True)|first) if company.product_sheets else none %}
-                {% if last_sheet %}
-                  Última subida: <strong>{{ last_sheet.filename }}</strong>
-                  {% if last_sheet.uploaded_at %} ({{ last_sheet.uploaded_at.strftime('%d/%m/%Y %H:%M') }}){% endif %}
-                {% else %}
-                  Aún no hay planillas cargadas.
-                {% endif %}
-              </div>
+                <div class="text-muted small mt-2">Para subir una nueva planilla, primero eliminá la actual.</div>
+              {% else %}
+                <div class="row g-2 align-items-end">
+                  <div class="col-12 col-md-8">
+                    <label class="form-label">Subir planilla</label>
+                    <input class="form-control" type="file" name="sheet" accept=".csv,.xlsx,.xls" required form="productSheetUploadForm">
+                  </div>
+                  <div class="col-12 col-md-4 d-flex gap-2">
+                    <button class="btn btn-primary w-100" type="submit" form="productSheetUploadForm">Subir</button>
+                    <a class="btn btn-outline-secondary w-100 disabled" href="#" aria-disabled="true">Ver</a>
+                  </div>
+                </div>
+                <div class="text-muted small mt-2">Aún no hay planillas cargadas.</div>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -1380,6 +1400,48 @@
 })();
 </script>
 <script>
+// Confirmación estética para eliminar planilla de productos
+(function(){
+  var pendingForm = null;
+  var modalEl = null;
+  var fileNameEl = null;
+  var modal = null;
+  var confirmBtn = null;
+
+  function ensureModal(){
+    if (!modalEl){
+      modalEl = document.getElementById('sheetDeleteConfirmModal');
+      fileNameEl = document.getElementById('sheetDeleteFileName');
+      var ModalCtor = window.bootstrap && window.bootstrap.Modal;
+      modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
+    }
+    if (!confirmBtn){
+      confirmBtn = document.getElementById('sheetDeleteConfirmBtn');
+      if (confirmBtn && !confirmBtn._bound){
+        confirmBtn.addEventListener('click', function(){
+          if (!pendingForm) return;
+          var f = pendingForm;
+          pendingForm = null;
+          if (modal) modal.hide();
+          f.submit();
+        });
+        confirmBtn._bound = true;
+      }
+    }
+  }
+
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!(form && form.classList && form.classList.contains('js-sheet-delete-form'))) return;
+    e.preventDefault();
+    ensureModal();
+    pendingForm = form;
+    if (fileNameEl) fileNameEl.textContent = form.getAttribute('data-sheet-name') || 'esta planilla';
+    if (modal) modal.show();
+  }, true);
+})();
+</script>
+<script>
 (function(){
   function getCellText(tr, idx){
     var cells = tr.children;
@@ -1431,6 +1493,26 @@
       <div class="modal-footer border-0">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" id="docDeleteConfirmBtn" class="btn btn-danger">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Modal confirmación eliminación de planilla de productos -->
+<div class="modal fade" id="sheetDeleteConfirmModal" tabindex="-1" aria-labelledby="sheetDeleteConfirmLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0">
+        <h5 class="modal-title" id="sheetDeleteConfirmLabel"><i class="bi bi-file-earmark-x text-danger me-2"></i>Eliminar planilla</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <p class="mb-2">¿Querés eliminar esta planilla?</p>
+        <p class="text-muted mb-0">Se eliminará el archivo asociado a esta empresa y dejará de estar disponible para visualizar o descargar.</p>
+        <p class="small text-muted mt-2 mb-0"><strong>Archivo:</strong> <span id="sheetDeleteFileName">esta planilla</span></p>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" id="sheetDeleteConfirmBtn" class="btn btn-danger">Eliminar</button>
       </div>
     </div>
   </div>

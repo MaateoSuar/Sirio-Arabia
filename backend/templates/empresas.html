@@ -330,20 +330,6 @@
           </div>
         </div>
         {% endif %}
-        {% if not show_all %}
-        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
-          <div class="text-muted small">
-            Página {{ page or 1 }}
-          </div>
-          <div class="d-flex gap-2">
-            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_prev else '' }}"
-               href="{{ url_for('main.empresas', q=q, page=(page-1), per_page=per_page) }}">Anterior</a>
-            <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not has_next else '' }}"
-               href="{{ url_for('main.empresas', q=q, page=(page+1), per_page=per_page) }}">Siguiente</a>
-            <a class="btn btn-sm btn-outline-dark" href="{{ url_for('main.empresas', q=q, all=1) }}">Ver todos</a>
-          </div>
-        </div>
-        {% endif %}
       </div>
     </div>
     <div class="mobile-cards"></div>
@@ -353,32 +339,62 @@
 (function(){
   var input = document.getElementById('empresaSearch');
   var form = input ? input.closest('form') : null;
+  var table = document.getElementById('empresas-table');
+  var tbody = table ? table.querySelector('tbody') : null;
   var t = null;
 
-  function setHidden(name, value){
-    if (!form) return;
-    var inp = form.querySelector('input[name="' + name + '"]');
-    if (!inp) {
-      inp = document.createElement('input');
-      inp.type = 'hidden';
-      inp.name = name;
-      form.appendChild(inp);
-    }
-    inp.value = value;
+  function norm(v){
+    return (v || '').toString().trim().toLowerCase();
   }
 
-  function submitNow(){
-    if (!form) return;
-    setHidden('page', '1');
-    form.submit();
+  function ensureNoResultsRow(){
+    if (!tbody) return null;
+    var row = document.getElementById('empresasNoResultsRow');
+    if (row) return row;
+    row = document.createElement('tr');
+    row.id = 'empresasNoResultsRow';
+    row.style.display = 'none';
+    row.innerHTML = '<td colspan="6" class="text-center text-muted py-4">Sin empresas</td>';
+    tbody.appendChild(row);
+    return row;
   }
 
-  function debounceSubmit(){
+  function applyFilters(){
+    if (!tbody) return;
+
+    var q = norm(input ? input.value : '');
+    var visible = 0;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+
+    rows.forEach(function(tr){
+      var isDataRow = tr.hasAttribute('data-marca') || tr.hasAttribute('data-razon');
+      if (!isDataRow) return;
+
+      var marca = norm(tr.getAttribute('data-marca'));
+      var razon = norm(tr.getAttribute('data-razon'));
+      var show = !q || marca.indexOf(q) >= 0 || razon.indexOf(q) >= 0;
+      tr.style.display = show ? '' : 'none';
+      if (show) visible += 1;
+    });
+
+    var noResultsRow = ensureNoResultsRow();
+    if (noResultsRow) noResultsRow.style.display = visible > 0 ? 'none' : '';
+  }
+
+  function debounceApply(){
     if (t) clearTimeout(t);
-    t = setTimeout(submitNow, 300);
+    t = setTimeout(applyFilters, 180);
   }
 
-  if (input) input.addEventListener('input', debounceSubmit);
+  if (input) input.addEventListener('input', debounceApply);
+  if (form){
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      applyFilters();
+    });
+  }
+
+  applyFilters();
 })();
 </script>
 <script>

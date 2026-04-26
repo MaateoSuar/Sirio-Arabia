@@ -59,6 +59,7 @@
       <option value="">Todas</option>
       <option value="CON_ALERTAS">Con alertas</option>
     </select>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#archivedClientsModal">Archivados</button>
     <a href="{{ url_for('main.clientes_new') }}" class="btn btn-primary btn-create-client">+ Crear Cliente</a>
   </div>
 </div>
@@ -225,6 +226,9 @@
                   <li>
                     <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#links{{ c.id }}">Empresa</button>
                   </li>
+                  <li>
+                    <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#archiveClient{{ c.id }}">Archivar</button>
+                  </li>
                   <li><hr class="dropdown-divider"></li>
                   <li>
                     <form method="post" action="{{ url_for('main.clientes_delete', client_id=c.id) }}" class="js-confirm-remove mb-0" data-confirm="¿Eliminar cliente? Esta acción no se puede deshacer.">
@@ -232,6 +236,27 @@
                     </form>
                   </li>
                 </ul>
+              </div>
+              <div class="modal fade" id="archiveClient{{ c.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Archivar cliente</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      <p class="mb-2">¿Querés archivar este cliente?</p>
+                      <p class="text-muted mb-0">El cliente dejará de mostrarse en el listado principal, pero podrás recuperarlo cuando quieras.</p>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <form method="post" action="{{ url_for('main.clientes_archive', client_id=c.id) }}" class="mb-0">
+                        <input type="hidden" name="return_to" value="{{ request.full_path|default('/clientes') }}">
+                        <button class="btn btn-primary" type="submit">Archivar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="modal fade" id="links{{ c.id }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-lg">
@@ -384,57 +409,52 @@
     <div class="mobile-cards"></div>
   </div>
 </div>
-<script>
-(function(){
-  var pendingForm = null;
-  var modalEl = document.getElementById('confirmRemoveModal');
-  var msgEl = document.getElementById('confirmRemoveMsg');
-  var confirmBtn = document.getElementById('confirmRemoveBtn');
-  var ModalCtor = window.bootstrap && window.bootstrap.Modal;
-  var modal = (modalEl && ModalCtor) ? ModalCtor.getOrCreateInstance(modalEl) : null;
-
-  document.addEventListener('submit', function(e){
-    var form = e.target;
-    if (form && form.classList && form.classList.contains('js-confirm-remove')){
-      e.preventDefault();
-      pendingForm = form;
-      var text = form.getAttribute('data-confirm') || '¿Confirmar acción?';
-      if (msgEl) msgEl.textContent = text;
-      if (modal) {
-        modal.show();
-      } else if (modalEl) {
-        // Fallback manual si bootstrap no está: mostrar modal simple
-        modalEl.classList.add('show');
-        modalEl.style.display = 'block';
-        if (!document.getElementById('confirmRemoveBackdrop')){
-          var bd = document.createElement('div'); bd.id='confirmRemoveBackdrop'; bd.className='modal-backdrop fade show'; document.body.appendChild(bd);
-        }
-      } else {
-        // Último fallback: confirm() nativo si no existe el modal en el DOM
-        if (confirm(text)){
-          var f = pendingForm; pendingForm = null; f.submit();
-        } else {
-          pendingForm = null;
-        }
-      }
-    }
-  });
-
-  if (confirmBtn){
-    confirmBtn.addEventListener('click', function(){
-      if (pendingForm){
-        // Cerrar modal antes de enviar
-        if (modal) modal.hide();
-        else {
-          modalEl.classList.remove('show'); modalEl.style.display='none';
-          var bd = document.getElementById('confirmRemoveBackdrop'); if (bd) bd.remove();
-        }
-        var f = pendingForm; pendingForm = null; f.submit();
-      }
-    });
-  }
-})();
-</script>
+<div class="modal fade" id="archivedClientsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Clientes archivados</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Razón social</th>
+                <th>Nombre</th>
+                <th>Provincia</th>
+                <th class="text-end">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in archived_items %}
+                <tr>
+                  <td class="fw-semibold">{{ a.apellido }}</td>
+                  <td>{{ a.nombre }}</td>
+                  <td>{{ a.provincia or '-' }}</td>
+                  <td class="text-end">
+                    <form method="post" action="{{ url_for('main.clientes_unarchive', client_id=a.id) }}" class="d-inline js-confirm-remove" data-confirm="¿Querés desarchivar este cliente?">
+                      <input type="hidden" name="return_to" value="{{ request.full_path|default('/clientes') }}">
+                      <button type="submit" class="btn btn-sm btn-outline-primary">Desarchivar</button>
+                    </form>
+                  </td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="4" class="text-center text-muted py-3">No hay clientes archivados</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
 (function(){
   var table = document.getElementById('clientes-table');
@@ -767,42 +787,80 @@
 })();
 </script>
 <script>
-// Filtros globales: enviar al servidor (no filtrar solo en la página actual)
+// Filtros globales (sin recarga): mantener foco del buscador y filtrar en la tabla
 (function(){
   var searchInput = document.getElementById('clienteSearch');
   var form = searchInput ? searchInput.closest('form') : null;
   var provSelect = document.getElementById('provSelect');
   var alertasSelect = document.getElementById('alertasSelect');
+  var table = document.getElementById('clientes-table');
+  var tbody = table ? table.querySelector('tbody') : null;
   var t = null;
 
-  function setHidden(name, value){
-    if (!form) return;
-    var inp = form.querySelector('input[name="' + name + '"]');
-    if (!inp) {
-      inp = document.createElement('input');
-      inp.type = 'hidden';
-      inp.name = name;
-      form.appendChild(inp);
-    }
-    inp.value = value;
+  function norm(v){
+    return (v || '').toString().trim().toLowerCase();
   }
 
-  function submitNow(){
-    if (!form) return;
-    setHidden('page', '1');
-    if (provSelect) setHidden('prov', provSelect.value || '');
-    if (alertasSelect) setHidden('alertas', alertasSelect.value || '');
-    form.submit();
+  function ensureNoResultsRow(){
+    if (!tbody) return null;
+    var row = document.getElementById('clientesNoResultsRow');
+    if (row) return row;
+    row = document.createElement('tr');
+    row.id = 'clientesNoResultsRow';
+    row.style.display = 'none';
+    row.innerHTML = '<td colspan="5" class="text-center text-muted py-4">Sin clientes</td>';
+    tbody.appendChild(row);
+    return row;
   }
 
-  function debounceSubmit(){
+  function applyFilters(){
+    if (!tbody) return;
+
+    var q = norm(searchInput ? searchInput.value : '');
+    var prov = norm(provSelect ? provSelect.value : '');
+    var onlyAlertas = norm(alertasSelect ? alertasSelect.value : '') === 'con_alertas';
+
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var visibleCount = 0;
+
+    rows.forEach(function(tr){
+      var isDataRow = tr.hasAttribute('data-razon') || tr.hasAttribute('data-nombre');
+      if (!isDataRow) return;
+
+      var razon = norm(tr.getAttribute('data-razon'));
+      var nombre = norm(tr.getAttribute('data-nombre'));
+      var provincia = norm(tr.getAttribute('data-prov'));
+      var hasAlertas = (tr.getAttribute('data-has-alertas') || '0') === '1';
+
+      var matchesQ = !q || razon.indexOf(q) >= 0 || nombre.indexOf(q) >= 0;
+      var matchesProv = !prov || provincia.indexOf(prov) >= 0;
+      var matchesAlertas = !onlyAlertas || hasAlertas;
+      var show = matchesQ && matchesProv && matchesAlertas;
+
+      tr.style.display = show ? '' : 'none';
+      if (show) visibleCount += 1;
+    });
+
+    var noResultsRow = ensureNoResultsRow();
+    if (noResultsRow) noResultsRow.style.display = visibleCount > 0 ? 'none' : '';
+  }
+
+  function debounceApply(){
     if (t) clearTimeout(t);
-    t = setTimeout(submitNow, 300);
+    t = setTimeout(applyFilters, 180);
   }
 
-  if (searchInput) searchInput.addEventListener('input', debounceSubmit);
-  if (provSelect) provSelect.addEventListener('change', submitNow);
-  if (alertasSelect) alertasSelect.addEventListener('change', submitNow);
+  if (searchInput) searchInput.addEventListener('input', debounceApply);
+  if (provSelect) provSelect.addEventListener('change', applyFilters);
+  if (alertasSelect) alertasSelect.addEventListener('change', applyFilters);
+  if (form){
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      applyFilters();
+    });
+  }
+
+  applyFilters();
 
   document.addEventListener('change', function(e){
     var sel = e.target;
