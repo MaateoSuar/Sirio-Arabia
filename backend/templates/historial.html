@@ -14,6 +14,7 @@
         <thead class="table-light">
           <tr>
             <th class="js-hist-sort" data-sort-key="pedido" style="cursor:pointer; user-select:none;">Fecha pedido</th>
+            <th class="js-hist-sort" data-sort-key="compra" style="cursor:pointer; user-select:none;">Fecha de compra</th>
             <th class="js-hist-sort" data-sort-key="cliente" style="cursor:pointer; user-select:none;">Cliente</th>
             <th class="js-hist-sort" data-sort-key="empresa" style="cursor:pointer; user-select:none;">Empresa</th>
             <th>Tipo</th>
@@ -27,6 +28,8 @@
         {% for o in orders %}
           <tr>
             <td>{{ o.created_at.strftime('%d/%m/%Y') if o.created_at else '-' }}</td>
+            {% set fecha_compra = (o.logistics.fecha_compra if o.logistics and o.logistics.fecha_compra else o.created_at) %}
+            <td>{{ fecha_compra.strftime('%d/%m/%Y') if fecha_compra else '-' }}</td>
             <td>{{ (o.client.apellido ~ ' ' ~ o.client.nombre) if o.client else '-' }}</td>
             <td>{{ o.company.nombre if o.company else '-' }}</td>
             <td>{{ o.tipo_comprobante or '-' }}</td>
@@ -53,6 +56,11 @@
                         <div class="col-12 col-md-4">
                           <label class="form-label">Fecha pedido</label>
                           <input type="text" class="form-control" value="{{ o.created_at.strftime('%Y-%m-%d') if o.created_at else '' }}" disabled>
+                        </div>
+                        <div class="col-12 col-md-4">
+                          <label class="form-label">Fecha de compra</label>
+                          {% set fecha_compra_modal = (o.logistics.fecha_compra if o.logistics and o.logistics.fecha_compra else o.created_at) %}
+                          <input type="text" class="form-control" value="{{ fecha_compra_modal.strftime('%Y-%m-%d') if fecha_compra_modal else '' }}" disabled>
                         </div>
                         <div class="col-12 col-md-4">
                           <label class="form-label">Cliente</label>
@@ -101,6 +109,7 @@
                       </div>
                       <textarea class="d-none" id="histOrderCopy{{ o.id }}">Pedido #{{ o.id }}
 Fecha pedido: {{ o.created_at.strftime('%d/%m/%Y') if o.created_at else '-' }}
+Fecha de compra: {{ fecha_compra.strftime('%d/%m/%Y') if fecha_compra else '-' }}
 Cliente: {{ (o.client.apellido ~ ' ' ~ o.client.nombre) if o.client else '-' }}
 Empresa: {{ o.company.nombre if o.company else '-' }}
 Sucursal: {{ o.sucursal or '-' }}
@@ -124,7 +133,7 @@ Descripción: {{ o.descripcion or '' }}</textarea>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="text-center text-muted py-4">Sin pedidos</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4">Sin pedidos</td></tr>
         {% endfor %}
         </tbody>
         </table>

@@ -24,7 +24,7 @@
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
   <div>
     <h1 class="h4 mb-1 empresas-title">Legajo de Empresas</h1>
-    <form method="get" class="d-flex flex-column flex-sm-row gap-2">
+    <form method="get" id="empresasFiltersForm" class="d-flex flex-column flex-sm-row gap-2">
       <input type="text" id="empresaSearch" name="q" value="{{ q or '' }}" class="form-control form-control-sm empresa-search-input" placeholder="Buscar por marca o razón social">
       <input type="hidden" name="page" value="1">
       <input type="hidden" name="per_page" value="{{ per_page or 10 }}">
@@ -317,7 +317,7 @@
         </tbody>
         </table>
         {% if not show_all %}
-        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+        <div id="empresasPagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
           <div class="text-muted small">
             Página {{ page or 1 }}
           </div>
@@ -338,63 +338,123 @@
 <script>
 (function(){
   var input = document.getElementById('empresaSearch');
-  var form = input ? input.closest('form') : null;
+  var form = document.getElementById('empresasFiltersForm') || (input ? input.closest('form') : null);
+  var pageInput = form ? form.querySelector('input[name="page"]') : null;
   var table = document.getElementById('empresas-table');
   var tbody = table ? table.querySelector('tbody') : null;
+  var pagination = document.getElementById('empresasPagination');
   var t = null;
+  var activeController = null;
+  var requestSeq = 0;
 
-  function norm(v){
-    return (v || '').toString().trim().toLowerCase();
+  function buildUrl(resetPage){
+    if (!form) return null;
+    var params = new URLSearchParams(new FormData(form));
+    if (resetPage) params.set('page', '1');
+    if (!params.get('per_page')) params.set('per_page', '10');
+    params.delete('all');
+    var q = (params.get('q') || '').trim();
+    if (!q) params.delete('q');
+    var qs = params.toString();
+    return window.location.pathname + (qs ? ('?' + qs) : '');
   }
 
-  function ensureNoResultsRow(){
-    if (!tbody) return null;
-    var row = document.getElementById('empresasNoResultsRow');
-    if (row) return row;
-    row = document.createElement('tr');
-    row.id = 'empresasNoResultsRow';
-    row.style.display = 'none';
-    row.innerHTML = '<td colspan="6" class="text-center text-muted py-4">Sin empresas</td>';
-    tbody.appendChild(row);
-    return row;
+  function syncControlsFromUrl(url){
+    try {
+      var parsed = new URL(url, window.location.origin);
+      var params = parsed.searchParams;
+      if (pageInput) pageInput.value = params.get('page') || '1';
+      if (input) input.value = params.get('q') || '';
+    } catch (e) {}
   }
 
-  function applyFilters(){
+  function replaceListFromHtml(html){
     if (!tbody) return;
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var newTbody = doc.querySelector('#empresas-table tbody');
+    if (newTbody) tbody.innerHTML = newTbody.innerHTML;
 
-    var q = norm(input ? input.value : '');
-    var visible = 0;
-    var rows = Array.from(tbody.querySelectorAll('tr'));
-
-    rows.forEach(function(tr){
-      var isDataRow = tr.hasAttribute('data-marca') || tr.hasAttribute('data-razon');
-      if (!isDataRow) return;
-
-      var marca = norm(tr.getAttribute('data-marca'));
-      var razon = norm(tr.getAttribute('data-razon'));
-      var show = !q || marca.indexOf(q) >= 0 || razon.indexOf(q) >= 0;
-      tr.style.display = show ? '' : 'none';
-      if (show) visible += 1;
-    });
-
-    var noResultsRow = ensureNoResultsRow();
-    if (noResultsRow) noResultsRow.style.display = visible > 0 ? 'none' : '';
+    var currentPagination = document.getElementById('empresasPagination');
+    var nextPagination = doc.getElementById('empresasPagination');
+    if (currentPagination && nextPagination) {
+      currentPagination.outerHTML = nextPagination.outerHTML;
+    } else if (currentPagination && !nextPagination) {
+      currentPagination.remove();
+    } else if (!currentPagination && nextPagination) {
+      var tableResp = table ? table.closest('.table-responsive') : null;
+      if (tableResp) tableResp.insertAdjacentHTML('beforeend', nextPagination.outerHTML);
+    }
+    pagination = document.getElementById('empresasPagination');
   }
 
-  function debounceApply(){
+  function fetchAndRender(url, keepFocus){
+    if (!url) return;
+    var hadFocus = !!(keepFocus && input && document.activeElement === input);
+    var selStart = hadFocus ? input.selectionStart : null;
+    var selEnd = hadFocus ? input.selectionEnd : null;
+
+    requestSeq += 1;
+    var seq = requestSeq;
+    if (activeController) activeController.abort();
+    activeController = new AbortController();
+
+    fetch(url, {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin',
+      signal: activeController.signal
+    })
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        if (seq !== requestSeq) return;
+        replaceListFromHtml(html);
+        syncControlsFromUrl(url);
+        try { window.history.replaceState({}, '', url); } catch (e) {}
+        if (hadFocus && input) {
+          input.focus({ preventScroll: true });
+          try {
+            var end = input.value.length;
+            input.setSelectionRange(
+              typeof selStart === 'number' ? Math.min(selStart, end) : end,
+              typeof selEnd === 'number' ? Math.min(selEnd, end) : end
+            );
+          } catch (e) {}
+        }
+      })
+      .catch(function(err){
+        if (err && err.name === 'AbortError') return;
+        console.error('No se pudo actualizar el listado de empresas', err);
+      });
+  }
+
+  function submitFilters(){
+    if (pageInput) pageInput.value = '1';
+    fetchAndRender(buildUrl(true), true);
+  }
+
+  function debounceSubmit(){
     if (t) clearTimeout(t);
-    t = setTimeout(applyFilters, 180);
+    t = setTimeout(submitFilters, 350);
   }
 
-  if (input) input.addEventListener('input', debounceApply);
+  if (input) input.addEventListener('input', debounceSubmit);
   if (form){
     form.addEventListener('submit', function(e){
       e.preventDefault();
-      applyFilters();
+      submitFilters();
     });
   }
 
-  applyFilters();
+  document.addEventListener('click', function(e){
+    var link = e.target && e.target.closest ? e.target.closest('#empresasPagination a[href]') : null;
+    if (!link) return;
+    if (link.classList.contains('disabled')) {
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    fetchAndRender(link.getAttribute('href'), false);
+  });
 })();
 </script>
 <script>

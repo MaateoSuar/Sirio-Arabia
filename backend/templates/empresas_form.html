@@ -301,10 +301,23 @@
             <div class="card-body">
               {% set last_sheet = (company.product_sheets|sort(attribute='uploaded_at', reverse=True)|first) if company.product_sheets else none %}
               {% set sheet_error = request.args.get('sheet_error') %}
+              {% set sheet_deleted = request.args.get('sheet_deleted') %}
 
               {% if sheet_error == 'replace_required' %}
                 <div class="alert alert-warning py-2" role="alert">
                   Ya existe una planilla cargada. Eliminá la planilla actual para subir una nueva.
+                </div>
+              {% endif %}
+
+              {% if sheet_deleted == '1' %}
+                <div class="alert alert-success py-2" role="alert">
+                  Planilla de productos eliminada correctamente.
+                </div>
+              {% endif %}
+
+              {% if sheet_error == 'delete_failed' %}
+                <div class="alert alert-danger py-2" role="alert">
+                  No se pudo eliminar la planilla de productos. Intentá nuevamente.
                 </div>
               {% endif %}
 
@@ -319,9 +332,7 @@
                       <i class="bi bi-download"></i>
                     </a>
                     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_productos_view', company_id=company.id) }}">Ver</a>
-                    <form method="post" action="{{ url_for('main.empresas_productos_delete', company_id=company.id) }}" class="d-inline js-sheet-delete-form" data-sheet-name="{{ last_sheet.filename }}">
-                      <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
-                    </form>
+                    <button class="btn btn-sm btn-outline-danger" type="submit" form="productSheetDeleteForm" data-sheet-name="{{ last_sheet.filename }}">Eliminar</button>
                   </div>
                 </div>
                 <div class="text-muted small mt-2">Para subir una nueva planilla, primero eliminá la actual.</div>
@@ -348,6 +359,7 @@
 
     {% if company %}
     <form id="productSheetUploadForm" method="post" enctype="multipart/form-data" action="{{ url_for('main.empresas_productos_upload', company_id=company.id) }}"></form>
+    <form id="productSheetDeleteForm" method="post" action="{{ url_for('main.empresas_productos_delete', company_id=company.id) }}" class="d-none js-sheet-delete-form" data-sheet-name="{{ (company.product_sheets|sort(attribute='uploaded_at', reverse=True)|first).filename if company.product_sheets else 'esta planilla' }}"></form>
     {% endif %}
 
     <div class="modal fade" id="recomNotasModal" tabindex="-1" aria-hidden="true">
@@ -1436,11 +1448,27 @@
     e.preventDefault();
     ensureModal();
     pendingForm = form;
-    if (fileNameEl) fileNameEl.textContent = form.getAttribute('data-sheet-name') || 'esta planilla';
+    var submitter = e.submitter || null;
+    var sheetName =
+      (submitter && submitter.getAttribute && submitter.getAttribute('data-sheet-name')) ||
+      form.getAttribute('data-sheet-name') ||
+      'esta planilla';
+    if (fileNameEl) fileNameEl.textContent = sheetName;
     if (modal) modal.show();
   }, true);
 })();
 </script>
+{% if request.args.get('sheet_deleted') == '1' %}
+<script>
+(function(){
+  try {
+    if (window.showToast) {
+      window.showToast('Planilla de productos eliminada correctamente.', 'success');
+    }
+  } catch (e) {}
+})();
+</script>
+{% endif %}
 <script>
 (function(){
   function getCellText(tr, idx){
@@ -1506,8 +1534,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body pt-0">
-        <p class="mb-2">¿Querés eliminar esta planilla?</p>
-        <p class="text-muted mb-0">Se eliminará el archivo asociado a esta empresa y dejará de estar disponible para visualizar o descargar.</p>
+        <p class="mb-2">¿Seguro que querés eliminar la planilla de productos de esta empresa? Esta acción no se puede deshacer.</p>
         <p class="small text-muted mt-2 mb-0"><strong>Archivo:</strong> <span id="sheetDeleteFileName">esta planilla</span></p>
       </div>
       <div class="modal-footer border-0">

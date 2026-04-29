@@ -53,6 +53,12 @@ from ..utils.company_products import parse_dynamic_table, read_dataframe_from_by
 bp = Blueprint("main", __name__)
 
 
+@bp.get("/favicon.ico")
+def favicon_ico():
+
+    return redirect(url_for("static", filename="favicon.svg"), code=302)
+
+
 
 
 
@@ -1052,183 +1058,147 @@ def _safe_filter_not_voided(q):
 
 def api_cobranzas_get_saldo_historico():
 
+    # Compatibilidad: este endpoint histórico ahora devuelve "deudas pendientes"
+    # para evitar conceptos de saldo ajustable/manual.
     client_id = request.args.get("client_id", type=int)
-
-    company_id = request.args.get("company_id", type=int)
-
-    if not client_id or not company_id:
-
-        return jsonify({"ok": True, "computed_total": 0.0, "adjustment": 0.0, "desired_total": 0.0})
-
-
-
-    client = Client.query.get_or_404(client_id)
-
-    _require_owner(client)
-
-
-
-    # computed_total: SOLO diferencias de pedidos ya cobrados (saldo a favor/en contra histórico)
-
-    computed_total = 0.0
+    if not client_id:
+        return jsonify({"ok": True, "computed_total": 0.0, "adjustment": 0.0, "desired_total": 0.0, "pending_total": 0.0})
 
     try:
-
-        q_orders = Order.query.filter(Order.client_id == client_id).filter(Order.company_id == company_id)
-
-        q_orders = q_orders.filter(Order.deleted_at.is_(None))
-
-        if not _has_global_access():
-
-            uid = _effective_user_id()
-
-            if uid is not None:
-
-                q_orders = q_orders.filter(Order.owner_user_id == uid)
-
-
-
-        for o in q_orders.all():
-
-            col = Collection.query.filter_by(order_id=o.id).first()
-
-            cobrado = bool(col is not None and getattr(col, "fecha_cobro_efectiva", None) is not None)
-
-            if not cobrado:
-
-                continue
-
-
-
-            monto_val = 0.0
-
-            try:
-
-                candidates = []
-
-                if col is not None and getattr(col, "monto", None) is not None:
-
-                    candidates.append(float(col.monto))
-
-                if getattr(o, "precio_final", None) is not None:
-
-                    candidates.append(float(o.precio_final))
-
-                lg = getattr(o, "logistics", None)
-
-                if lg is not None and getattr(lg, "precio", None) is not None:
-
-                    candidates.append(float(lg.precio))
-
-                for v in candidates:
-
-                    if v is not None and v > 0:
-
-                        monto_val = float(v)
-
-                        break
-
-                if monto_val == 0.0 and candidates:
-
-                    monto_val = float(candidates[0] or 0.0)
-
-            except Exception:
-
-                monto_val = 0.0
-
-
-
-            total_paid = 0.0
-
-            total_credit = 0.0
-
-            try:
-
-                for p in (
-
-                    CollectionPayment.query
-
-                    .filter_by(order_id=o.id)
-
-                    .filter(CollectionPayment.kind != "DRAFT")
-
-                    .filter(CollectionPayment.voided_at.is_(None))
-
-                    .all()
-
-                ):
-
-                    kind = (getattr(p, "kind", "") or "").strip().upper()
-
-                    amt = float(getattr(p, "amount", 0) or 0)
-
-                    if kind == "CREDIT_NOTE":
-
-                        total_credit += abs(amt)
-
-                    elif kind == "PAYMENT":
-
-                        total_paid += abs(amt)
-
-            except Exception:
-
-                total_paid = 0.0
-
-                total_credit = 0.0
-
-
-
-            remaining = float(monto_val or 0.0) - float(total_paid or 0.0) - float(total_credit or 0.0)
-
-            if abs(float(remaining or 0.0)) >= 1000.0:
-
-                computed_total += float(remaining or 0.0)
-
+        pending_total = float(_compute_client_pending_total(client_id) or 0.0)
     except Exception:
-
-        computed_total = 0.0
-
-
-
-    adjustment = 0.0
-
-    try:
-
-        uid = _balance_owner_user_id()
-
-        bal = (
-
-            ClientCompanyBalance.query
-
-            .filter_by(owner_user_id=uid, client_id=client_id, company_id=company_id)
-
-            .first()
-
-        )
-
-        if bal is not None and getattr(bal, "balance_adjustment", None) is not None:
-
-            adjustment = float(bal.balance_adjustment or 0.0)
-
-    except Exception:
-
-        adjustment = 0.0
-
-
-
-    desired_total = float(computed_total or 0.0) + float(adjustment or 0.0)
+        pending_total = 0.0
 
     return jsonify({
-
         "ok": True,
-
-        "computed_total": float(computed_total or 0.0),
-
-        "adjustment": float(adjustment or 0.0),
-
-        "desired_total": float(desired_total or 0.0),
-
+        "computed_total": float(pending_total),
+        "adjustment": 0.0,
+        "desired_total": float(pending_total),
+        "pending_total": float(pending_total),
     })
+
+
+def _compute_client_pending_total(client_id: int) -> float:
+    client = Client.query.get_or_404(client_id)
+    _require_owner(client)
+
+    q = (
+        Order.query
+        .outerjoin(Collection, Collection.order_id == Order.id)
+        .options(
+            selectinload(Order.collection),
+            selectinload(Order.logistics),
+        )
+        .filter(Order.client_id == client_id)
+        .filter(Order.deleted_at.is_(None))
+    )
+
+    if not _has_global_access():
+        uid = _effective_user_id()
+        if uid is not None:
+            q = q.filter((Order.owner_user_id == uid) | (Order.owner_user_id.is_(None)))
+
+    total_pending = 0.0
+    now_dt = datetime.utcnow()
+    for o in q.all():
+        col = getattr(o, "collection", None)
+        if col is not None and getattr(col, "fecha_cobro_efectiva", None):
+            continue
+
+        monto_val = 0.0
+        try:
+            candidates = []
+            if col is not None and getattr(col, "monto", None) is not None:
+                candidates.append(float(col.monto))
+            if getattr(o, "precio_final", None) is not None:
+                candidates.append(float(o.precio_final))
+            lg = getattr(o, "logistics", None)
+            if lg is not None and getattr(lg, "precio", None) is not None:
+                candidates.append(float(lg.precio))
+            for v in candidates:
+                if v is not None and v > 0:
+                    monto_val = float(v)
+                    break
+            if monto_val <= 0.0 and candidates:
+                monto_val = float(candidates[0] or 0.0)
+        except Exception:
+            monto_val = 0.0
+
+        total_paid = 0.0
+        total_credit = 0.0
+        try:
+            pay_q = (
+                CollectionPayment.query
+                .filter_by(order_id=o.id)
+                .filter(CollectionPayment.kind != "DRAFT")
+            )
+            try:
+                pay_q = _safe_filter_not_voided(pay_q)
+            except Exception:
+                pay_q = pay_q.filter(CollectionPayment.voided_at.is_(None))
+
+            for p in pay_q.all():
+                kind = (getattr(p, "kind", "") or "").strip().upper()
+                amt = float(getattr(p, "amount", 0) or 0)
+                if kind == "CREDIT_NOTE":
+                    total_credit += abs(amt)
+                elif kind == "PAYMENT":
+                    total_paid += abs(amt)
+        except Exception:
+            total_paid = 0.0
+            total_credit = 0.0
+
+        # Mismo criterio conceptual de /deudas para estados pendientes.
+        partial_exists = False
+        try:
+            pay_exists_q = (
+                CollectionPayment.query
+                .filter(CollectionPayment.order_id == o.id)
+                .filter(CollectionPayment.kind != "DRAFT")
+            )
+            try:
+                pay_exists_q = _safe_filter_not_voided(pay_exists_q)
+            except Exception:
+                pay_exists_q = pay_exists_q.filter(CollectionPayment.voided_at.is_(None))
+            partial_exists = (pay_exists_q.first() is not None)
+        except Exception:
+            partial_exists = False
+        if not partial_exists:
+            try:
+                partial_exists = (
+                    CollectionDraft.query
+                    .filter(CollectionDraft.order_id == o.id)
+                    .first()
+                    is not None
+                )
+            except Exception:
+                partial_exists = False
+
+        has_due = bool(col is not None and getattr(col, "fecha_pago_estimada", None) is not None)
+        overdue = bool(has_due and getattr(col, "fecha_pago_estimada", None) < now_dt)
+        is_pending_status = bool(partial_exists or (not has_due) or overdue or (has_due and (not overdue) and (not partial_exists)))
+        if not is_pending_status:
+            continue
+
+        remaining = float(monto_val or 0.0) - float(total_paid or 0.0) - float(total_credit or 0.0)
+        if remaining > 0.009:
+            total_pending += float(remaining)
+
+    return float(total_pending or 0.0)
+
+
+@bp.get("/api/cobranzas/deudas_pendientes")
+def api_cobranzas_deudas_pendientes():
+    client_id = request.args.get("client_id", type=int)
+    if not client_id:
+        return jsonify({"ok": True, "pending_total": 0.0})
+
+    try:
+        pending_total = float(_compute_client_pending_total(client_id) or 0.0)
+    except Exception:
+        pending_total = 0.0
+
+    return jsonify({"ok": True, "pending_total": float(pending_total)})
 
 
 
@@ -1868,6 +1838,10 @@ def _compute_alerts_for_all_clients(
 
                     "client_name": client_name,
 
+                    "client_razon_social": str(getattr(o.client, "apellido", "") or "-"),
+
+                    "client_nombre": str(getattr(o.client, "nombre", "") or "-"),
+
                     "order_id": int(o.id),
 
                     "kind": KIND_ENT,
@@ -2130,6 +2104,10 @@ def _compute_alerts_for_all_clients(
 
                 "client_name": client_name,
 
+                "client_razon_social": str(getattr(o.client, "apellido", "") or "-"),
+
+                "client_nombre": str(getattr(o.client, "nombre", "") or "-"),
+
                 "order_id": int(o.id),
 
                 "kind": KIND_COB,
@@ -2170,19 +2148,21 @@ def _compute_alerts_for_all_clients(
 
                 db.session.query(
 
+                    Order.id.label("order_id"),
+
                     Order.client_id.label("client_id"),
 
                     Order.company_id.label("company_id"),
 
-                    func.max(Order.created_at).label("last_dt"),
+                    Order.created_at.label("created_at"),
 
-                    func.max(Order.id).label("last_order_id"),
+                    LogisticsStatus.fecha_compra.label("fecha_compra"),
 
                 )
 
-                .filter(Order.deleted_at.is_(None))
+                .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
 
-                .group_by(Order.client_id, Order.company_id)
+                .filter(Order.deleted_at.is_(None))
 
             )
 
@@ -2194,13 +2174,64 @@ def _compute_alerts_for_all_clients(
 
                     q_last = q_last.filter(Order.owner_user_id == uid)
 
-            rows = q_last.all()
+            base_rows = q_last.all()
+
+            latest_by_pair = {}
+
+            for r in base_rows:
+
+                try:
+
+                    client_id = int(getattr(r, "client_id", 0) or 0)
+
+                    company_id = int(getattr(r, "company_id", 0) or 0)
+
+                    order_id = int(getattr(r, "order_id", 0) or 0)
+
+                    if not client_id or not company_id or not order_id:
+
+                        continue
+
+                    compra_dt = getattr(r, "fecha_compra", None)
+
+                    created_dt = getattr(r, "created_at", None)
+
+                    effective_dt = compra_dt or created_dt
+
+                    if not effective_dt:
+
+                        continue
+
+                    key_pair = (client_id, company_id)
+
+                    prev = latest_by_pair.get(key_pair)
+
+                    is_newer = (
+                        prev is None
+                        or effective_dt > prev["last_dt"]
+                        or (effective_dt == prev["last_dt"] and order_id > prev["last_order_id"])
+                    )
+
+                    if is_newer:
+
+                        latest_by_pair[key_pair] = {
+                            "client_id": client_id,
+                            "company_id": company_id,
+                            "last_dt": effective_dt,
+                            "last_order_id": order_id,
+                        }
+
+                except Exception:
+
+                    continue
+
+            rows = list(latest_by_pair.values())
 
             if rows:
 
-                client_ids = sorted({int(r.client_id) for r in rows if r and r.client_id})
+                client_ids = sorted({int(r.get("client_id")) for r in rows if r and r.get("client_id")})
 
-                company_ids = sorted({int(r.company_id) for r in rows if r and r.company_id})
+                company_ids = sorted({int(r.get("company_id")) for r in rows if r and r.get("company_id")})
 
                 clients_map = {}
 
@@ -2242,17 +2273,17 @@ def _compute_alerts_for_all_clients(
 
                     try:
 
-                        last_dt = getattr(r, "last_dt", None)
+                        last_dt = r.get("last_dt")
 
                         if not last_dt or last_dt >= cutoff:
 
                             continue
 
-                        client_id = int(getattr(r, "client_id", 0) or 0)
+                        client_id = int(r.get("client_id", 0) or 0)
 
-                        company_id = int(getattr(r, "company_id", 0) or 0)
+                        company_id = int(r.get("company_id", 0) or 0)
 
-                        last_order_id = int(getattr(r, "last_order_id", 0) or 0)
+                        last_order_id = int(r.get("last_order_id", 0) or 0)
 
                         if not client_id or not company_id or not last_order_id:
 
@@ -2270,7 +2301,25 @@ def _compute_alerts_for_all_clients(
 
                         co = companies_map.get(company_id)
 
-                        client_name = f"{cl.apellido} {cl.nombre}" if cl else "-"
+                        client_razon_social = "-"
+
+                        client_nombre = "-"
+
+                        try:
+
+                            if cl is not None:
+
+                                client_razon_social = str(getattr(cl, "apellido", None) or "-")
+
+                                client_nombre = str(getattr(cl, "nombre", None) or "-")
+
+                        except Exception:
+
+                            client_razon_social = "-"
+
+                            client_nombre = "-"
+
+                        client_name = f"{client_razon_social} {client_nombre}".strip()
 
                         comp_name = (getattr(co, "nombre", None) or "-")
 
@@ -2312,6 +2361,10 @@ def _compute_alerts_for_all_clients(
 
                             "client_name": client_name,
 
+                            "client_razon_social": client_razon_social,
+
+                            "client_nombre": client_nombre,
+
                             "order_id": last_order_id,
 
                             "kind": KIND_INACT,
@@ -2321,6 +2374,8 @@ def _compute_alerts_for_all_clients(
                             "severity": "warning",
 
                             "company": comp_name,
+
+                            "last_order_date": last_dt,
 
                             "inactivity_months": months,
 
@@ -3462,6 +3517,12 @@ def clientes():
 
     prov = (request.args.get("prov") or "").strip()
 
+    alertas = (request.args.get("alertas") or "").strip().upper()
+
+    if alertas not in {"", "CON_ALERTAS"}:
+
+        alertas = ""
+
     show_all = request.args.get("all") == "1"
 
 
@@ -3526,6 +3587,40 @@ def clientes():
 
         )
 
+    active_alerts_cache = None
+
+    if alertas == "CON_ALERTAS":
+
+        try:
+
+            active_alerts_cache = _compute_alerts_for_all_clients(datetime.utcnow()) or []
+
+            client_ids_with_alerts = {
+
+                int(a.get("client_id") or 0)
+
+                for a in active_alerts_cache
+
+                if a and a.get("client_id")
+
+            }
+
+            client_ids_with_alerts = {cid for cid in client_ids_with_alerts if cid > 0}
+
+            if client_ids_with_alerts:
+
+                base = base.filter(Client.id.in_(client_ids_with_alerts))
+
+            else:
+
+                base = base.filter(Client.id == 0)
+
+        except Exception:
+
+            active_alerts_cache = []
+
+            base = base.filter(Client.id == 0)
+
     base = base.order_by(Client.apellido, Client.nombre)
 
     has_next = False
@@ -3576,9 +3671,11 @@ def clientes():
 
     try:
 
-        now_dt = datetime.utcnow()
+        active_alerts = active_alerts_cache
 
-        active_alerts = _compute_alerts_for_all_clients(now_dt) or []
+        if active_alerts is None:
+
+            active_alerts = _compute_alerts_for_all_clients(datetime.utcnow()) or []
 
         total_active_alerts = int(len(active_alerts) or 0)
 
@@ -3815,6 +3912,8 @@ def clientes():
         q=q,
 
         prov=prov,
+
+        alertas=alertas,
 
         show_all=show_all,
 
@@ -6462,13 +6561,59 @@ def empresas_productos_delete(company_id: int):
 
     sheets = CompanyProductSheet.query.filter_by(company_id=company.id).all()
 
-    for sheet in sheets:
+    try:
 
-        db.session.delete(sheet)
+        for sheet in sheets:
 
-    db.session.commit()
+            fp = (getattr(sheet, "filepath", None) or "").strip()
 
-    return redirect(url_for("main.empresas_edit_view", company_id=company.id) + "#empresaProductosCollapse")
+            if fp and not fp.lower().startswith(("http://", "https://")):
+
+                try:
+
+                    candidate = fp
+
+                    if not os.path.isabs(candidate):
+
+                        candidate = os.path.join(current_app.root_path, candidate.lstrip("/\\"))
+
+                    if os.path.isfile(candidate):
+
+                        os.remove(candidate)
+
+                except Exception:
+
+                    pass
+
+            db.session.delete(sheet)
+
+        db.session.commit()
+
+    except Exception:
+
+        try:
+
+            db.session.rollback()
+
+        except Exception:
+
+            pass
+
+        return redirect(
+
+            url_for("main.empresas_edit_view", company_id=company.id)
+
+            + "?sheet_error=delete_failed#empresaProductosCollapse"
+
+        )
+
+    return redirect(
+
+        url_for("main.empresas_edit_view", company_id=company.id)
+
+        + "?sheet_deleted=1#empresaProductosCollapse"
+
+    )
 
 
 
@@ -10620,13 +10765,35 @@ def deudas_pendientes():
 
     company_q = (request.args.get("company_q") or "").strip()
 
+    sort = (request.args.get("sort") or "").strip().lower()
+
+    if sort not in ("entrega_efectiva", "vencimiento"):
+
+        sort = ""
+
+    direction = (request.args.get("direction") or "asc").strip().lower()
+
+    if direction not in ("asc", "desc"):
+
+        direction = "asc"
+
+    now_date_local = date.today()
+
+    try:
+
+        if ZoneInfo:
+
+            now_date_local = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+
+    except Exception:
+
+        now_date_local = date.today()
+
     if estados:
 
         from sqlalchemy import or_, exists
 
         conds = []
-
-        now = datetime.utcnow()
 
         partial_pay_exists = (
 
@@ -10684,11 +10851,55 @@ def deudas_pendientes():
 
         no_due = Collection.fecha_pago_estimada.is_(None)
 
-        overdue = and_(
+        entrega_efectiva_expr = func.coalesce(
+            LogisticsStatus.fecha_entrega_efectiva,
+            Collection.fecha_entrega_efectiva,
+            LogisticsStatus.fecha_entrega_estimada,
+        )
 
-            Collection.fecha_pago_estimada.isnot(None),
+        today_local = now_date_local
 
-            Collection.fecha_pago_estimada < now,
+        due_overdue = and_(
+
+            has_due,
+
+            func.date(Collection.fecha_pago_estimada) < today_local,
+
+        )
+
+        due_not_overdue = or_(
+
+            no_due,
+
+            func.date(Collection.fecha_pago_estimada) >= today_local,
+
+        )
+
+        en_camino_effective = and_(
+
+            Collection.fecha_cobro_efectiva.is_(None),
+
+            due_not_overdue,
+
+            or_(
+
+                entrega_efectiva_expr.is_(None),
+
+                func.date(entrega_efectiva_expr) > today_local,
+
+            ),
+
+        )
+
+        a_cobrar_effective = and_(
+
+            Collection.fecha_cobro_efectiva.is_(None),
+
+            due_not_overdue,
+
+            entrega_efectiva_expr.isnot(None),
+
+            func.date(entrega_efectiva_expr) <= today_local,
 
         )
 
@@ -10704,13 +10915,13 @@ def deudas_pendientes():
 
         if "EN_CAMINO" in estados:
 
-            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), no_due))
+            conds.append(en_camino_effective)
 
 
 
         if "ATRASADO" in estados:
 
-            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), overdue))
+            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), due_overdue))
 
 
 
@@ -10724,9 +10935,9 @@ def deudas_pendientes():
 
         if "A_COBRAR" in estados:
 
-            # A cobrar = con vencimiento + sin cobro + sin parcial, y NO vencido
+            # A cobrar = sin cobro + entrega efectiva hoy/pasada + vencimiento NO vencido
 
-            conds.append(and_(Collection.fecha_cobro_efectiva.is_(None), has_due, ~partial_exists, ~overdue))
+            conds.append(and_(a_cobrar_effective, ~partial_exists))
 
         if conds:
 
@@ -10824,7 +11035,31 @@ def deudas_pendientes():
 
 
 
-    q = q.order_by(Collection.id.desc())
+    sort_col = None
+
+    sort_entrega_expr = func.coalesce(
+        LogisticsStatus.fecha_entrega_efectiva,
+        Collection.fecha_entrega_efectiva,
+        LogisticsStatus.fecha_entrega_estimada,
+    )
+
+    if sort == "entrega_efectiva":
+
+        sort_col = sort_entrega_expr
+
+    elif sort == "vencimiento":
+
+        sort_col = func.coalesce(Collection.fecha_pago_estimada, sort_entrega_expr)
+
+    if sort_col is not None:
+
+        sort_dir = sort_col.desc() if direction == "desc" else sort_col.asc()
+
+        q = q.order_by(sort_col.is_(None).asc(), sort_dir, Collection.id.desc())
+
+    else:
+
+        q = q.order_by(Collection.id.desc())
 
     try:
 
@@ -10950,39 +11185,73 @@ def deudas_pendientes():
 
     # Orden visual por defecto: arriba ATRASADO y PARCIAL, abajo COBRADO.
 
+    if not sort:
+
+        try:
+
+            def _sort_key(c):
+
+                oid = int(getattr(getattr(c, "order", None), "id", None) or 0)
+
+                is_cobrado = bool(getattr(c, "fecha_cobro_efectiva", None))
+
+                is_overdue = bool(getattr(c, "status", None) == "ATRASADO")
+
+                is_partial = bool(oid and (oid in partial_order_ids))
+
+                if is_cobrado:
+
+                    grp = 2
+
+                elif is_overdue or is_partial:
+
+                    grp = 0
+
+                else:
+
+                    grp = 1
+
+                return (grp, -int(getattr(c, "id", 0) or 0))
+
+
+
+            items = sorted(items, key=_sort_key)
+
+        except Exception:
+
+            pass
+
     try:
 
-        def _sort_key(c):
+        sort_params_base = request.args.to_dict(flat=False)
 
-            oid = int(getattr(getattr(c, "order", None), "id", None) or 0)
+        def _sort_url(sort_key: str) -> str:
 
-            is_cobrado = bool(getattr(c, "fecha_cobro_efectiva", None))
+            params = dict(sort_params_base)
 
-            is_overdue = bool(getattr(c, "status", None) == "ATRASADO")
+            next_direction = "asc"
 
-            is_partial = bool(oid and (oid in partial_order_ids))
+            if sort == sort_key:
 
-            if is_cobrado:
+                next_direction = "desc" if direction == "asc" else "asc"
 
-                grp = 2
+            params["sort"] = [sort_key]
 
-            elif is_overdue or is_partial:
+            params["direction"] = [next_direction]
 
-                grp = 0
+            params["page"] = ["1"]
 
-            else:
+            return url_for("main.deudas_pendientes") + "?" + urlencode(params, doseq=True)
 
-                grp = 1
+        sort_entrega_url = _sort_url("entrega_efectiva")
 
-            return (grp, -int(getattr(c, "id", 0) or 0))
-
-
-
-        items = sorted(items, key=_sort_key)
+        sort_vencimiento_url = _sort_url("vencimiento")
 
     except Exception:
 
-        pass
+        sort_entrega_url = url_for("main.deudas_pendientes") + "?sort=entrega_efectiva&direction=asc&page=1"
+
+        sort_vencimiento_url = url_for("main.deudas_pendientes") + "?sort=vencimiento&direction=asc&page=1"
 
 
 
@@ -10994,7 +11263,7 @@ def deudas_pendientes():
 
         items=items,
 
-        now_date=date.today(),
+        now_date=now_date_local,
 
         partial_order_ids=partial_order_ids,
 
@@ -11003,6 +11272,14 @@ def deudas_pendientes():
         page=page,
 
         per_page=per_page,
+
+        current_sort=sort,
+
+        current_direction=direction,
+
+        sort_entrega_url=sort_entrega_url,
+
+        sort_vencimiento_url=sort_vencimiento_url,
 
         total_count=total_count,
 
@@ -11358,6 +11635,10 @@ def nueva_cobranza():
 
                     ret_total = 0.0
 
+                    nc_items = []
+
+                    ret_items = []
+
                     pm = {}
 
                     rows = []
@@ -11440,11 +11721,47 @@ def nueva_cobranza():
 
                                 nc_total += abs(amt)
 
+                                concept = ""
+
+                                try:
+
+                                    notes_txt = (getattr(p, "notes", None) or "").strip()
+
+                                    prefix = "NOTA DE CRÉDITO - "
+
+                                    if notes_txt.upper().startswith(prefix):
+
+                                        concept = notes_txt[len(prefix):].strip()
+
+                                except Exception:
+
+                                    concept = ""
+
+                                nc_items.append({"amount": str(abs(amt)), "concept": concept})
+
                                 continue
 
                             if method == "RETENCION":
 
                                 ret_total += abs(amt)
+
+                                concept = ""
+
+                                try:
+
+                                    notes_txt = (getattr(p, "notes", None) or "").strip()
+
+                                    prefix = "RETENCIONES - "
+
+                                    if notes_txt.upper().startswith(prefix):
+
+                                        concept = notes_txt[len(prefix):].strip()
+
+                                except Exception:
+
+                                    concept = ""
+
+                                ret_items.append({"amount": str(abs(amt)), "concept": concept})
 
                                 continue
 
@@ -11493,6 +11810,10 @@ def nueva_cobranza():
                         "order_credit_note": ("" if abs(nc_total) <= 0.009 else str(nc_total)),
 
                         "order_retenciones": ("" if abs(ret_total) <= 0.009 else str(ret_total)),
+
+                        "nc_items": nc_items,
+
+                        "ret_items": ret_items,
 
                         "order_notes": order_notes,
 
@@ -12078,6 +12399,120 @@ def nueva_cobranza_create():
 
 
 
+    def _parse_amount_inline(s: str) -> float:
+
+        try:
+
+            s = (s or "").strip()
+
+            if not s:
+
+                return 0.0
+
+            s = s.replace(" ", "")
+
+            if "," in s and "." in s:
+
+                s = s.replace(".", "").replace(",", ".")
+
+            elif "," in s:
+
+                s = s.replace(",", ".")
+
+            val = float(s)
+
+            if val < 0:
+
+                return 0.0
+
+            return float(val)
+
+        except Exception:
+
+            return 0.0
+
+
+
+    raw_nc = (request.form.get("order_credit_note") or "").strip()
+
+    raw_ret = (request.form.get("order_retenciones") or "").strip()
+
+    nc_amounts = request.form.getlist("nc_amount")
+
+    nc_concepts = request.form.getlist("nc_concept")
+
+    ret_amounts = request.form.getlist("ret_amount")
+
+    ret_concepts = request.form.getlist("ret_concept")
+
+
+
+    def _collect_items(amounts, concepts, legacy_raw=""):
+
+        items = []
+
+        total = 0.0
+
+        row_count = max(len(amounts or []), len(concepts or []))
+
+        for i in range(row_count):
+
+            amount_raw = (amounts[i] if i < len(amounts) else "").strip()
+
+            concept = (concepts[i] if i < len(concepts) else "").strip()
+
+            if not amount_raw and not concept:
+
+                continue
+
+            amount_val = _parse_amount_inline(amount_raw)
+
+            if amount_val > 0:
+
+                total += float(amount_val)
+
+            items.append({
+
+                "amount_raw": amount_raw,
+
+                "amount": float(amount_val or 0.0),
+
+                "concept": concept,
+
+            })
+
+
+
+        if not items and (legacy_raw or "").strip():
+
+            legacy_val = _parse_amount_inline(legacy_raw)
+
+            if legacy_val > 0:
+
+                total += float(legacy_val)
+
+            items.append({
+
+                "amount_raw": (legacy_raw or "").strip(),
+
+                "amount": float(legacy_val or 0.0),
+
+                "concept": "",
+
+            })
+
+
+
+        return items, float(total)
+
+
+
+    nc_items, nc_total_form = _collect_items(nc_amounts, nc_concepts, raw_nc)
+
+    ret_items, ret_total_form = _collect_items(ret_amounts, ret_concepts, raw_ret)
+
+
+
     if is_draft:
 
         saved_draft = None
@@ -12112,9 +12547,41 @@ def nueva_cobranza_create():
 
                 "order_monto": (request.form.get("order_monto") or "").strip(),
 
-                "order_credit_note": (request.form.get("order_credit_note") or "").strip(),
+                "order_credit_note": ("" if abs(nc_total_form) <= 0.009 else str(nc_total_form)),
 
-                "order_retenciones": (request.form.get("order_retenciones") or "").strip(),
+                "order_retenciones": ("" if abs(ret_total_form) <= 0.009 else str(ret_total_form)),
+
+                "nc_items": [
+
+                    {
+
+                        "amount": str(it.get("amount_raw") or ""),
+
+                        "concept": str(it.get("concept") or ""),
+
+                    }
+
+                    for it in (nc_items or [])
+
+                    if (str(it.get("amount_raw") or "").strip() or str(it.get("concept") or "").strip())
+
+                ],
+
+                "ret_items": [
+
+                    {
+
+                        "amount": str(it.get("amount_raw") or ""),
+
+                        "concept": str(it.get("concept") or ""),
+
+                    }
+
+                    for it in (ret_items or [])
+
+                    if (str(it.get("amount_raw") or "").strip() or str(it.get("concept") or "").strip())
+
+                ],
 
                 "order_notes": (request.form.get("order_notes") or "").strip(),
 
@@ -12970,41 +13437,51 @@ def nueva_cobranza_create():
 
 
 
-    # Inputs fijos adicionales (solo al confirmar, no en borrador): Nota de crédito y Retenciones
+    # Ítems de Nota de crédito y Retenciones (solo al confirmar, no en borrador)
 
     if not is_draft:
 
         try:
 
-            if raw_nc != "":
+            for it in (nc_items or []):
 
-                nc_val = _parse_amount(raw_nc)
+                amt = float(it.get("amount") or 0.0)
 
-                if nc_val and nc_val != 0:
+                if amt <= 0.009:
 
-                    db.session.add(
+                    continue
 
-                        CollectionPayment(
+                concept = (it.get("concept") or "").strip()
 
-                            order_id=order_id,
+                note_text = "Nota de crédito"
 
-                            owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                if concept:
 
-                            kind="CREDIT_NOTE",
+                    note_text = f"Nota de crédito - {concept}"
 
-                            method="NC",
+                db.session.add(
 
-                            amount=abs(nc_val),
+                    CollectionPayment(
 
-                            due_date=None,
+                        order_id=order_id,
 
-                            attachment_url=None,
+                        owner_user_id=(None if _has_global_access() else _effective_user_id()),
 
-                            notes="Nota de crédito",
+                        kind="CREDIT_NOTE",
 
-                        )
+                        method="NC",
+
+                        amount=abs(amt),
+
+                        due_date=None,
+
+                        attachment_url=None,
+
+                        notes=note_text,
 
                     )
+
+                )
 
         except Exception:
 
@@ -13014,35 +13491,45 @@ def nueva_cobranza_create():
 
         try:
 
-            if raw_ret != "":
+            for it in (ret_items or []):
 
-                ret_val = _parse_amount(raw_ret)
+                amt = float(it.get("amount") or 0.0)
 
-                if ret_val and ret_val != 0:
+                if amt <= 0.009:
 
-                    db.session.add(
+                    continue
 
-                        CollectionPayment(
+                concept = (it.get("concept") or "").strip()
 
-                            order_id=order_id,
+                note_text = "Retenciones"
 
-                            owner_user_id=(None if _has_global_access() else _effective_user_id()),
+                if concept:
 
-                            kind="PAYMENT",
+                    note_text = f"Retenciones - {concept}"
 
-                            method="RETENCION",
+                db.session.add(
 
-                            amount=abs(ret_val),
+                    CollectionPayment(
 
-                            due_date=None,
+                        order_id=order_id,
 
-                            attachment_url=None,
+                        owner_user_id=(None if _has_global_access() else _effective_user_id()),
 
-                            notes="Retenciones",
+                        kind="PAYMENT",
 
-                        )
+                        method="RETENCION",
+
+                        amount=abs(amt),
+
+                        due_date=None,
+
+                        attachment_url=None,
+
+                        notes=note_text,
 
                     )
+
+                )
 
         except Exception:
 
@@ -13320,9 +13807,41 @@ def nueva_cobranza_create():
 
                 "order_monto": raw_monto,
 
-                "order_credit_note": raw_nc,
+                "order_credit_note": ("" if abs(nc_total_form) <= 0.009 else str(nc_total_form)),
 
-                "order_retenciones": raw_ret,
+                "order_retenciones": ("" if abs(ret_total_form) <= 0.009 else str(ret_total_form)),
+
+                "nc_items": [
+
+                    {
+
+                        "amount": str(it.get("amount_raw") or ""),
+
+                        "concept": str(it.get("concept") or ""),
+
+                    }
+
+                    for it in (nc_items or [])
+
+                    if (str(it.get("amount_raw") or "").strip() or str(it.get("concept") or "").strip())
+
+                ],
+
+                "ret_items": [
+
+                    {
+
+                        "amount": str(it.get("amount_raw") or ""),
+
+                        "concept": str(it.get("concept") or ""),
+
+                    }
+
+                    for it in (ret_items or [])
+
+                    if (str(it.get("amount_raw") or "").strip() or str(it.get("concept") or "").strip())
+
+                ],
 
                 "order_notes": raw_notes,
 
@@ -14615,6 +15134,10 @@ def historial():
         base = base.join(Company, Order.company_id == Company.id)
 
         order_cols = (Company.nombre, Order.id)
+
+    elif sort == "compra":
+
+        order_cols = (func.coalesce(LogisticsStatus.fecha_compra, Order.created_at), Order.created_at, Order.id)
 
     elif sort == "entrega":
 

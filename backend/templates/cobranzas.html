@@ -160,15 +160,45 @@
 
     .table-cobranzas td.col-entrega { padding-left: .25rem; }
 
+    .cob-sort-link { display:inline-flex; align-items:center; gap:.25rem; color:inherit; text-decoration:none; }
+
+    .cob-sort-link:hover { color:inherit; text-decoration:none; }
+
+    .cob-sort-arrow { font-size:.72rem; line-height:1; opacity:.28; }
+
+    .cob-sort-link.active .cob-sort-arrow { opacity:.95; }
+
+    body[data-active="deudas"] .table-cobranzas.table-sticky thead th {
+
+      position: sticky !important;
+
+      top: 0 !important;
+
+      z-index: 30 !important;
+
+      background-color: #0f766e !important;
+
+      box-shadow: 0 1px 0 rgba(255,255,255,.18);
+
+    }
+
+    body[data-active="deudas"] .table-cobranzas.table-sticky thead th .cob-sort-link {
+
+      position: relative;
+
+      z-index: 31;
+
+    }
+
   </style>
 
   <form id="cobFilter" class="d-flex align-items-end gap-2 mt-3 flex-wrap" method="get">
 
     <div class="btn-group cob-filter" role="group" aria-label="Filtros de cobranza">
 
-      <button type="button" class="btn btn-sm btn-outline-info {{ 'active' if 'A_COBRAR' in request.args.getlist('status') else '' }}" data-status="A_COBRAR" aria-pressed="{{ 'true' if 'A_COBRAR' in request.args.getlist('status') else 'false' }}">A cobrar</button>
-
       <button type="button" class="btn btn-sm btn-outline-secondary {{ 'active' if 'EN_CAMINO' in request.args.getlist('status') else '' }}" data-status="EN_CAMINO" aria-pressed="{{ 'true' if 'EN_CAMINO' in request.args.getlist('status') else 'false' }}">En camino</button>
+
+      <button type="button" class="btn btn-sm btn-outline-info {{ 'active' if 'A_COBRAR' in request.args.getlist('status') else '' }}" data-status="A_COBRAR" aria-pressed="{{ 'true' if 'A_COBRAR' in request.args.getlist('status') else 'false' }}">A cobrar</button>
 
       <button type="button" class="btn btn-sm btn-outline-warning {{ 'active' if 'PARCIAL' in request.args.getlist('status') else '' }}" data-status="PARCIAL" aria-pressed="{{ 'true' if 'PARCIAL' in request.args.getlist('status') else 'false' }}">Parcial</button>
 
@@ -207,6 +237,10 @@
     <input type="hidden" name="from" id="cobFrom" value="{{ from_val }}">
 
     <input type="hidden" name="to" id="cobTo" value="{{ to_val }}">
+
+    <input type="hidden" name="sort" id="cobSort" value="{{ current_sort or '' }}">
+
+    <input type="hidden" name="direction" id="cobDirection" value="{{ current_direction or '' }}">
 
     <input type="hidden" name="page" id="cobPage" value="{{ page if page is defined else 1 }}">
 
@@ -260,13 +294,39 @@
 
             <th class="d-none d-md-table-cell js-sort-date col-orderdate" data-sort-type="date" style="cursor:pointer;">Fecha pedido</th>
 
-            <th class="d-none d-md-table-cell js-sort-date col-date col-entrega" data-sort-type="date" style="cursor:pointer;">Entrega efectiva</th>
+            {% set _entrega_active = (current_sort == 'entrega_efectiva') %}
+
+            {% set _venc_active = (current_sort == 'vencimiento') %}
+
+            <th class="d-none d-md-table-cell col-date col-entrega">
+              <a class="cob-sort-link {{ 'active' if _entrega_active else '' }}" href="{{ sort_entrega_url }}" aria-label="Ordenar por entrega efectiva">
+                <span>Entrega efectiva</span>
+                <span class="cob-sort-arrow" aria-hidden="true">
+                  {% if _entrega_active %}
+                    {{ '↑' if current_direction == 'asc' else '↓' }}
+                  {% else %}
+                    ↕
+                  {% endif %}
+                </span>
+              </a>
+            </th>
 
             <th class="col-money">Monto</th>
 
             <th class="col-forma">Forma de pago</th>
 
-            <th class="js-sort-date col-date" data-sort-type="date" style="cursor:pointer;">Vencimiento</th>
+            <th class="col-date">
+              <a class="cob-sort-link {{ 'active' if _venc_active else '' }}" href="{{ sort_vencimiento_url }}" aria-label="Ordenar por vencimiento">
+                <span>Vencimiento</span>
+                <span class="cob-sort-arrow" aria-hidden="true">
+                  {% if _venc_active %}
+                    {{ '↑' if current_direction == 'asc' else '↓' }}
+                  {% else %}
+                    ↕
+                  {% endif %}
+                </span>
+              </a>
+            </th>
 
             <th>Días</th>
 
@@ -400,61 +460,85 @@
 
               {% set coll_entrega_dias = (c.fecha_entrega_efectiva if c and c.fecha_entrega_efectiva else None) %}
 
-              {% set entrega_dias = (lg_entrega_dias if lg_entrega_dias else coll_entrega_dias) %}
+              {% set entrega_dias = (entrega_input if entrega_input else (lg_entrega_dias if lg_entrega_dias else coll_entrega_dias)) %}
 
-              {% if not entrega_dias %}
+              {% set due_days = (venc_value if venc_value else None) %}
 
-                {% set entrega_dias = entrega_input %}
+              {% set is_overdue_days = (not c.fecha_cobro_efectiva and due_days and now_date and (due_days.date() < now_date)) %}
 
-              {% endif %}
+              {% set is_a_cobrar_days = (not c.fecha_cobro_efectiva and (not is_overdue_days) and entrega_dias and now_date and (entrega_dias.date() <= now_date)) %}
 
-              {% if not entrega_dias %}
+              {% set is_en_camino_days = (not c.fecha_cobro_efectiva and (not is_overdue_days) and ((not entrega_dias) or (entrega_dias.date() > now_date))) %}
 
-                <span class="text-muted">-</span>
+              {% if is_en_camino_days %}
 
-              {% else %}
+                {% if not entrega_dias %}
 
-                {% if c.fecha_pago_estimada %}
+                  <span class="text-muted">-</span>
 
-                  {% if c.fecha_cobro_efectiva %}
+                {% else %}
 
-                    {% set dd_paid = (c.fecha_cobro_efectiva.date() - c.fecha_pago_estimada.date()).days %}
+                  {% set dd_entrega = (entrega_dias.date() - (now_date if now_date else entrega_dias.date())).days %}
 
-                    {% if dd_paid > 0 %}
+                  {% if dd_entrega > 0 %}
 
-                      <span class="badge bg-danger">Atraso {{ dd_paid }} día(s)</span>
+                    <span class="badge bg-secondary">Faltan {{ dd_entrega }} día(s)</span>
 
-                    {% elif dd_paid < 0 %}
+                  {% elif dd_entrega == 0 %}
 
-                      <span class="badge bg-success">Antes {{ (dd_paid * -1) }} día(s)</span>
-
-                    {% else %}
-
-                      <span class="badge bg-success">En término</span>
-
-                    {% endif %}
+                    <span class="badge bg-secondary">Llega hoy</span>
 
                   {% else %}
 
-                    {% set dd = (c.fecha_pago_estimada.date() - (now_date if now_date else c.fecha_pago_estimada.date())).days %}
+                    <span class="badge bg-secondary">Demorado {{ (dd_entrega * -1) }} día(s)</span>
 
-                    {% if dd >= 0 %}
+                  {% endif %}
 
-                      <span class="badge bg-success">Faltan {{ dd }} día(s)</span>
+                {% endif %}
 
-                    {% else %}
+              {% elif due_days %}
 
-                      <span class="badge bg-danger">Atraso {{ (dd * -1) }} día(s)</span>
+                {% if c.fecha_cobro_efectiva %}
 
-                    {% endif %}
+                  {% set dd_paid = (c.fecha_cobro_efectiva.date() - due_days.date()).days %}
+
+                  {% if dd_paid > 0 %}
+
+                    <span class="badge bg-danger">Atraso {{ dd_paid }} día(s)</span>
+
+                  {% elif dd_paid < 0 %}
+
+                    <span class="badge bg-success">Antes {{ (dd_paid * -1) }} día(s)</span>
+
+                  {% else %}
+
+                    <span class="badge bg-success">En término</span>
 
                   {% endif %}
 
                 {% else %}
 
-                  <span class="text-muted">-</span>
+                  {% set dd = (due_days.date() - (now_date if now_date else due_days.date())).days %}
+
+                  {% if dd > 0 %}
+
+                    <span class="badge {{ 'bg-info text-dark' if is_a_cobrar_days else 'bg-secondary' }}">Faltan {{ dd }} día(s)</span>
+
+                  {% elif dd == 0 %}
+
+                    <span class="badge bg-info text-dark">Vence hoy</span>
+
+                  {% else %}
+
+                    <span class="badge bg-danger">Atraso {{ (dd * -1) }} día(s)</span>
+
+                  {% endif %}
 
                 {% endif %}
+
+              {% else %}
+
+                <span class="text-muted">-</span>
 
               {% endif %}
 
@@ -472,11 +556,19 @@
 
               {% set is_partial = (partial_order_ids is defined and c.order and (c.order.id in partial_order_ids)) %}
 
-              {% set has_due = (c and c.fecha_pago_estimada) %}
+              {% set due_status = (venc_value if venc_value else None) %}
 
-              {% set is_overdue = (has_due and now_date and (c.fecha_pago_estimada.date() < now_date)) %}
+              {% set lg_entrega_status = (c.order.logistics.fecha_entrega_efectiva if c.order and c.order.logistics else None) %}
 
-              {% if c.status == 'COBRADO' %}
+              {% set coll_entrega_status = (c.fecha_entrega_efectiva if c and c.fecha_entrega_efectiva else None) %}
+
+              {% set entrega_efectiva_status = (entrega_input if entrega_input else (lg_entrega_status if lg_entrega_status else coll_entrega_status)) %}
+
+              {% set is_overdue = (not c.fecha_cobro_efectiva and due_status and now_date and (due_status.date() < now_date)) %}
+
+              {% set is_a_cobrar_status = (not c.fecha_cobro_efectiva and (not is_overdue) and entrega_efectiva_status and now_date and (entrega_efectiva_status.date() <= now_date)) %}
+
+              {% if c.fecha_cobro_efectiva %}
 
                 <span class="badge bg-success js-status-badge">COBRADO</span>
 
@@ -492,13 +584,13 @@
 
                   <span class="badge bg-danger js-status-badge">ATRASADO</span>
 
-                {% elif not has_due %}
+                {% elif is_a_cobrar_status %}
 
-                  <span class="badge bg-secondary js-status-badge" title="Pedido sin vencimiento">EN CAMINO</span>
+                  <span class="badge bg-info text-dark js-status-badge">A COBRAR</span>
 
                 {% else %}
 
-                  <span class="badge bg-info text-dark js-status-badge">A COBRAR</span>
+                  <span class="badge bg-secondary js-status-badge" title="Pedido en tránsito">EN CAMINO</span>
 
                 {% endif %}
 
@@ -1136,6 +1228,12 @@
 
   var pageH = document.getElementById('cobPage');
 
+  var sortH = document.getElementById('cobSort');
+
+  var directionH = document.getElementById('cobDirection');
+
+  var perPageH = document.getElementById('cobPerPageH');
+
 
 
   function persistDeudasFiltersFromLocation(urlOverride){
@@ -1261,6 +1359,44 @@
   if (clientEl) clientEl.addEventListener('input', schedule);
 
   if (companyEl) companyEl.addEventListener('input', schedule);
+
+  document.addEventListener('click', function(e){
+
+    var link = e.target && e.target.closest ? e.target.closest('#cobResults a.cob-sort-link') : null;
+
+    if (!link) return;
+
+    e.preventDefault();
+
+    try {
+
+      var href = link.getAttribute('href') || '';
+
+      if (href) {
+
+        var parsed = new URL(href, window.location.origin);
+
+        var sp = parsed.searchParams;
+
+        if (sortH) sortH.value = sp.get('sort') || '';
+
+        if (directionH) directionH.value = sp.get('direction') || '';
+
+        if (pageH) pageH.value = sp.get('page') || '1';
+
+        if (perPageH && sp.get('per_page')) perPageH.value = sp.get('per_page') || perPageH.value;
+
+      }
+
+    } catch(_) {
+
+      try { if (pageH) pageH.value = '1'; } catch(__) {}
+
+    }
+
+    fetchAndReplace();
+
+  });
 
 })();
 
@@ -2334,6 +2470,20 @@
 
     if (!s) return null;
 
+    var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+
+    if (m) {
+
+      var yy = parseInt(m[1], 10);
+
+      var mm = parseInt(m[2], 10) - 1;
+
+      var dd = parseInt(m[3], 10);
+
+      return new Date(yy, mm, dd);
+
+    }
+
     var t = Date.parse(s);
 
     return isNaN(t) ? null : new Date(t);
@@ -2354,17 +2504,33 @@
 
     var venc = tr.querySelector('input.js-cob-estimado');
 
+    var entrega = tr.querySelector('input.js-cob-entrega');
+
     var vencDt = venc ? parseIsoDate(venc.value) : null;
 
-    if (!vencDt) return 'EN_CAMINO';
+    var entregaDt = entrega ? parseIsoDate(entrega.value) : null;
 
     var today = new Date();
 
     today.setHours(0,0,0,0);
 
-    vencDt.setHours(0,0,0,0);
+    if (vencDt) {
 
-    return (today.getTime() > vencDt.getTime()) ? 'ATRASADO' : 'A_COBRAR';
+      vencDt.setHours(0,0,0,0);
+
+      if (today.getTime() > vencDt.getTime()) return 'ATRASADO';
+
+    }
+
+    if (entregaDt) {
+
+      entregaDt.setHours(0,0,0,0);
+
+      if (today.getTime() >= entregaDt.getTime()) return 'A_COBRAR';
+
+    }
+
+    return 'EN_CAMINO';
 
   }
 
@@ -2388,21 +2554,49 @@
 
     var cell = (tds && tds.length > 7) ? tds[7] : null;
 
-    if (!cell || !venc) return;
+    if (!cell) return;
 
+    var vencDt = venc ? parseIsoDate(venc.value) : null;
 
+    var entregaDt = entrega ? parseIsoDate(entrega.value) : null;
 
-    if (!entregaVal) {
+    var status = computeStatusFromRow(tr);
 
-      cell.innerHTML = '<span class="text-muted">-</span>';
+    var today = new Date();
+
+    today.setHours(0,0,0,0);
+
+    if (status === 'EN_CAMINO') {
+
+      if (!entregaDt) {
+
+        cell.innerHTML = '<span class="text-muted">-</span>';
+
+        return;
+
+      }
+
+      entregaDt.setHours(0,0,0,0);
+
+      var diffEntrega = Math.round((entregaDt.getTime() - today.getTime()) / (24*60*60*1000));
+
+      if (diffEntrega > 0) {
+
+        cell.innerHTML = '<span class="badge bg-secondary">Faltan ' + diffEntrega + ' día(s)</span>';
+
+      } else if (diffEntrega === 0) {
+
+        cell.innerHTML = '<span class="badge bg-secondary">Llega hoy</span>';
+
+      } else {
+
+        cell.innerHTML = '<span class="badge bg-secondary">Demorado ' + (diffEntrega * -1) + ' día(s)</span>';
+
+      }
 
       return;
 
     }
-
-
-
-    var vencDt = parseIsoDate(venc.value);
 
     if (!vencDt) {
 
@@ -2412,21 +2606,21 @@
 
     }
 
-    var today = new Date();
-
-    today.setHours(0,0,0,0);
-
     vencDt.setHours(0,0,0,0);
 
     var diff = Math.round((vencDt.getTime() - today.getTime()) / (24*60*60*1000));
 
-    if (diff >= 0) {
+    if (status === 'ATRASADO' || diff < 0) {
 
-      cell.innerHTML = '<span class="badge bg-success">Faltan ' + diff + ' día(s)</span>';
+      cell.innerHTML = '<span class="badge bg-danger">Atraso ' + (diff * -1) + ' día(s)</span>';
+
+    } else if (diff === 0) {
+
+      cell.innerHTML = '<span class="badge bg-info text-dark">Vence hoy</span>';
 
     } else {
 
-      cell.innerHTML = '<span class="badge bg-danger">Atraso ' + (diff * -1) + ' día(s)</span>';
+      cell.innerHTML = '<span class="badge bg-info text-dark">Faltan ' + diff + ' día(s)</span>';
 
     }
 

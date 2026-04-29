@@ -58,22 +58,27 @@
           <label class="form-label">Monto</label>
           <input class="form-control js-only-number" id="orderMonto" name="order_monto" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">
         </div>
-        <div class="col-12 col-lg-3">
+        <div class="col-12 col-lg-4">
           <label class="form-label">Nota de crédito</label>
-          <input class="form-control js-only-number" id="orderNc" name="order_credit_note" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">
+          <div id="ncList" class="multi-money-list" data-kind="nc"></div>
         </div>
-        <div class="col-12 col-lg-3">
+        <div class="col-12 col-lg-4">
           <label class="form-label">Retenciones</label>
-          <input class="form-control js-only-number" id="orderRet" name="order_retenciones" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">
+          <div id="retList" class="multi-money-list" data-kind="ret"></div>
         </div>
-        <div class="col-12 col-lg-3">
-          <label class="form-label">Saldo histórico</label>
-          <input class="form-control js-only-number" id="companySaldoInput" name="company_saldo_historico" type="text" inputmode="decimal" placeholder="-" autocomplete="off">
+        <div class="col-12 col-lg-4">
+          <label class="form-label">Deudas pendientes</label>
+          <input class="form-control" id="companySaldoInput" name="company_saldo_historico" type="text" placeholder="-" autocomplete="off" readonly disabled>
           <input type="hidden" id="companySaldoComputed" value="">
         </div>
         <div class="col-12">
-          <label class="form-label">Nota / descripción</label>
-          <textarea class="form-control" id="orderDesc" name="order_notes" rows="4"></textarea>
+          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#orderNotesCollapse" aria-expanded="false" aria-controls="orderNotesCollapse">
+            <label class="form-label mb-0" style="cursor:pointer;">Nota / descripción</label>
+            <i class="bi bi-chevron-right"></i>
+          </div>
+          <div id="orderNotesCollapse" class="collapse mt-2">
+            <textarea class="form-control" id="orderDesc" name="order_notes" rows="4"></textarea>
+          </div>
         </div>
       </div>
 
@@ -84,6 +89,13 @@
       </div>
 
       <style>
+        .multi-money-list{ display:flex; flex-direction:column; gap:.4rem; }
+        .multi-money-row{ display:grid; grid-template-columns: minmax(110px, 150px) 1fr auto auto; gap:.4rem; align-items:center; }
+        .multi-money-row .btn{ padding:.24rem .5rem; }
+        @media (max-width: 575.98px){
+          .multi-money-row{ grid-template-columns: 1fr; }
+          .multi-money-row .btn{ width:fit-content; }
+        }
         .pm-wrap{ display:grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap:1rem; }
         @media (max-width: 991.98px){ .pm-wrap{ grid-template-columns: 1fr; } }
         .pm-card .form-control, .pm-card .form-select{ font-size:.95rem; }
@@ -331,6 +343,46 @@
     }
   }
 
+  function _ensurePmSuggestionNode(inp){
+    try {
+      if (!inp) return null;
+      var parent = inp.parentElement;
+      if (!parent) return null;
+      var selector = '.pm-amount-suggest[data-target-name="' + String(inp.name || '') + '"]';
+      var node = parent.querySelector(selector);
+      if (node) return node;
+      node = document.createElement('button');
+      node.type = 'button';
+      node.className = 'btn btn-link btn-sm p-0 mt-1 pm-amount-suggest d-none';
+      node.setAttribute('data-target-name', String(inp.name || ''));
+      node.setAttribute('data-suggested-amount', '0');
+      node.textContent = 'Usar monto sugerido: $0,00';
+      inp.insertAdjacentElement('afterend', node);
+      return node;
+    } catch(_) {
+      return null;
+    }
+  }
+
+  function hidePmSuggestionForInput(inp){
+    try {
+      if (!inp) return;
+      var parent = inp.parentElement;
+      if (!parent) return;
+      var selector = '.pm-amount-suggest[data-target-name="' + String(inp.name || '') + '"]';
+      var node = parent.querySelector(selector);
+      if (node) node.classList.add('d-none');
+    } catch(_) {}
+  }
+
+  function hideAllPmAmountSuggestions(){
+    try {
+      document.querySelectorAll('.pm-amount-suggest').forEach(function(node){
+        try { node.classList.add('d-none'); } catch(_) {}
+      });
+    } catch(_) {}
+  }
+
   function initDatepicker(inp){
     try {
       if (!inp) return;
@@ -342,32 +394,6 @@
         altFormat: 'd/m/Y',
         allowInput: true
       });
-    } catch(e) {}
-  }
-
-  function _saveSaldoHistorico(){
-    var clientId = (clientSel && clientSel.value) ? String(clientSel.value) : '';
-    var companyId = (companySel && companySel.value) ? String(companySel.value) : '';
-    var saldoInp = null;
-    var saldoComputed = null;
-    try { saldoInp = document.getElementById('companySaldoInput'); } catch(e0) { saldoInp = null; }
-    try { saldoComputed = document.getElementById('companySaldoComputed'); } catch(e1) { saldoComputed = null; }
-    if (!clientId || !companyId || !saldoInp) return;
-    var desired = parseMoney(saldoInp.value);
-    var computed = parseMoney(saldoComputed && saldoComputed.value);
-    try {
-      var fd = new FormData();
-      fd.append('client_id', clientId);
-      fd.append('company_id', companyId);
-      fd.append('desired_total', String(desired));
-      fd.append('computed_total', String(computed));
-      fetch('/api/cobranzas/saldo_historico', { method: 'POST', body: fd, credentials: 'same-origin' })
-        .then(function(r){ return r.json(); })
-        .then(function(){
-          try { if (orderMonto) orderMonto.dataset.companyDiffTotal = String(desired); } catch(e2) {}
-          updateResumen();
-        })
-        .catch(function(){});
     } catch(e) {}
   }
 
@@ -446,6 +472,217 @@
     }
   }
 
+  function createMoneyRow(kind, data, canRemove){
+    var list = (kind === 'ret') ? document.getElementById('retList') : document.getElementById('ncList');
+    if (!list) return null;
+    var row = document.createElement('div');
+    row.className = 'multi-money-row';
+    row.setAttribute('data-kind', kind);
+    row.innerHTML = ''
+      + '<input class="form-control js-only-number" name="' + (kind === 'ret' ? 'ret_amount' : 'nc_amount') + '" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off">'
+      + '<input class="form-control" name="' + (kind === 'ret' ? 'ret_concept' : 'nc_concept') + '" type="text" placeholder="Concepto (opcional)" autocomplete="off">'
+      + '<button type="button" class="btn btn-sm btn-outline-secondary js-money-add" aria-label="Agregar">+</button>'
+      + '<button type="button" class="btn btn-sm btn-outline-danger js-money-remove" aria-label="Eliminar">X</button>';
+
+    list.appendChild(row);
+
+    try {
+      var amountInp = row.querySelector('input[name="' + (kind === 'ret' ? 'ret_amount' : 'nc_amount') + '"]');
+      var conceptInp = row.querySelector('input[name="' + (kind === 'ret' ? 'ret_concept' : 'nc_concept') + '"]');
+      if (amountInp) setMoneyInputValue(amountInp, data && data.amount != null ? data.amount : '');
+      if (conceptInp) conceptInp.value = String((data && data.concept) || '');
+      var rmBtn = row.querySelector('.js-money-remove');
+      if (rmBtn) rmBtn.classList.toggle('d-none', !canRemove);
+    } catch(_) {}
+    return row;
+  }
+
+  function getMoneyRows(kind){
+    var list = (kind === 'ret') ? document.getElementById('retList') : document.getElementById('ncList');
+    if (!list) return [];
+    return Array.from(list.querySelectorAll('.multi-money-row[data-kind="' + kind + '"]'));
+  }
+
+  function ensureSingleRow(kind){
+    var rows = getMoneyRows(kind);
+    if (!rows.length) {
+      createMoneyRow(kind, { amount: '', concept: '' }, false);
+      rows = getMoneyRows(kind);
+    }
+    rows.forEach(function(r, idx){
+      try {
+        var rmBtn = r.querySelector('.js-money-remove');
+        if (rmBtn) rmBtn.classList.toggle('d-none', rows.length <= 1 || idx === 0 && rows.length === 1);
+      } catch(_) {}
+    });
+  }
+
+  function clearMoneyRows(kind){
+    var rows = getMoneyRows(kind);
+    rows.forEach(function(r){ try { r.remove(); } catch(_) {} });
+    ensureSingleRow(kind);
+  }
+
+  function getMoneyItems(kind){
+    var rows = getMoneyRows(kind);
+    var amountName = (kind === 'ret') ? 'ret_amount' : 'nc_amount';
+    var conceptName = (kind === 'ret') ? 'ret_concept' : 'nc_concept';
+    var out = [];
+    rows.forEach(function(r){
+      var amountInp = r.querySelector('input[name="' + amountName + '"]');
+      var conceptInp = r.querySelector('input[name="' + conceptName + '"]');
+      var rawAmt = String((amountInp && amountInp.value) || '').trim();
+      var concept = String((conceptInp && conceptInp.value) || '').trim();
+      out.push({ amount: rawAmt, concept: concept });
+    });
+    return out;
+  }
+
+  function getMoneyTotal(kind){
+    var total = 0;
+    getMoneyItems(kind).forEach(function(it){
+      var n = Math.abs(parseMoney(it.amount));
+      if (!isNaN(n) && n > 0) total += n;
+    });
+    return total;
+  }
+
+  function setMoneyItems(kind, items){
+    var rows = getMoneyRows(kind);
+    rows.forEach(function(r){ try { r.remove(); } catch(_) {} });
+    var valid = Array.isArray(items) ? items.filter(function(it){
+      var a = String((it && it.amount) || '').trim();
+      var c = String((it && it.concept) || '').trim();
+      return !!(a || c);
+    }) : [];
+    if (!valid.length) {
+      createMoneyRow(kind, { amount: '', concept: '' }, false);
+      ensureSingleRow(kind);
+      return;
+    }
+    valid.forEach(function(it, idx){
+      createMoneyRow(kind, { amount: it.amount, concept: it.concept }, idx > 0 || valid.length > 1);
+    });
+    ensureSingleRow(kind);
+  }
+
+  function _isMainPmAmountInput(inp){
+    try {
+      if (!inp || !inp.name) return false;
+      return /^pm_.+_amount$/.test(String(inp.name));
+    } catch(_) {
+      return false;
+    }
+  }
+
+  function calcularSaldoRestanteParaMedioPago(medioActual){
+    var inp = null;
+    try {
+      if (medioActual && medioActual.nodeType === 1) {
+        inp = medioActual;
+      }
+    } catch(_) { inp = null; }
+    if (!inp || !_isMainPmAmountInput(inp)) return 0;
+    if (inp.disabled) return 0;
+
+    var prefix = '';
+    try {
+      prefix = String(inp.name || '').replace(/_amount$/, '');
+    } catch(_) { prefix = ''; }
+
+    try {
+      var chk = document.querySelector('.pm-enable[data-prefix="' + prefix + '"]');
+      if (chk && !chk.checked) return 0;
+    } catch(_) {}
+
+    var totalCobranza = 0;
+    try {
+      totalCobranza = parseMoney(orderMonto && (orderMonto.value || ''));
+      if (Math.abs(totalCobranza) <= 0.0000001) {
+        totalCobranza = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.basePedido || '0'));
+      }
+      if (!isFinite(totalCobranza) || totalCobranza < 0) totalCobranza = 0;
+    } catch(_) { totalCobranza = 0; }
+
+    var totalBaseAplicado = 0;
+    try {
+      var basePaid = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.basePaid || '0'));
+      var baseCredit = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.baseCredit || '0'));
+      totalBaseAplicado = Math.abs(basePaid) + Math.abs(baseCredit);
+      if (!isFinite(totalBaseAplicado) || totalBaseAplicado < 0) totalBaseAplicado = 0;
+    } catch(_) { totalBaseAplicado = 0; }
+
+    var totalNc = 0;
+    var totalRet = 0;
+    try { totalNc = Math.abs(getMoneyTotal('nc')); } catch(_) { totalNc = 0; }
+    try { totalRet = Math.abs(getMoneyTotal('ret')); } catch(_) { totalRet = 0; }
+
+    var totalOtrosMedios = 0;
+    try {
+      document.querySelectorAll('[name^="pm_"][name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(el){
+        if (!el || el === inp) return;
+        totalOtrosMedios += Math.abs(parseMoney(el.value));
+      });
+    } catch(_) { totalOtrosMedios = 0; }
+
+    var saldo = Number(totalCobranza || 0)
+      - Number(totalBaseAplicado || 0)
+      - Number(totalNc || 0)
+      - Number(totalRet || 0)
+      - Number(totalOtrosMedios || 0);
+
+    if (!isFinite(saldo) || saldo < 0) saldo = 0;
+    return Number(saldo || 0);
+  }
+
+  function sugerirSaldoRestanteEnMedioPago(medioActual){
+    var inp = null;
+    try {
+      if (medioActual && medioActual.nodeType === 1) inp = medioActual;
+    } catch(_) { inp = null; }
+    if (!inp || !_isMainPmAmountInput(inp)) return;
+    if (inp.disabled) return;
+
+    var sugerido = 0;
+    try { sugerido = calcularSaldoRestanteParaMedioPago(inp); } catch(_) { sugerido = 0; }
+    if (!isFinite(sugerido) || sugerido < 0) sugerido = 0;
+
+    try {
+      var node = _ensurePmSuggestionNode(inp);
+      if (!node) return;
+      node.setAttribute('data-suggested-amount', String(sugerido || 0));
+      node.textContent = 'Usar monto sugerido: $' + fmtMoney(sugerido);
+      node.classList.remove('d-none');
+    } catch(_) {}
+  }
+
+  document.addEventListener('click', function(e){
+    var addBtn = e.target && e.target.closest ? e.target.closest('.js-money-add') : null;
+    if (addBtn) {
+      e.preventDefault();
+      var row = addBtn.closest('.multi-money-row');
+      var kind = row ? row.getAttribute('data-kind') : null;
+      if (!kind) return;
+      createMoneyRow(kind, { amount: '', concept: '' }, true);
+      ensureSingleRow(kind);
+      updateResumen();
+      updateBorrador();
+      return;
+    }
+
+    var rmBtn = e.target && e.target.closest ? e.target.closest('.js-money-remove') : null;
+    if (rmBtn) {
+      e.preventDefault();
+      var row2 = rmBtn.closest('.multi-money-row');
+      var kind2 = row2 ? row2.getAttribute('data-kind') : null;
+      if (!kind2) return;
+      try { row2.remove(); } catch(_) {}
+      ensureSingleRow(kind2);
+      updateResumen();
+      updateBorrador();
+    }
+  });
+
   const clientSel = document.getElementById('clientSelect');
   const companySel = document.getElementById('companySelect');
   const orderSel = document.getElementById('orderSelect');
@@ -473,18 +710,12 @@
   const orderEntrega = document.getElementById('orderEntrega');
   const orderVenc = document.getElementById('orderVenc');
   const orderMonto = document.getElementById('orderMonto');
-  const orderNc = document.getElementById('orderNc');
-  const orderRet = document.getElementById('orderRet');
+  const ncListEl = document.getElementById('ncList');
+  const retListEl = document.getElementById('retList');
   const orderDesc = document.getElementById('orderDesc');
 
-  try {
-    var saldoInp2 = document.getElementById('companySaldoInput');
-    if (saldoInp2) {
-      saldoInp2.addEventListener('input', function(){ try { formatMoneyLive(saldoInp2); } catch(_) {} updateResumen(); });
-      saldoInp2.addEventListener('change', function(){ _saveSaldoHistorico(); });
-      saldoInp2.addEventListener('blur', function(){ _saveSaldoHistorico(); });
-    }
-  } catch(_) {}
+  try { ensureSingleRow('nc'); } catch(_) {}
+  try { ensureSingleRow('ret'); } catch(_) {}
 
   const pmEnables = document.querySelectorAll('.pm-enable');
   const pmCfg = {
@@ -900,11 +1131,15 @@
     var t = e.target;
     if (!t) return;
     // cambios típicos que deben disparar autosave
-    if (t.id === 'orderMonto' || t.id === 'orderNc' || t.id === 'orderRet' || t.id === 'orderDesc') {
+    if (t.id === 'orderMonto' || t.id === 'orderDesc') {
       _scheduleAutosave();
       return;
     }
     if (t.name && (t.name.endsWith('_amount') || t.name.endsWith('_date') || t.name === 'row_amount' || t.name === 'row_due_date' || t.name === 'row_notes')) {
+      _scheduleAutosave();
+      return;
+    }
+    if (t.name === 'nc_concept' || t.name === 'ret_concept' || t.name === 'nc_amount' || t.name === 'ret_amount') {
       _scheduleAutosave();
       return;
     }
@@ -1028,9 +1263,10 @@
     orderEntrega.value = '';
     orderVenc.value = '';
     orderMonto.value = '';
-    if (orderNc) orderNc.value = '';
-    if (orderRet) orderRet.value = '';
+    try { clearMoneyRows('nc'); } catch(_) {}
+    try { clearMoneyRows('ret'); } catch(_) {}
     orderDesc.value = '';
+    try { hideAllPmAmountSuggestions(); } catch(_) {}
     try { 
       // limpiar datasets base
       if (orderMonto && orderMonto.dataset) {
@@ -1039,7 +1275,7 @@
         delete orderMonto.dataset.baseCredit;
         delete orderMonto.dataset.baseRemaining;
         delete orderMonto.dataset.companyRemainingTotal;
-        delete orderMonto.dataset.companyDiffTotal;
+        delete orderMonto.dataset.clientPendingTotal;
       }
     } catch(e) {}
   }
@@ -1074,7 +1310,36 @@
     pendingOrders = [];
     resetMovements();
 
+    try {
+      var saldoInp = document.getElementById('companySaldoInput');
+      if (saldoInp) saldoInp.value = '';
+      if (orderMonto && orderMonto.dataset) {
+        delete orderMonto.dataset.clientPendingTotal;
+      }
+    } catch(_) {}
+
     if (!clientId) return;
+
+    try {
+      fetch(`/api/cobranzas/deudas_pendientes?client_id=${encodeURIComponent(clientId)}`)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          try {
+            var saldoInp = document.getElementById('companySaldoInput');
+            var saldoComputed = document.getElementById('companySaldoComputed');
+            var pending = Number(data && data.pending_total != null ? data.pending_total : 0);
+            if (isNaN(pending)) pending = 0;
+            if (saldoComputed) saldoComputed.value = String(pending || 0);
+            if (orderMonto && orderMonto.dataset) {
+              orderMonto.dataset.clientPendingTotal = String(pending || 0);
+            }
+            if (saldoInp) setMoneyInputValue(saldoInp, pending);
+            updateResumen();
+          } catch(_) {}
+        })
+        .catch(function(){});
+    } catch(_) {}
+
     fetch(`/api/clientes/${clientId}/empresas`)
       .then(r => r.json())
       .then(rows => {
@@ -1098,23 +1363,17 @@
     if (!clientId || !companyIdVal) return;
 
     try {
-      fetch(`/api/cobranzas/saldo_historico?client_id=${encodeURIComponent(clientId)}&company_id=${encodeURIComponent(companyIdVal)}`)
+      fetch(`/api/cobranzas/deudas_pendientes?client_id=${encodeURIComponent(clientId)}`)
         .then(function(r){ return r.json(); })
         .then(function(data){
           try {
             var saldoInp = document.getElementById('companySaldoInput');
             var saldoComputed = document.getElementById('companySaldoComputed');
-            var computed = Number(data && data.computed_total != null ? data.computed_total : 0);
-            var desired = Number(data && data.desired_total != null ? data.desired_total : 0);
-            if (isNaN(computed)) computed = 0;
-            if (isNaN(desired)) desired = 0;
-            if (saldoComputed) saldoComputed.value = String(computed || 0);
-            try { if (orderMonto) orderMonto.dataset.companyDiffTotal = String(desired || 0); } catch(e0) {}
-            try { if (orderMonto) orderMonto.dataset.companyDiffTotalCalc = String(computed || 0); } catch(e1) {}
-            if (saldoInp) {
-              setMoneyInputValue(saldoInp, desired);
-              try { formatMoneyLive(saldoInp); } catch(_) {}
-            }
+            var pending = Number(data && data.pending_total != null ? data.pending_total : 0);
+            if (isNaN(pending)) pending = 0;
+            if (saldoComputed) saldoComputed.value = String(pending || 0);
+            try { if (orderMonto) orderMonto.dataset.clientPendingTotal = String(pending || 0); } catch(e0) {}
+            if (saldoInp) setMoneyInputValue(saldoInp, pending);
             updateResumen();
           } catch(e_initSaldo) {}
         })
@@ -1165,8 +1424,8 @@
     setDateValue(orderEntrega, o.fecha_entrega_efectiva || '');
     setDateValue(orderVenc, o.fecha_pago_estimada || '');
     setMoneyInputValue(orderMonto, o.monto);
-    if (orderNc) orderNc.value = '';
-    if (orderRet) orderRet.value = '';
+    try { clearMoneyRows('nc'); } catch(_) {}
+    try { clearMoneyRows('ret'); } catch(_) {}
     try {
       // Guardar info del pedido para el resumen
       orderMonto.dataset.basePedido = String(o.monto != null ? o.monto : '0');
@@ -1174,7 +1433,6 @@
       orderMonto.dataset.baseCredit = String(o.total_credit != null ? o.total_credit : '0');
       orderMonto.dataset.baseRemaining = String(o.remaining != null ? o.remaining : '0');
       orderMonto.dataset.companyRemainingTotal = String(o.company_remaining_total != null ? o.company_remaining_total : '0');
-      orderMonto.dataset.companyDiffTotal = String(o.company_diff_total != null ? o.company_diff_total : '0');
     } catch(e) {}
     const desc = [o.nota, o.descripcion].filter(Boolean).join('\n\n');
     orderDesc.value = desc;
@@ -1254,55 +1512,44 @@
     var totalPedido = parseMoney(orderMonto && orderMonto.value);
     var totalPagos = 0;
     try{
-      document.querySelectorAll('[name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(inp){
+      document.querySelectorAll('[name^="pm_"][name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(inp){
         totalPagos += Math.abs(parseMoney(inp.value));
       });
     }catch(e){}
 
     var nowNc = 0;
     var nowRet = 0;
-    try { nowNc = Math.abs(parseMoney(orderNc && orderNc.value)); } catch(e) { nowNc = 0; }
-    try { nowRet = Math.abs(parseMoney(orderRet && orderRet.value)); } catch(e) { nowRet = 0; }
+    try { nowNc = Math.abs(getMoneyTotal('nc')); } catch(e) { nowNc = 0; }
+    try { nowRet = Math.abs(getMoneyTotal('ret')); } catch(e) { nowRet = 0; }
 
     // Si el pedido ya tenía pagos/NC previas, mostrar saldo real antes/después
     var basePedido = 0;
     var basePaid = 0;
     var baseCredit = 0;
     var baseRemaining = null;
-    var compTotal = null;
-    var compDiff = null;
+    var clientPendingTotal = 0;
     try {
       basePedido = parseMoney(orderMonto && (orderMonto.dataset.basePedido || orderMonto.value));
       basePaid = parseMoney(orderMonto && (orderMonto.dataset.basePaid || '0'));
       baseCredit = parseMoney(orderMonto && (orderMonto.dataset.baseCredit || '0'));
       baseRemaining = parseMoney(orderMonto && (orderMonto.dataset.baseRemaining || '0'));
-      compTotal = parseMoney(orderMonto && (orderMonto.dataset.companyRemainingTotal || '0'));
-      compDiff = parseMoney(orderMonto && (orderMonto.dataset.companyDiffTotal || (saldoInp ? saldoInp.value : '0') || '0'));
+      clientPendingTotal = parseMoney(orderMonto && (orderMonto.dataset.clientPendingTotal || (saldoInp ? saldoInp.value : '0') || '0'));
     } catch(e) {
       basePedido = totalPedido;
       basePaid = 0;
       baseCredit = 0;
       baseRemaining = null;
-      compTotal = null;
-      compDiff = null;
+      clientPendingTotal = 0;
     }
-
-    // Diferencias de otros pedidos YA cobrados (saldo a favor/en contra histórico)
-    var companyAdj = 0;
-    try {
-      companyAdj = Number(compDiff || 0);
-      if (isNaN(companyAdj)) companyAdj = 0;
-    } catch(ea) { companyAdj = 0; }
 
     // Lógica:
     // Deuda neta = Factura - (NC previas + NC ahora) - Retenciones
     // Pendiente final = Deuda neta - (Pagos previos + Pagos ahora)
-    // Deuda neta del pedido ajustada por saldo previo del cliente-empresa (otros pedidos)
-    var deudaNeta = (basePedido || totalPedido) - baseCredit - nowNc - nowRet + companyAdj;
+    var deudaNeta = (basePedido || totalPedido) - baseCredit - nowNc - nowRet;
     var pendienteFinal = deudaNeta - basePaid - totalPagos;
 
     // si no hay nada seleccionado/cargado, ocultar
-    if (!totalPedido && !totalPagos && !nowNc && !nowRet && !basePaid && !baseCredit && !(companyAdj && Math.abs(companyAdj) > 0.009)){
+    if (!totalPedido && !totalPagos && !nowNc && !nowRet && !basePaid && !baseCredit){
       box.classList.add('d-none');
       box.textContent = '';
       return;
@@ -1321,10 +1568,7 @@
     var headerPedido = (basePedido || totalPedido);
     var parts = [];
     parts.push('Pedido: $ ' + fmtMoney(headerPedido));
-    try {
-      if (companyAdj < -0.009) parts.push('Saldo previo a favor: $ ' + fmtMoney(Math.abs(companyAdj)));
-      else if (companyAdj > 0.009) parts.push('Saldo previo pendiente: $ ' + fmtMoney(companyAdj));
-    } catch(eax) {}
+    try { if (clientPendingTotal > 0.009) parts.push('Deudas pendientes cliente: $ ' + fmtMoney(clientPendingTotal)); } catch(eax) {}
     pushPart(parts, 'Ya pagado', basePaid);
     pushPart(parts, 'NC previas', baseCredit);
     pushPart(parts, 'Pagos ahora', totalPagos);
@@ -1349,12 +1593,8 @@
           saldoInp.classList.remove('text-success');
           saldoInp.classList.remove('text-danger');
         } catch(e0) {}
-        if (!(companySel && companySel.value)) {
-          // no-op
-        } else if (companyAdj > 0.009) {
+        if ((companySel && companySel.value) && clientPendingTotal > 0.009) {
           try { saldoInp.classList.add('text-danger'); } catch(e1) {}
-        } else if (companyAdj < -0.009) {
-          try { saldoInp.classList.add('text-success'); } catch(e2) {}
         }
       }
     } catch(e) {}
@@ -1408,14 +1648,27 @@
 
     var monto = parseMoney(orderMonto && orderMonto.value);
     var montoBase = 0;
-    var companyAdj = 0;
+    var clientPendingTotal = 0;
     try { montoBase = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.basePedido || '')); } catch(_) { montoBase = 0; }
-    try { companyAdj = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.companyDiffTotal || '')); } catch(_) { companyAdj = 0; }
+    try { clientPendingTotal = parseMoney(orderMonto && orderMonto.dataset && (orderMonto.dataset.clientPendingTotal || '')); } catch(_) { clientPendingTotal = 0; }
     if (!montoBase && monto) montoBase = monto;
     var nc = 0;
     var ret = 0;
-    try { nc = Math.abs(parseMoney(orderNc && orderNc.value)); } catch(e3) { nc = 0; }
-    try { ret = Math.abs(parseMoney(orderRet && orderRet.value)); } catch(e4) { ret = 0; }
+    try { nc = Math.abs(getMoneyTotal('nc')); } catch(e3) { nc = 0; }
+    try { ret = Math.abs(getMoneyTotal('ret')); } catch(e4) { ret = 0; }
+
+    function listMoneyLines(kindLabel, kind){
+      var lines = [];
+      try {
+        getMoneyItems(kind).forEach(function(it){
+          var v = Math.abs(parseMoney(it.amount));
+          if (v <= 0.009) return;
+          var concept = String(it.concept || '').trim();
+          lines.push('$' + fmtMoney(v) + (concept ? (' - ' + concept) : ''));
+        });
+      } catch(_) {}
+      return lines;
+    }
 
     var efectivo = sumByMethod('pm_efectivo');
     var transferencia = sumByMethod('pm_transferencia');
@@ -1476,18 +1729,24 @@
     lines.push('Dep ' + (clientTxt || '-') + ' - ' + (companyTxt || '-'));
     lines.push('');
 
-    // Monto (pedido + ajuste de saldo histórico si existe)
+    // Monto del pedido
     lines.push('Monto:');
     if (Math.abs(montoBase) > 0.009) lines.push('$' + fmtMoney(montoBase));
-    if (Math.abs(companyAdj) > 0.009) lines.push('$' + fmtMoney(companyAdj));
-    var montoTotal = (montoBase || 0) + (companyAdj || 0);
+    var montoTotal = (montoBase || 0);
     if (Math.abs(montoTotal) > 0.009) lines.push('(TOTAL $' + fmtMoney(montoTotal) + ')');
+    if (Math.abs(clientPendingTotal) > 0.009) {
+      lines.push('');
+      lines.push('Deudas pendientes cliente:');
+      lines.push('$' + fmtMoney(clientPendingTotal));
+    }
     lines.push('');
 
     // Retenciones
     if (ret > 0.009) {
       lines.push('(Retenciones):');
-      lines.push('$' + fmtMoney(ret));
+      var retLines = listMoneyLines('Retenciones', 'ret');
+      if (retLines.length) retLines.forEach(function(l){ lines.push(l); });
+      else lines.push('$' + fmtMoney(ret));
       lines.push('(TOTAL $' + fmtMoney(ret) + ')');
       lines.push('');
     }
@@ -1495,7 +1754,9 @@
     // Nota de crédito (si existe)
     if (nc > 0.009) {
       lines.push('(Nota de crédito):');
-      lines.push('$' + fmtMoney(nc));
+      var ncLines = listMoneyLines('Nota de crédito', 'nc');
+      if (ncLines.length) ncLines.forEach(function(l){ lines.push(l); });
+      else lines.push('$' + fmtMoney(nc));
       lines.push('(TOTAL $' + fmtMoney(nc) + ')');
       lines.push('');
     }
@@ -1555,6 +1816,13 @@
           }
         }
       });
+
+      if (!enabled) {
+        try {
+          var mainAmount = document.querySelector('[name="' + String(prefix) + '_amount"]');
+          hidePmSuggestionForInput(mainAmount);
+        } catch(_) {}
+      }
 
       // Default fecha: hoy al habilitar (solo si está vacía)
       if (enabled) {
@@ -1616,6 +1884,34 @@
       try { setExtrasEnabled(prefix, ch.checked); } catch(e) {}
       updateResumen();
     });
+  });
+
+  document.addEventListener('click', function(e){
+    var btn = e.target && e.target.closest ? e.target.closest('.pm-amount-suggest') : null;
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    var targetName = '';
+    try { targetName = String(btn.getAttribute('data-target-name') || ''); } catch(_) { targetName = ''; }
+    if (!targetName) return;
+
+    var inp = null;
+    try { inp = document.querySelector('[name="' + targetName + '"]'); } catch(_) { inp = null; }
+    if (!inp || inp.disabled) {
+      try { btn.classList.add('d-none'); } catch(_) {}
+      return;
+    }
+
+    var suggested = 0;
+    try { suggested = Math.abs(parseMoney(btn.getAttribute('data-suggested-amount') || '0')); } catch(_) { suggested = 0; }
+    if (!isFinite(suggested) || suggested < 0) suggested = 0;
+
+    try { inp.value = fmtMoney(suggested); } catch(_) {}
+    try { btn.classList.add('d-none'); } catch(_) {}
+    try { inp.focus(); } catch(_) {}
+    try { updateResumen(); } catch(_) {}
+    try { updateBorrador(); } catch(_) {}
   });
 
   document.querySelectorAll('button.pm-add').forEach(function(btn){
@@ -1687,7 +1983,7 @@
         }
       } catch(e0) {}
     }
-    if (t && t.name && (t.name.endsWith('_amount') || t.name === 'row_amount' || t.id === 'orderMonto' || t.id === 'orderNc' || t.id === 'orderRet')) {
+    if (t && t.name && (t.name.endsWith('_amount') || t.name === 'row_amount' || t.id === 'orderMonto' || t.name === 'nc_concept' || t.name === 'ret_concept')) {
       updateResumen();
       updateBorrador();
     }
@@ -1695,6 +1991,9 @@
 
   document.addEventListener('focus', function(e){
     var t = e.target;
+    if (t && _isMainPmAmountInput(t)) {
+      sugerirSaldoRestanteEnMedioPago(t);
+    }
     if (t && t.classList && t.classList.contains('js-only-number')) {
       try {
         if (String(t.value || '').trim()) {
@@ -1702,6 +2001,17 @@
         }
       } catch(_) {}
     }
+  }, true);
+
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    var sugBtn = t && t.closest ? t.closest('.pm-amount-suggest') : null;
+    if (sugBtn) return;
+    if (t && _isMainPmAmountInput(t)) {
+      sugerirSaldoRestanteEnMedioPago(t);
+      return;
+    }
+    hideAllPmAmountSuggestions();
   }, true);
 
   document.addEventListener('blur', function(e){
@@ -1725,7 +2035,7 @@
       } catch(_) {}
       updateResumen();
     }
-    if (t && (t.id === 'orderNc' || t.id === 'orderRet')) {
+    if (t && (t.name === 'nc_amount' || t.name === 'ret_amount')) {
       try {
         if (String(t.value || '').trim()) {
           t.value = fmtMoney(parseMoney(t.value));
@@ -1803,17 +2113,11 @@
         var basePedido = parseMoney(orderMonto && (orderMonto.value || orderMonto.dataset.basePedido || '0'));
         var basePaid = parseMoney(orderMonto && (orderMonto.dataset.basePaid || '0'));
         var baseCredit = parseMoney(orderMonto && (orderMonto.dataset.baseCredit || '0'));
-        var compDiff = parseMoney(orderMonto && (orderMonto.dataset.companyDiffTotal || '0'));
-        var companyAdj = 0;
-        try {
-          companyAdj = Number(compDiff || 0);
-          if (isNaN(companyAdj)) companyAdj = 0;
-        } catch(ea) { companyAdj = 0; }
         var totalPagos = 0;
-        document.querySelectorAll('[name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(inp){ totalPagos += Math.abs(parseMoney(inp.value)); });
-        var nowNc = Math.abs(parseMoney(orderNc && orderNc.value));
-        var nowRet = Math.abs(parseMoney(orderRet && orderRet.value));
-        var deudaNeta = basePedido - baseCredit - nowNc - nowRet + companyAdj;
+        document.querySelectorAll('[name^="pm_"][name$="_amount"]:not([disabled]), [name="row_amount"]:not([disabled])').forEach(function(inp){ totalPagos += Math.abs(parseMoney(inp.value)); });
+        var nowNc = Math.abs(getMoneyTotal('nc'));
+        var nowRet = Math.abs(getMoneyTotal('ret'));
+        var deudaNeta = basePedido - baseCredit - nowNc - nowRet;
         var pendienteFinal = deudaNeta - basePaid - totalPagos;
         if (pendienteFinal < -0.009) {
           ev.preventDefault();
@@ -1910,8 +2214,16 @@
           if (draft.order_fecha_entrega_efectiva != null) setDateValue(orderEntrega, draft.order_fecha_entrega_efectiva);
           if (draft.order_fecha_pago_estimada != null) setDateValue(orderVenc, draft.order_fecha_pago_estimada);
           if (draft.order_monto != null) setMoneyInputValue(orderMonto, draft.order_monto);
-          if (orderNc && draft.order_credit_note != null) setMoneyInputValue(orderNc, draft.order_credit_note);
-          if (orderRet && draft.order_retenciones != null) setMoneyInputValue(orderRet, draft.order_retenciones);
+          if (Array.isArray(draft.nc_items)) {
+            setMoneyItems('nc', draft.nc_items);
+          } else if (draft.order_credit_note != null) {
+            setMoneyItems('nc', [{ amount: String(draft.order_credit_note || ''), concept: '' }]);
+          }
+          if (Array.isArray(draft.ret_items)) {
+            setMoneyItems('ret', draft.ret_items);
+          } else if (draft.order_retenciones != null) {
+            setMoneyItems('ret', [{ amount: String(draft.order_retenciones || ''), concept: '' }]);
+          }
           if (draft.order_notes != null) orderDesc.value = String(draft.order_notes || '');
         } catch(e4) {}
 

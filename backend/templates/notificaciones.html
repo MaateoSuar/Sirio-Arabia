@@ -4,6 +4,28 @@
   #notifTabs .nav-link{ color:#0f766e; font-weight:600; }
   #notifTabs .nav-link:hover{ color:#0b5f59; }
   #notifTabs .nav-link.active{ color:#0f766e; border-color:#0f766e #0f766e #fff; }
+  .notif-table{ border:1px solid rgba(15,118,110,.18); border-radius:.6rem; overflow:hidden; background:#fff; }
+  .notif-head,
+  .notif-row{ display:grid; align-items:center; column-gap:.75rem; }
+  .notif-table--main .notif-head,
+  .notif-table--main .notif-row{ grid-template-columns:minmax(170px,1.2fr) minmax(150px,1.2fr) minmax(160px,1fr) minmax(115px,.8fr) minmax(160px,1fr) 62px; }
+  .notif-table--inact .notif-head,
+  .notif-table--inact .notif-row{ grid-template-columns:minmax(170px,1.2fr) minmax(150px,1.2fr) minmax(115px,.8fr) minmax(160px,1fr) minmax(130px,.85fr) 62px; }
+  .notif-head{ background:#f3f8f8; color:#4b5563; font-size:.72rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; padding:.55rem .7rem; }
+  .notif-row{ padding:.5rem .7rem; border-top:1px solid rgba(15,118,110,.16); }
+  .notif-cell{ min-width:0; font-size:.88rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .notif-cell--status .badge{ font-size:.74rem; }
+  .notif-cell--action{ display:flex; justify-content:center; }
+  .notif-btn-check{ width:1.55rem; height:1.55rem; padding:0; display:inline-flex; align-items:center; justify-content:center; }
+  .notif-empty{ border:1px dashed rgba(15,118,110,.25); border-radius:.5rem; padding:.75rem; color:#6c757d; background:#fff; }
+  @media (max-width: 767.98px){
+    .notif-head{ display:none; }
+    .notif-table--main .notif-row,
+    .notif-table--inact .notif-row{ grid-template-columns:repeat(2, minmax(120px,1fr)); row-gap:.35rem; }
+    .notif-cell{ white-space:normal; overflow:visible; text-overflow:clip; }
+    .notif-cell::before{ content:attr(data-label); display:block; font-size:.66rem; line-height:1.1; color:#6c757d; text-transform:uppercase; letter-spacing:.02em; margin-bottom:.15rem; font-weight:700; }
+    .notif-cell--action{ grid-column:1 / -1; justify-content:flex-end; }
+  }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h4 mb-0">Notificaciones</h1>
@@ -35,6 +57,58 @@
         {% set cnt_inact_5 = (inact_alerts|selectattr('inactivity_bucket','equalto','5')|list|length) %}
         {% set cnt_inact_6p = (inact_alerts|selectattr('inactivity_bucket','equalto','6PLUS')|list|length) %}
 
+        {% macro notif_row_main(a) -%}
+          {% set full_name = (a.client_name or '')|trim %}
+          {% set parts = full_name.split(' ', 1) if full_name else [] %}
+          {% set razon = (a.client_razon_social if a.client_razon_social is defined and a.client_razon_social else (parts[0] if parts and (parts|length > 0) else '-')) %}
+          {% set nombre = (a.client_nombre if a.client_nombre is defined and a.client_nombre else (parts[1] if parts and (parts|length > 1) else '-')) %}
+          <div class="js-notif-item notif-row"
+               data-client-id="{{ a.client_id }}"
+               data-client-name="{{ a.client_name }}"
+               data-order-id="{{ a.order_id }}"
+               data-kind="{{ a.kind }}"
+               data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
+               data-message="{{ a.message }}"
+               data-severity="{{ a.severity }}"
+               data-company="{{ a.company }}">
+            <div class="notif-cell" data-label="Razón social">{{ razon or '-' }}</div>
+            <div class="notif-cell" data-label="Nombre">{{ nombre or '-' }}</div>
+            <div class="notif-cell notif-cell--status" data-label="Estatus">
+              <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.message or (a.kind or '-') }}</span>
+            </div>
+            <div class="notif-cell" data-label="Pedido">Pedido #{{ a.order_id }}</div>
+            <div class="notif-cell" data-label="Empresa">{{ a.company or '-' }}</div>
+            <div class="notif-cell notif-cell--action" data-label="Acción">
+              <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto notif-btn-check" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+            </div>
+          </div>
+        {%- endmacro %}
+
+        {% macro inact_row(a) -%}
+          {% set full_name = (a.client_name or '')|trim %}
+          {% set parts = full_name.split(' ', 1) if full_name else [] %}
+          {% set razon = (a.client_razon_social if a.client_razon_social is defined and a.client_razon_social else (parts[0] if parts and (parts|length > 0) else '-')) %}
+          {% set nombre = (a.client_nombre if a.client_nombre is defined and a.client_nombre else (parts[1] if parts and (parts|length > 1) else '-')) %}
+          <div class="js-notif-item notif-row"
+               data-client-id="{{ a.client_id }}"
+               data-client-name="{{ a.client_name }}"
+               data-order-id="{{ a.order_id }}"
+               data-kind="{{ a.kind }}"
+               data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
+               data-message="{{ a.message }}"
+               data-severity="{{ a.severity }}"
+               data-company="{{ a.company }}">
+            <div class="notif-cell" data-label="Razón social">{{ razon or '-' }}</div>
+            <div class="notif-cell" data-label="Nombre">{{ nombre or '-' }}</div>
+            <div class="notif-cell" data-label="Pedido">Pedido #{{ a.order_id }}</div>
+            <div class="notif-cell" data-label="Empresa">{{ a.company or '-' }}</div>
+            <div class="notif-cell" data-label="Última compra">{{ a.last_order_date.strftime('%d/%m/%Y') if a.last_order_date else '-' }}</div>
+            <div class="notif-cell notif-cell--action" data-label="Acción">
+              <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto notif-btn-check" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+            </div>
+          </div>
+        {%- endmacro %}
+
         <ul class="nav nav-pills mb-3 flex-wrap gap-2" id="notifKindTabs" role="tablist">
           <li class="nav-item" role="presentation">
             <button class="nav-link active" type="button" data-kind="ALL">Todas ({{ active_alerts|length }})</button>
@@ -57,20 +131,16 @@
               <i class="bi bi-chevron-right js-inact-icon" data-inact-bucket="2"></i>
             </button>
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="2">
-              {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','2')|list %}
-                <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
-                     data-client-id="{{ a.client_id }}"
-                     data-client-name="{{ a.client_name }}"
-                     data-order-id="{{ a.order_id }}"
-                     data-kind="{{ a.kind }}"
-                     data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
-                     data-message="{{ a.message }}"
-                     data-severity="{{ a.severity }}"
-                     data-company="{{ a.company }}">
-                  <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})</span>
-                  <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+              <div class="notif-table notif-table--inact">
+                <div class="notif-head">
+                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
                 </div>
-              {% endfor %}
+                {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','2')|list %}
+                  {{ inact_row(a) }}
+                {% else %}
+                  <div class="notif-empty">Sin notificaciones en este grupo</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
           <div class="border rounded mb-2">
@@ -79,20 +149,16 @@
               <i class="bi bi-chevron-right js-inact-icon" data-inact-bucket="3"></i>
             </button>
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="3">
-              {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','3')|list %}
-                <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
-                     data-client-id="{{ a.client_id }}"
-                     data-client-name="{{ a.client_name }}"
-                     data-order-id="{{ a.order_id }}"
-                     data-kind="{{ a.kind }}"
-                     data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
-                     data-message="{{ a.message }}"
-                     data-severity="{{ a.severity }}"
-                     data-company="{{ a.company }}">
-                  <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})</span>
-                  <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+              <div class="notif-table notif-table--inact">
+                <div class="notif-head">
+                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
                 </div>
-              {% endfor %}
+                {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','3')|list %}
+                  {{ inact_row(a) }}
+                {% else %}
+                  <div class="notif-empty">Sin notificaciones en este grupo</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
           <div class="border rounded mb-2">
@@ -101,20 +167,16 @@
               <i class="bi bi-chevron-right js-inact-icon" data-inact-bucket="4"></i>
             </button>
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="4">
-              {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','4')|list %}
-                <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
-                     data-client-id="{{ a.client_id }}"
-                     data-client-name="{{ a.client_name }}"
-                     data-order-id="{{ a.order_id }}"
-                     data-kind="{{ a.kind }}"
-                     data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
-                     data-message="{{ a.message }}"
-                     data-severity="{{ a.severity }}"
-                     data-company="{{ a.company }}">
-                  <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})</span>
-                  <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+              <div class="notif-table notif-table--inact">
+                <div class="notif-head">
+                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
                 </div>
-              {% endfor %}
+                {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','4')|list %}
+                  {{ inact_row(a) }}
+                {% else %}
+                  <div class="notif-empty">Sin notificaciones en este grupo</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
           <div class="border rounded mb-2">
@@ -123,20 +185,16 @@
               <i class="bi bi-chevron-right js-inact-icon" data-inact-bucket="5"></i>
             </button>
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="5">
-              {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','5')|list %}
-                <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
-                     data-client-id="{{ a.client_id }}"
-                     data-client-name="{{ a.client_name }}"
-                     data-order-id="{{ a.order_id }}"
-                     data-kind="{{ a.kind }}"
-                     data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
-                     data-message="{{ a.message }}"
-                     data-severity="{{ a.severity }}"
-                     data-company="{{ a.company }}">
-                  <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})</span>
-                  <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+              <div class="notif-table notif-table--inact">
+                <div class="notif-head">
+                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
                 </div>
-              {% endfor %}
+                {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','5')|list %}
+                  {{ inact_row(a) }}
+                {% else %}
+                  <div class="notif-empty">Sin notificaciones en este grupo</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
           <div class="border rounded mb-2">
@@ -145,43 +203,27 @@
               <i class="bi bi-chevron-right js-inact-icon" data-inact-bucket="6PLUS"></i>
             </button>
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="6PLUS">
-              {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','6PLUS')|list %}
-                <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
-                     data-client-id="{{ a.client_id }}"
-                     data-client-name="{{ a.client_name }}"
-                     data-order-id="{{ a.order_id }}"
-                     data-kind="{{ a.kind }}"
-                     data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
-                     data-message="{{ a.message }}"
-                     data-severity="{{ a.severity }}"
-                     data-company="{{ a.company }}">
-                  <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">{{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})</span>
-                  <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada"><i class="bi bi-check-lg"></i></button>
+              <div class="notif-table notif-table--inact">
+                <div class="notif-head">
+                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
                 </div>
-              {% endfor %}
+                {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','6PLUS')|list %}
+                  {{ inact_row(a) }}
+                {% else %}
+                  <div class="notif-empty">Sin notificaciones en este grupo</div>
+                {% endfor %}
+              </div>
             </div>
           </div>
         </div>
 
         {% if active_alerts and active_alerts|length > 0 %}
-          <div class="d-flex flex-column gap-2" id="notifActivasList">
+          <div class="notif-table notif-table--main" id="notifActivasList">
+            <div class="notif-head">
+              <div>Razón social</div><div>Nombre</div><div>Estatus</div><div>Pedido</div><div>Empresa</div><div>Acción</div>
+            </div>
             {% for a in active_alerts %}
-              <div class="d-flex flex-wrap gap-2 align-items-center js-notif-item"
-                   data-client-id="{{ a.client_id }}"
-                   data-client-name="{{ a.client_name }}"
-                   data-order-id="{{ a.order_id }}"
-                   data-kind="{{ a.kind }}"
-                   data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
-                   data-message="{{ a.message }}"
-                   data-severity="{{ a.severity }}"
-                   data-company="{{ a.company }}">
-                <span class="badge {{ 'bg-danger' if a.severity=='danger' else 'bg-warning text-dark' }}">
-                  {{ a.client_name }}: {{ a.message }} (Pedido #{{ a.order_id }} - {{ a.company or '-' }})
-                </span>
-                <button type="button" class="btn btn-sm btn-success rounded-circle js-notif-visto" aria-label="Marcar notificación como visualizada" title="Visualizada">
-                  <i class="bi bi-check-lg"></i>
-                </button>
-              </div>
+              {{ notif_row_main(a) }}
             {% endfor %}
           </div>
         {% else %}
