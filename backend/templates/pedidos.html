@@ -1,5 +1,23 @@
 {% extends 'layout.html' %}
 {% block content %}
+<style>
+  #pedido_nota_suggestions {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 0.2rem);
+    z-index: 1051;
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid rgba(15, 118, 110, .25);
+    border-radius: .5rem;
+    box-shadow: 0 .35rem .9rem rgba(0, 0, 0, .08);
+  }
+  #pedido_nota_suggestions .note-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+</style>
 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center gap-2 mb-4">
   <h1 class="h4 mb-0">{% if edit_order %}Editando pedido{% else %}Registro de Venta / Pedido{% endif %}</h1>
   <div class="d-grid d-sm-block">
@@ -120,8 +138,9 @@
           <option value="">Empresa...</option>
         </select>
       </div>
-      <div class="col-12">
-        <input type="text" class="form-control" id="pedido_nota" name="nota" placeholder="Nota" value="{{ (edit_order.nota or '') if edit_order else '' }}">
+      <div class="col-12 position-relative">
+        <input type="text" class="form-control" id="pedido_nota" name="nota" placeholder="Nota" autocomplete="off" value="{{ (edit_order.nota or '') if edit_order else '' }}">
+        <div id="pedido_nota_suggestions" class="list-group d-none" role="listbox" aria-label="Sugerencias de notas"></div>
       </div>
       <div class="col-12">
         <div class="d-flex justify-content-end mb-1">
@@ -200,6 +219,7 @@
     const empresaSel = document.getElementById('pedido_empresa');
     const mailInput = document.getElementById('pedido_mail_pedido');
     const notaInput = document.getElementById('pedido_nota');
+    const notaSuggestBox = document.getElementById('pedido_nota_suggestions');
     const descInput = document.getElementById('pedido_descripcion');
     const notaPedidoBtn = document.getElementById('btn-nota-pedido');
     const precioInput = document.getElementById('pedido_precio');
@@ -234,10 +254,148 @@
     let pendingDeleteDraft = null;
     let pendingDeletePrevOrder = null;
     let lastCompanyId = '';
+    let noteSuggestionsAll = [];
+    let lastNoteSuggestKey = '';
+
+    function hideNoteSuggestions(){
+      if (!notaSuggestBox) return;
+      notaSuggestBox.classList.add('d-none');
+      notaSuggestBox.innerHTML = '';
+    }
+
+    function resetNoteSuggestions(){
+      noteSuggestionsAll = [];
+      lastNoteSuggestKey = '';
+      hideNoteSuggestions();
+    }
+
+    function fmtIsoToAr(isoDate){
+      const s = String(isoDate || '').trim();
+      if (!s) return '';
+      const p = s.split('-');
+      if (p.length !== 3) return s;
+      return [p[2], p[1], p[0]].join('/');
+    }
+
+    function renderNoteSuggestions(filterText){
+      if (!notaSuggestBox) return;
+      const q = String(filterText || '').trim().toLowerCase();
+      const rows = (noteSuggestionsAll || []).filter(function(it){
+        if (!it || !it.note) return false;
+        if (!q) return true;
+        return String(it.note).toLowerCase().indexOf(q) !== -1;
+      });
+
+      if (!rows.length){
+        hideNoteSuggestions();
+        return;
+      }
+
+      notaSuggestBox.innerHTML = '';
+      rows.slice(0, 10).forEach(function(it){
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'list-group-item list-group-item-action py-2';
+        btn.setAttribute('role', 'option');
+
+        const top = document.createElement('div');
+        top.className = 'note-text';
+        top.textContent = it.note;
+
+        const meta = document.createElement('div');
+        meta.className = 'small text-muted mt-1';
+        meta.textContent = it.date ? ('— ' + fmtIsoToAr(it.date)) : '';
+
+        btn.appendChild(top);
+        if (meta.textContent) btn.appendChild(meta);
+
+        btn.addEventListener('mousedown', function(e){ e.preventDefault(); });
+        btn.addEventListener('click', function(){
+          if (notaInput) notaInput.value = it.note || '';
+          hideNoteSuggestions();
+          try { if (notaInput) notaInput.focus(); } catch(e) {}
+          try { refreshPreview(); } catch(e) {}
+          try { saveDraft(); } catch(e) {}
+        });
+
+        notaSuggestBox.appendChild(btn);
+      });
+
+      notaSuggestBox.classList.remove('d-none');
+    }
+
+    async function loadNoteSuggestions(force){
+      const cid = (clienteSel && clienteSel.value) ? String(clienteSel.value) : '';
+      const eid = (empresaSel && empresaSel.value) ? String(empresaSel.value) : '';
+      if (!cid) {
+        resetNoteSuggestions();
+        return;
+      }
+
+      const key = cid + '|' + eid;
+      if (!force && key === lastNoteSuggestKey && noteSuggestionsAll.length) {
+        renderNoteSuggestions(notaInput ? notaInput.value : '');
+        return;
+      }
+
+      try {
+        const qs = new URLSearchParams();
+        qs.set('client_id', cid);
+        if (eid) qs.set('company_id', eid);
+        qs.set('limit', '20');
+        const res = await fetch('/api/pedidos/notas_previas?' + qs.toString(), { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) {
+          noteSuggestionsAll = [];
+          hideNoteSuggestions();
+          return;
+        }
+        const items = await res.json();
+        noteSuggestionsAll = Array.isArray(items) ? items.filter(function(it){
+          return it && String(it.note || '').trim() !== '';
+        }).map(function(it){
+          return { note: String(it.note || '').trim(), date: String(it.date || '').trim() };
+        }) : [];
+        lastNoteSuggestKey = key;
+        renderNoteSuggestions(notaInput ? notaInput.value : '');
+      } catch(e) {
+        noteSuggestionsAll = [];
+        hideNoteSuggestions();
+      }
+    }
 
     function hiddenPrevKey(clientId, companyId){
       return `pedido_prev_hidden_${clientId || '0'}_${companyId || '0'}`;
     }
+
+    notaInput?.addEventListener('focus', function(){
+      try { loadNoteSuggestions(false); } catch(e) {}
+    });
+
+    notaInput?.addEventListener('click', function(){
+      try { loadNoteSuggestions(false); } catch(e) {}
+    });
+
+    notaInput?.addEventListener('input', function(){
+      try {
+        if (!noteSuggestionsAll.length) {
+          loadNoteSuggestions(false);
+        } else {
+          renderNoteSuggestions(notaInput.value || '');
+        }
+      } catch(e) {}
+    });
+
+    notaInput?.addEventListener('keydown', function(e){
+      if (e && e.key === 'Escape') hideNoteSuggestions();
+    });
+
+    document.addEventListener('click', function(e){
+      if (!notaInput || !notaSuggestBox) return;
+      const t = e.target;
+      if (t === notaInput) return;
+      if (t && t.closest && t.closest('#pedido_nota_suggestions')) return;
+      hideNoteSuggestions();
+    });
     function getHiddenPrevIds(clientId, companyId){
       try {
         const raw = localStorage.getItem(hiddenPrevKey(clientId, companyId));
@@ -764,6 +922,7 @@
     clienteSel?.addEventListener('change', async ()=>{
       const id = clienteSel.value;
       clearFormForClientChange();
+      resetNoteSuggestions();
       resetRecipients();
       lastCompanyId = '';
       delete document.body.dataset.tipoTouched;
@@ -795,6 +954,7 @@
         if (precioInput) delete precioInput.dataset.touched;
       }
       lastCompanyId = currCompanyId;
+      resetNoteSuggestions();
       if (mailInput){
         try{
           mailInput.value = opt ? (opt.getAttribute('data-mail') || '') : '';
@@ -823,6 +983,9 @@
       // Intentar cargar borrador si ya hay empresa seleccionada
       tryLoadDraftForSelection();
       try { loadPrevOrders(); } catch(e) {}
+      try {
+        if (document.activeElement === notaInput) loadNoteSuggestions(true);
+      } catch(e) {}
       refreshPreview();
 
       // Default forma de pago del cliente (si existe) o EFECTIVO

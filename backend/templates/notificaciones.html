@@ -12,6 +12,8 @@
   .notif-table--inact .notif-head,
   .notif-table--inact .notif-row{ grid-template-columns:minmax(170px,1.2fr) minmax(150px,1.2fr) minmax(115px,.8fr) minmax(160px,1fr) minmax(130px,.85fr) 62px; }
   .notif-head{ background:#f3f8f8; color:#4b5563; font-size:.72rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; padding:.55rem .7rem; }
+  .notif-head .js-sort-col{ cursor:pointer; user-select:none; }
+  .notif-head .js-sort-col .js-sort-ind{ display:inline-block; width:.9em; margin-left:.2rem; color:#6b7280; }
   .notif-row{ padding:.5rem .7rem; border-top:1px solid rgba(15,118,110,.16); }
   .notif-cell{ min-width:0; font-size:.88rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .notif-cell--status .badge{ font-size:.74rem; }
@@ -65,6 +67,10 @@
           <div class="js-notif-item notif-row"
                data-client-id="{{ a.client_id }}"
                data-client-name="{{ a.client_name }}"
+               data-razon="{{ (razon or '-')|lower }}"
+               data-nombre="{{ (nombre or '-')|lower }}"
+               data-status="{{ (a.message or (a.kind or '-'))|lower }}"
+               data-company-text="{{ (a.company or '-')|lower }}"
                data-order-id="{{ a.order_id }}"
                data-kind="{{ a.kind }}"
                data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
@@ -92,7 +98,11 @@
           <div class="js-notif-item notif-row"
                data-client-id="{{ a.client_id }}"
                data-client-name="{{ a.client_name }}"
+               data-razon="{{ (razon or '-')|lower }}"
+               data-nombre="{{ (nombre or '-')|lower }}"
+               data-company-text="{{ (a.company or '-')|lower }}"
                data-order-id="{{ a.order_id }}"
+               data-last-order-date="{{ a.last_order_date.isoformat() if a.last_order_date else '' }}"
                data-kind="{{ a.kind }}"
                data-inact-bucket="{{ a.inactivity_bucket if a.inactivity_bucket is defined else '' }}"
                data-message="{{ a.message }}"
@@ -133,7 +143,12 @@
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="2">
               <div class="notif-table notif-table--inact">
                 <div class="notif-head">
-                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
+                  <div class="js-sort-col" data-sort-key="razon">Razón social<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="nombre">Nombre<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="pedido">Pedido<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="empresa">Empresa<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="ultima_compra">Última compra<span class="js-sort-ind"></span></div>
+                  <div>Acción</div>
                 </div>
                 {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','2')|list %}
                   {{ inact_row(a) }}
@@ -151,7 +166,12 @@
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="3">
               <div class="notif-table notif-table--inact">
                 <div class="notif-head">
-                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
+                  <div class="js-sort-col" data-sort-key="razon">Razón social<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="nombre">Nombre<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="pedido">Pedido<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="empresa">Empresa<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="ultima_compra">Última compra<span class="js-sort-ind"></span></div>
+                  <div>Acción</div>
                 </div>
                 {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','3')|list %}
                   {{ inact_row(a) }}
@@ -169,7 +189,12 @@
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="4">
               <div class="notif-table notif-table--inact">
                 <div class="notif-head">
-                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
+                  <div class="js-sort-col" data-sort-key="razon">Razón social<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="nombre">Nombre<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="pedido">Pedido<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="empresa">Empresa<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="ultima_compra">Última compra<span class="js-sort-ind"></span></div>
+                  <div>Acción</div>
                 </div>
                 {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','4')|list %}
                   {{ inact_row(a) }}
@@ -187,7 +212,12 @@
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="5">
               <div class="notif-table notif-table--inact">
                 <div class="notif-head">
-                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
+                  <div class="js-sort-col" data-sort-key="razon">Razón social<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="nombre">Nombre<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="pedido">Pedido<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="empresa">Empresa<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="ultima_compra">Última compra<span class="js-sort-ind"></span></div>
+                  <div>Acción</div>
                 </div>
                 {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','5')|list %}
                   {{ inact_row(a) }}
@@ -205,7 +235,12 @@
             <div class="px-2 pb-2 d-none js-inact-panel" data-inact-bucket="6PLUS">
               <div class="notif-table notif-table--inact">
                 <div class="notif-head">
-                  <div>Razón social</div><div>Nombre</div><div>Pedido</div><div>Empresa</div><div>Última compra</div><div>Acción</div>
+                  <div class="js-sort-col" data-sort-key="razon">Razón social<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="nombre">Nombre<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="pedido">Pedido<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="empresa">Empresa<span class="js-sort-ind"></span></div>
+                  <div class="js-sort-col" data-sort-key="ultima_compra">Última compra<span class="js-sort-ind"></span></div>
+                  <div>Acción</div>
                 </div>
                 {% for a in inact_alerts|selectattr('inactivity_bucket','equalto','6PLUS')|list %}
                   {{ inact_row(a) }}
@@ -220,7 +255,12 @@
         {% if active_alerts and active_alerts|length > 0 %}
           <div class="notif-table notif-table--main" id="notifActivasList">
             <div class="notif-head">
-              <div>Razón social</div><div>Nombre</div><div>Estatus</div><div>Pedido</div><div>Empresa</div><div>Acción</div>
+              <div class="js-sort-col" data-sort-key="razon">Razón social<span class="js-sort-ind"></span></div>
+              <div class="js-sort-col" data-sort-key="nombre">Nombre<span class="js-sort-ind"></span></div>
+              <div class="js-sort-col" data-sort-key="estatus">Estatus<span class="js-sort-ind"></span></div>
+              <div class="js-sort-col" data-sort-key="pedido">Pedido<span class="js-sort-ind"></span></div>
+              <div class="js-sort-col" data-sort-key="empresa">Empresa<span class="js-sort-ind"></span></div>
+              <div>Acción</div>
             </div>
             {% for a in active_alerts %}
               {{ notif_row_main(a) }}
@@ -275,6 +315,132 @@
 (function(){
   var currentKind = 'ALL';
   var currentInactBucket = 'ALL';
+  var sortStateByTable = new WeakMap();
+
+  function getRowTextAttr(row, key){
+    if (!row) return '';
+    if (key === 'razon') return String(row.getAttribute('data-razon') || '').trim().toLowerCase();
+    if (key === 'nombre') return String(row.getAttribute('data-nombre') || '').trim().toLowerCase();
+    if (key === 'estatus') return String(row.getAttribute('data-status') || '').trim().toLowerCase();
+    if (key === 'empresa') return String(row.getAttribute('data-company-text') || '').trim().toLowerCase();
+    return '';
+  }
+
+  function getSortValue(row, key){
+    if (!row) return { empty: true, v: null };
+    if (key === 'pedido') {
+      var oid = parseInt(row.getAttribute('data-order-id') || '', 10);
+      return { empty: isNaN(oid), v: isNaN(oid) ? null : oid };
+    }
+    if (key === 'ultima_compra') {
+      var iso = String(row.getAttribute('data-last-order-date') || '').trim();
+      if (!iso) return { empty: true, v: null };
+      var t = Date.parse(iso);
+      return { empty: isNaN(t), v: isNaN(t) ? null : t };
+    }
+    var txt = getRowTextAttr(row, key);
+    var empty = (!txt || txt === '-');
+    return { empty: empty, v: empty ? null : txt };
+  }
+
+  function updateSortIndicators(table, sortKey, direction){
+    if (!table) return;
+    table.querySelectorAll('.notif-head .js-sort-col').forEach(function(h){
+      var ind = h.querySelector('.js-sort-ind');
+      if (!ind) return;
+      var key = h.getAttribute('data-sort-key') || '';
+      if (!sortKey || key !== sortKey || !direction) {
+        ind.textContent = '';
+      } else {
+        ind.textContent = (direction === 'asc') ? '↑' : '↓';
+      }
+    });
+  }
+
+  function sortTableRows(table, sortKey, direction){
+    if (!table) return;
+    var rows = Array.from(table.querySelectorAll('.js-notif-item'));
+    if (!rows.length) {
+      updateSortIndicators(table, sortKey, direction);
+      return;
+    }
+
+    var body = rows[0].parentElement;
+    if (!body) return;
+
+    if (!sortKey || !direction) {
+      rows.sort(function(a, b){
+        var ia = parseInt(a.getAttribute('data-default-index') || '0', 10);
+        var ib = parseInt(b.getAttribute('data-default-index') || '0', 10);
+        return ia - ib;
+      });
+    } else {
+      rows.sort(function(a, b){
+        var av = getSortValue(a, sortKey);
+        var bv = getSortValue(b, sortKey);
+        if (av.empty && bv.empty) {
+          var i0a = parseInt(a.getAttribute('data-default-index') || '0', 10);
+          var i0b = parseInt(b.getAttribute('data-default-index') || '0', 10);
+          return i0a - i0b;
+        }
+        if (av.empty) return 1;
+        if (bv.empty) return -1;
+
+        var cmp = 0;
+        if (typeof av.v === 'number' && typeof bv.v === 'number') {
+          cmp = av.v - bv.v;
+        } else {
+          cmp = String(av.v || '').localeCompare(String(bv.v || ''), 'es', { sensitivity: 'base', numeric: true });
+        }
+        if (direction === 'desc') cmp = -cmp;
+        if (cmp !== 0) return cmp;
+        var ia = parseInt(a.getAttribute('data-default-index') || '0', 10);
+        var ib = parseInt(b.getAttribute('data-default-index') || '0', 10);
+        return ia - ib;
+      });
+    }
+
+    rows.forEach(function(r){ body.appendChild(r); });
+    updateSortIndicators(table, sortKey, direction);
+  }
+
+  function initSortableTable(table){
+    if (!table) return;
+    var rows = Array.from(table.querySelectorAll('.js-notif-item'));
+    rows.forEach(function(r, idx){
+      if (!r.hasAttribute('data-default-index')) r.setAttribute('data-default-index', String(idx));
+    });
+    if (!sortStateByTable.get(table)) {
+      sortStateByTable.set(table, { key: '', dir: '' });
+    }
+    updateSortIndicators(table, '', '');
+  }
+
+  function resetTableSort(table){
+    if (!table) return;
+    sortStateByTable.set(table, { key: '', dir: '' });
+    sortTableRows(table, '', '');
+  }
+
+  function cycleSort(table, sortKey){
+    if (!table || !sortKey) return;
+    var st = sortStateByTable.get(table) || { key: '', dir: '' };
+    var next = { key: sortKey, dir: 'asc' };
+    if (st.key === sortKey && st.dir === 'asc') {
+      next.dir = 'desc';
+    } else if (st.key === sortKey && st.dir === 'desc') {
+      next = { key: '', dir: '' };
+    }
+    sortStateByTable.set(table, next);
+    sortTableRows(table, next.key, next.dir);
+  }
+
+  function initAllSortableTables(){
+    initSortableTable(document.getElementById('notifActivasList'));
+    document.querySelectorAll('#notifInactAccordion .notif-table').forEach(initSortableTable);
+  }
+
+  initAllSortableTables();
 
   function showInactAccordion(show){
     var acc = document.getElementById('notifInactAccordion');
@@ -310,6 +476,20 @@
   }
 
   document.addEventListener('click', function(e){
+    var sortHeader = e.target;
+    if (sortHeader && (!sortHeader.classList || !sortHeader.classList.contains('js-sort-col'))){
+      if (sortHeader.closest) sortHeader = sortHeader.closest('.js-sort-col');
+    }
+    if (sortHeader && sortHeader.classList && sortHeader.classList.contains('js-sort-col')){
+      var table = sortHeader.closest('.notif-table');
+      var sortKey = sortHeader.getAttribute('data-sort-key') || '';
+      if (table && sortKey){
+        e.preventDefault();
+        cycleSort(table, sortKey);
+        return;
+      }
+    }
+
     var btn = e.target;
     if (btn && (!btn.getAttribute || !btn.getAttribute('data-kind'))){
       if (btn.closest) btn = btn.closest('#notifKindTabs [data-kind]');
@@ -325,8 +505,10 @@
     }catch(_){ }
     if (kind === 'EMPRESA_INACTIVA') {
       showInactAccordion(true);
+      document.querySelectorAll('#notifInactAccordion .notif-table').forEach(resetTableSort);
     } else {
       showInactAccordion(false);
+      resetTableSort(document.getElementById('notifActivasList'));
       applyKindFilter(kind, 'ALL');
     }
   });

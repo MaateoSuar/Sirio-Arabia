@@ -1760,6 +1760,18 @@ def _compute_alerts_for_all_clients(
 
     alerts = []
 
+    now_date_local = date.today()
+
+    try:
+
+        if ZoneInfo:
+
+            now_date_local = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+
+    except Exception:
+
+        now_date_local = date.today()
+
 
 
     if include_delivery_alerts:
@@ -1870,54 +1882,6 @@ def _compute_alerts_for_all_clients(
 
     try:
 
-        # Considerar "cobrado" si tiene fecha_cobro_efectiva o si ya hay pagos PAYMENT cargados.
-
-        paid_order_ids = []
-
-        try:
-
-            paid_q = (
-
-                db.session.query(CollectionPayment.order_id)
-
-                .join(Order, CollectionPayment.order_id == Order.id)
-
-                .filter(CollectionPayment.kind.in_(["PAYMENT", "CREDIT_NOTE"]))
-
-            )
-
-            try:
-
-                paid_q = _safe_filter_not_voided(paid_q)
-
-            except Exception:
-
-                pass
-
-            if not _has_global_access():
-
-                uid = _effective_user_id()
-
-                if uid is not None:
-
-                    paid_q = paid_q.filter(Order.owner_user_id == uid)
-
-            paid_order_ids = [int(r[0]) for r in (paid_q.distinct().all() or []) if r and r[0]]
-
-        except Exception:
-
-            try:
-
-                db.session.rollback()
-
-            except Exception:
-
-                pass
-
-            paid_order_ids = []
-
-
-
         q_cob = (
 
             Collection.query
@@ -1934,17 +1898,8 @@ def _compute_alerts_for_all_clients(
 
             .filter(Collection.fecha_pago_estimada.isnot(None))
 
-            .filter(Collection.fecha_pago_estimada < now_dt)
-
-            # Alinear con /deudas (ATRASADO): solo alertar si está ENTREGADO.
-
-            .filter(
-
-                (Collection.fecha_entrega_efectiva.isnot(None))
-
-                | (LogisticsStatus.fecha_entrega_efectiva.isnot(None))
-
-            )
+            # Alinear exactamente con /deudas (ATRASADO): vencimiento por fecha local.
+            .filter(func.date(Collection.fecha_pago_estimada) < now_date_local)
 
             .filter(Order.deleted_at.is_(None))
 
@@ -1957,10 +1912,6 @@ def _compute_alerts_for_all_clients(
             if uid is not None:
 
                 q_cob = q_cob.filter(Order.owner_user_id == uid)
-
-        if paid_order_ids:
-
-            q_cob = q_cob.filter(~Order.id.in_(paid_order_ids))
 
         for coll in q_cob.all():
 
@@ -3047,463 +2998,749 @@ def api_notificaciones_count():
 
 def index():
 
-    # KPIs y métricas para dashboard
+    today_local = date.today()
 
-    today = date.today()
+    try:
 
-    month_start = today.replace(day=1)
+        if ZoneInfo:
 
-    uid = _effective_user_id() if not _has_global_access() else None
+            today_local = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
 
-    # Pedidos del mes
+    except Exception:
 
-    q_orders_mes = Order.query.filter(Order.created_at >= datetime.combine(month_start, datetime.min.time()))
+        today_local = date.today()
 
-    q_orders_mes = q_orders_mes.filter(Order.deleted_at.is_(None))
+    month_start = today_local.replace(day=1)
 
-    if uid is not None:
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
 
-        q_orders_mes = q_orders_mes.filter(Order.owner_user_id == uid)
+    month_end = next_month - timedelta(days=1)
 
-    pedidos_mes = q_orders_mes.count()
+    raw_from = (request.args.get("from") or "").strip()
 
-    # Ventas del mes (suma de precio_final)
+    raw_to = (request.args.get("to") or "").strip()
 
-    q_ventas_mes = (
+    selected_day = (request.args.get("day") or "").strip()
 
-        db.session.query(func.coalesce(func.sum(Order.precio_final), 0))
+    preset = (request.args.get("preset") or "month_current").strip().lower()
 
-        .filter(Order.created_at >= datetime.combine(month_start, datetime.min.time()))
+    if preset not in {"", "custom", "today", "last_30", "month_current", "month_prev"}:
 
-        .filter(Order.deleted_at.is_(None))
+        preset = ""
 
-    )
+    company_id = request.args.get("company_id", type=int)
 
-    if uid is not None:
+    def _parse_filter_date(s: str):
 
-        q_ventas_mes = q_ventas_mes.filter(Order.owner_user_id == uid)
+        s = (s or "").strip()
 
-    ventas_mes_val = q_ventas_mes.scalar() or 0
+        if not s:
 
-    # Cobranzas pendientes (cantidad y monto)
-
-    q_cob_pend = Collection.query.join(Order, Collection.order_id == Order.id).filter(Collection.fecha_cobro_efectiva.is_(None))
-
-    q_cob_pend = q_cob_pend.filter(Order.deleted_at.is_(None))
-
-    if uid is not None:
-
-        q_cob_pend = q_cob_pend.filter(Order.owner_user_id == uid)
-
-    cobranzas_pend_count = q_cob_pend.count()
-
-
-
-    q_cob_pend_monto = (
-
-        db.session.query(func.coalesce(func.sum(Collection.monto), 0))
-
-        .join(Order, Collection.order_id == Order.id)
-
-        .filter(Collection.fecha_cobro_efectiva.is_(None))
-
-        .filter(Order.deleted_at.is_(None))
-
-    )
-
-    if uid is not None:
-
-        q_cob_pend_monto = q_cob_pend_monto.filter(Order.owner_user_id == uid)
-
-    cobranzas_pend_monto = q_cob_pend_monto.scalar() or 0
-
-    # Status logística: en camino y atrasados
-
-    now_dt = datetime.utcnow()
-
-    en_camino = (
-
-        db.session.query(func.count(LogisticsStatus.id))
-
-        .join(Order, LogisticsStatus.order_id == Order.id)
-
-        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
-
-        .filter((LogisticsStatus.fecha_entrega_estimada.is_(None)) | (LogisticsStatus.fecha_entrega_estimada >= now_dt))
-
-        .filter(Order.deleted_at.is_(None))
-
-        .filter(True if uid is None else (Order.owner_user_id == uid))
-
-        .scalar()
-
-    ) or 0
-
-    atrasados = (
-
-        db.session.query(func.count(LogisticsStatus.id))
-
-        .join(Order, LogisticsStatus.order_id == Order.id)
-
-        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
-
-        .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
-
-        .filter(Order.deleted_at.is_(None))
-
-        .filter(True if uid is None else (Order.owner_user_id == uid))
-
-        .scalar()
-
-    ) or 0
-
-
-
-    # Series últimos 30 días
-
-    last_30 = [date.fromordinal(today.toordinal() - i) for i in range(29, -1, -1)]
-
-    labels = [d.strftime("%d/%m") for d in last_30]
-
-    iso_keys = [d.isoformat() for d in last_30]
-
-    sales_by_day = {k: 0.0 for k in iso_keys}
-
-    # Ventas por día: usar Order.created_at y precio_final
-
-    q_last30 = Order.query.filter(Order.created_at >= datetime.combine(last_30[0], datetime.min.time()))
-
-    if uid is not None:
-
-        q_last30 = q_last30.filter(Order.owner_user_id == uid)
-
-    orders_last_30 = q_last30.all()
-
-    for o in orders_last_30:
-
-        key = o.created_at.date().isoformat()
+            return None
 
         try:
 
-            sales_by_day[key] += float(o.precio_final or 0)
+            return datetime.strptime(s, "%Y-%m-%d").date()
 
         except Exception:
 
             pass
 
-    daily_sales = [round(sales_by_day[k], 2) for k in iso_keys]
+        try:
 
+            return datetime.strptime(s, "%d/%m/%Y").date()
 
+        except Exception:
 
-    # Top 5 empresas por ventas últimos 30 días
+            return None
 
-    from collections import defaultdict
+    d_from = _parse_filter_date(raw_from)
 
-    ventas_por_empresa = defaultdict(float)
+    d_to = _parse_filter_date(raw_to)
 
-    for o in orders_last_30:
+    if d_from is None and d_to is None:
 
-        if o.company and o.precio_final:
+        d_from = month_start
 
-            try:
+        d_to = month_end
 
-                ventas_por_empresa[o.company.nombre] += float(o.precio_final or 0)
+        if not preset:
 
-            except Exception:
+            preset = "month_current"
 
-                continue
+    if d_from and d_to and d_from > d_to:
 
-    top_emp = sorted(ventas_por_empresa.items(), key=lambda x: x[1], reverse=True)[:5]
+        d_from, d_to = d_to, d_from
 
-    top_emp_labels = [n for n, _ in top_emp]
+    uid = _effective_user_id() if not _has_global_access() else None
 
-    top_emp_values = [round(v, 2) for _, v in top_emp]
+    base_companies_q = (
 
+        db.session.query(Company.id, Company.nombre)
 
+        .join(Order, Order.company_id == Company.id)
 
-    # Urgentes/atrasadas/próximos 7 días (entregas y cobranzas)
+        .filter(Order.deleted_at.is_(None))
 
-    today_start = datetime.combine(today, datetime.min.time())
-
-    today_end = datetime.combine(today, datetime.max.time())
-
-
-
-    # Cobranzas
-
-    cobr_vencidas_q = (
-
-        Collection.query
-
-        .join(Order, Collection.order_id == Order.id)
-
-        .filter(Collection.fecha_cobro_efectiva.is_(None))
-
-        .filter(Collection.fecha_pago_estimada.isnot(None))
-
-        .filter(Collection.fecha_pago_estimada < now_dt)
-
-        .filter(True if uid is None else (Order.owner_user_id == uid))
+        .distinct()
 
     )
 
-    cobr_hoy_q = (
+    if uid is not None:
 
-        Collection.query
+        base_companies_q = base_companies_q.filter(Order.owner_user_id == uid)
 
-        .join(Order, Collection.order_id == Order.id)
+    companies = [
 
-        .filter(Collection.fecha_cobro_efectiva.is_(None))
+        {"id": int(cid), "name": str(cname or "-")}
 
-        .filter(Collection.fecha_pago_estimada >= today_start, Collection.fecha_pago_estimada <= today_end)
+        for cid, cname in base_companies_q.order_by(Company.nombre.asc()).all()
 
-        .filter(True if uid is None else (Order.owner_user_id == uid))
+    ]
 
-    )
+    if company_id and not any(int(c["id"]) == int(company_id) for c in companies):
 
-    cobr_next7_q = (
+        company_id = None
 
-        Collection.query
+    dt_from = datetime.combine(d_from, datetime.min.time()) if d_from else None
 
-        .join(Order, Collection.order_id == Order.id)
+    dt_to = datetime.combine(d_to, datetime.max.time()) if d_to else None
 
-        .filter(Collection.fecha_cobro_efectiva.is_(None))
+    order_date_expr = func.coalesce(LogisticsStatus.fecha_compra, Order.created_at)
 
-        .filter(Collection.fecha_pago_estimada > now_dt, Collection.fecha_pago_estimada <= now_dt + timedelta(days=7))
+    base_orders_q = (
 
-        .filter(True if uid is None else (Order.owner_user_id == uid))
+        Order.query
 
-    )
+        .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
 
-
-
-    # Entregas
-
-    ent_vencidas_q = (
-
-        LogisticsStatus.query
-
-        .join(Order, LogisticsStatus.order_id == Order.id)
-
-        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
-
-        .filter(LogisticsStatus.fecha_entrega_estimada.isnot(None))
-
-        .filter(LogisticsStatus.fecha_entrega_estimada < now_dt)
-
-        .filter(True if uid is None else (Order.owner_user_id == uid))
+        .filter(Order.deleted_at.is_(None))
 
     )
 
-    ent_hoy_q = (
+    if uid is not None:
 
-        LogisticsStatus.query
+        base_orders_q = base_orders_q.filter(Order.owner_user_id == uid)
 
-        .join(Order, LogisticsStatus.order_id == Order.id)
+    if company_id:
 
-        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        base_orders_q = base_orders_q.filter(Order.company_id == int(company_id))
 
-        .filter(LogisticsStatus.fecha_entrega_estimada >= today_start, LogisticsStatus.fecha_entrega_estimada <= today_end)
+    if dt_from is not None:
 
-        .filter(True if uid is None else (Order.owner_user_id == uid))
+        base_orders_q = base_orders_q.filter(order_date_expr >= dt_from)
+
+    if dt_to is not None:
+
+        base_orders_q = base_orders_q.filter(order_date_expr <= dt_to)
+
+    orders_period = (
+
+        base_orders_q
+
+        .options(
+
+            selectinload(Order.client),
+
+            selectinload(Order.company),
+
+            selectinload(Order.logistics),
+
+            selectinload(Order.collection),
+
+        )
+
+        .order_by(order_date_expr.desc(), Order.id.desc())
+
+        .all()
 
     )
 
-    ent_next7_q = (
+    order_days = []
 
-        LogisticsStatus.query
+    for o in orders_period:
 
-        .join(Order, LogisticsStatus.order_id == Order.id)
+        lg = getattr(o, "logistics", None)
 
-        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
+        compra_dt = getattr(lg, "fecha_compra", None) or getattr(o, "created_at", None)
 
-        .filter(LogisticsStatus.fecha_entrega_estimada > now_dt, LogisticsStatus.fecha_entrega_estimada <= now_dt + timedelta(days=7))
+        try:
 
-        .filter(True if uid is None else (Order.owner_user_id == uid))
+            compra_date = compra_dt.date() if compra_dt is not None else None
 
-    )
+        except Exception:
 
+            compra_date = None
 
+        if compra_date is not None:
 
-    urgentes_hoy = ent_hoy_q.count() + cobr_hoy_q.count()
+            order_days.append(compra_date)
 
-    atrasadas_cnt = ent_vencidas_q.count() + cobr_vencidas_q.count()
+    chart_days = []
 
-    proximas7_cnt = ent_next7_q.count() + cobr_next7_q.count()
+    if d_from is not None or d_to is not None:
 
+        range_from = d_from or (min(order_days) if order_days else None)
 
+        range_to = d_to or (max(order_days) if order_days else range_from)
 
-    # Construir lista resumida de urgentes (top 10), sin duplicados y con fecha en AR
+        if range_from is not None and range_to is not None and range_from <= range_to:
 
-    def _row_from_ent(e: LogisticsStatus, categoria: str):
+            chart_days = [
 
-        o = e.order
+                date.fromordinal(range_from.toordinal() + i)
 
-        # fecha en AR (solo día)
+                for i in range((range_to - range_from).days + 1)
 
-        if ZoneInfo and e.fecha_entrega_estimada:
+            ]
 
-            dt = e.fecha_entrega_estimada.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    else:
 
-            ftxt = dt.strftime("%d/%m/%Y")
+        chart_days = sorted(set(order_days))
 
-        else:
+    chart_labels = [d.strftime("%d/%m") for d in chart_days]
 
-            ftxt = e.fecha_entrega_estimada.strftime("%d/%m/%Y") if e.fecha_entrega_estimada else ""
+    chart_days_iso = [d.isoformat() for d in chart_days]
 
-        return {
+    chart_counts_map = {k: 0 for k in chart_days_iso}
 
-            "tipo": "Entrega",
+    detail_by_day = {k: [] for k in chart_days_iso}
 
-            "cliente": f"{o.client.apellido} {o.client.nombre}" if o and o.client else "-",
+    detail_all = []
 
-            "empresa": o.company.nombre if o and o.company else "-",
+    for o in orders_period:
 
-            "fecha": ftxt,
+        lg = getattr(o, "logistics", None)
 
-            "monto": float(e.precio or (o.precio_final or 0) if o else 0),
+        compra_dt = getattr(lg, "fecha_compra", None) or getattr(o, "created_at", None)
 
-            "_key": ("E", e.order_id),
+        compra_date = None
 
-            "categoria": categoria,
+        try:
+
+            compra_date = compra_dt.date() if compra_dt is not None else None
+
+        except Exception:
+
+            compra_date = None
+
+        if compra_date is None:
+
+            continue
+
+        day_iso = compra_date.isoformat()
+
+        if day_iso not in chart_counts_map:
+
+            continue
+
+        chart_counts_map[day_iso] = int(chart_counts_map.get(day_iso, 0) or 0) + 1
+
+        client_label = "-"
+
+        if getattr(o, "client", None) is not None:
+
+            client_label = " ".join([
+
+                x for x in [getattr(o.client, "apellido", None), getattr(o.client, "nombre", None)] if x
+
+            ]) or (getattr(o.client, "apellido", None) or "-")
+
+        row = {
+
+            "date_iso": day_iso,
+
+            "date_label": compra_date.strftime("%d/%m/%Y"),
+
+            "client": client_label,
+
+            "company": (getattr(getattr(o, "company", None), "nombre", None) or "-"),
+
+            "order_id": int(getattr(o, "id", 0) or 0),
+
+            "order_code": f"PED-{int(getattr(o, 'id', 0) or 0):06d}",
+
+            "order_url": url_for("main.pedidos", order_id=int(getattr(o, "id", 0) or 0)),
 
         }
 
+        detail_by_day[day_iso].append(row)
 
+        detail_all.append(row)
 
-    def _row_from_cobr(c: Collection, categoria: str):
+    for k in detail_by_day.keys():
 
-        o = c.order
+        detail_by_day[k].sort(key=lambda r: (r.get("date_iso", ""), int(r.get("order_id", 0))), reverse=True)
 
-        if ZoneInfo and c.fecha_pago_estimada:
+    detail_all.sort(key=lambda r: (r.get("date_iso", ""), int(r.get("order_id", 0))), reverse=True)
 
-            dt = c.fecha_pago_estimada.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    if selected_day not in detail_by_day:
 
-            ftxt = dt.strftime("%d/%m/%Y")
+        selected_day = ""
 
-        else:
+    selected_detail_rows = detail_by_day.get(selected_day, []) if selected_day else detail_all
 
-            ftxt = c.fecha_pago_estimada.strftime("%d/%m/%Y") if c.fecha_pago_estimada else ""
+    selected_detail_rows = selected_detail_rows[:8]
 
-        return {
+    kpi_pedidos_periodo = int(len(orders_period))
 
-            "tipo": "Cobranza",
+    # KPI de mercadería: alinear con módulo /status (EN_CAMINO y ATRASADO)
+    status_merch_q = (
 
-            "cliente": f"{o.client.apellido} {o.client.nombre}" if o and o.client else "-",
+        LogisticsStatus.query
 
-            "empresa": o.company.nombre if o and o.company else "-",
+        .join(Order, LogisticsStatus.order_id == Order.id)
 
-            "fecha": ftxt,
+        .filter(Order.deleted_at.is_(None))
 
-            "monto": float(c.monto or 0),
+    )
 
-            "_key": ("C", c.order_id),
+    if uid is not None:
 
-            "categoria": categoria,
+        status_merch_q = status_merch_q.filter(Order.owner_user_id == uid)
 
-        }
+    if company_id:
 
+        status_merch_q = status_merch_q.filter(Order.company_id == int(company_id))
 
+    now_utc = datetime.utcnow()
 
-    # Agrupar por pedido (tipo+order_id) y acumular categorías
+    kpi_en_camino = int(
 
-    agg = {}
+        status_merch_q
 
-    def add_row(row):
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
 
-        key = row["_key"]
+        .filter(or_(LogisticsStatus.fecha_entrega_estimada.is_(None), LogisticsStatus.fecha_entrega_estimada >= now_utc))
 
-        if key not in agg:
+        .order_by(None)
 
-            # copiar base y arrancar categorias
+        .count()
 
-            base = {k: v for k, v in row.items() if k not in ("_key", "categoria")}
+        or 0
 
-            base["categorias"] = [row.get("categoria")] if row.get("categoria") else []
+    )
 
-            agg[key] = base
+    kpi_entregas_atrasadas = int(
 
-        else:
+        status_merch_q
 
-            cat = row.get("categoria")
+        .filter(LogisticsStatus.fecha_entrega_efectiva.is_(None))
 
-            if cat and cat not in agg[key]["categorias"]:
+        .filter(LogisticsStatus.fecha_entrega_estimada < now_utc)
 
-                agg[key]["categorias"].append(cat)
+        .order_by(None)
 
+        .count()
 
+        or 0
 
-    for e in ent_vencidas_q.limit(5).all():
+    )
 
-        add_row(_row_from_ent(e, "Atrasado total"))
+    # Cobranzas: alinear con lógica de /deudas (estados excluyentes)
+    coll_base_q = (
 
-    for c in cobr_vencidas_q.limit(5).all():
+        Collection.query
 
-        add_row(_row_from_cobr(c, "Atrasado total"))
+        .join(Order, Collection.order_id == Order.id)
 
-    for e in ent_hoy_q.limit(5).all():
+        .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
 
-        add_row(_row_from_ent(e, "Urg de hoy"))
+        .filter(Order.deleted_at.is_(None))
 
-    for c in cobr_hoy_q.limit(5).all():
+    )
 
-        add_row(_row_from_cobr(c, "Urg de hoy"))
+    if uid is not None:
 
-    for e in ent_next7_q.limit(5).all():
+        coll_base_q = coll_base_q.filter(or_(Order.owner_user_id == uid, Order.owner_user_id.is_(None)))
 
-        add_row(_row_from_ent(e, "Prox 7 días"))
+    if company_id:
 
-    for c in cobr_next7_q.limit(5).all():
+        coll_base_q = coll_base_q.filter(Order.company_id == int(company_id))
 
-        add_row(_row_from_cobr(c, "Prox 7 días"))
+    try:
 
+        partial_pay_exists = _safe_filter_not_voided(
 
+            db.session.query(CollectionPayment.id)
 
-    urg_rows = list(agg.values())
+            .filter(CollectionPayment.order_id == Order.id)
 
-    urgentes = urg_rows[:10]
+            .filter(CollectionPayment.kind != "DRAFT")
 
+        ).exists()
 
+    except Exception:
 
-    kpis = {
+        partial_pay_exists = (
 
-        "pedidos_mes": int(pedidos_mes),
+            db.session.query(CollectionPayment.id)
 
-        "ventas_mes_val": float(ventas_mes_val or 0),
+            .filter(CollectionPayment.order_id == Order.id)
 
-        "cobranzas_pend_count": int(cobranzas_pend_count),
+            .filter(CollectionPayment.kind != "DRAFT")
 
-        "cobranzas_pend_monto": float(cobranzas_pend_monto or 0),
+            .exists()
 
-        "en_camino": int(en_camino),
+        )
 
-        "atrasados": int(atrasados),
+    partial_draft_exists = (
 
-        # nuevos
+        db.session.query(CollectionDraft.id)
 
-        "urgentes_hoy": int(urgentes_hoy),
+        .filter(CollectionDraft.order_id == Order.id)
 
-        "atrasadas_total": int(atrasadas_cnt),
+        .exists()
 
-        "proximas7": int(proximas7_cnt),
+    )
+
+    partial_exists = or_(partial_pay_exists, partial_draft_exists)
+
+    has_due = Collection.fecha_pago_estimada.isnot(None)
+
+    no_due = Collection.fecha_pago_estimada.is_(None)
+
+    entrega_efectiva_expr = func.coalesce(
+
+        LogisticsStatus.fecha_entrega_efectiva,
+
+        Collection.fecha_entrega_efectiva,
+
+        LogisticsStatus.fecha_entrega_estimada,
+
+    )
+
+    due_overdue = and_(
+
+        has_due,
+
+        func.date(Collection.fecha_pago_estimada) < today_local,
+
+    )
+
+    due_not_overdue = or_(
+
+        no_due,
+
+        func.date(Collection.fecha_pago_estimada) >= today_local,
+
+    )
+
+    en_camino_effective = and_(
+
+        Collection.fecha_cobro_efectiva.is_(None),
+
+        due_not_overdue,
+
+        or_(
+
+            entrega_efectiva_expr.is_(None),
+
+            func.date(entrega_efectiva_expr) > today_local,
+
+        ),
+
+    )
+
+    a_cobrar_effective = and_(
+
+        Collection.fecha_cobro_efectiva.is_(None),
+
+        due_not_overdue,
+
+        entrega_efectiva_expr.isnot(None),
+
+        func.date(entrega_efectiva_expr) <= today_local,
+
+    )
+
+    def _coll_by_status(status_key: str):
+
+        q_st = coll_base_q
+
+        if status_key == "COBRADO":
+
+            return q_st.filter(Collection.fecha_cobro_efectiva.isnot(None))
+
+        if status_key == "EN_CAMINO":
+
+            return q_st.filter(en_camino_effective)
+
+        if status_key == "ATRASADO":
+
+            return q_st.filter(and_(Collection.fecha_cobro_efectiva.is_(None), due_overdue))
+
+        if status_key == "PARCIAL":
+
+            return q_st.filter(and_(Collection.fecha_cobro_efectiva.is_(None), partial_exists))
+
+        if status_key == "A_COBRAR":
+
+            return q_st.filter(and_(a_cobrar_effective, ~partial_exists))
+
+        return q_st.filter(text("1=0"))
+
+    status_order = ["EN_CAMINO", "A_COBRAR", "PARCIAL", "ATRASADO", "COBRADO"]
+
+    status_counts = {
+
+        st: int(_coll_by_status(st).order_by(None).count() or 0)
+
+        for st in status_order
 
     }
 
-    charts = {
+    cobrado_period_q = _coll_by_status("COBRADO")
 
-        "labels": labels,
+    if dt_from is not None:
 
-        "daily_sales": daily_sales,
+        cobrado_period_q = cobrado_period_q.filter(Collection.fecha_cobro_efectiva >= dt_from)
 
-        "top_emp_labels": top_emp_labels,
+    if dt_to is not None:
 
-        "top_emp_values": top_emp_values,
+        cobrado_period_q = cobrado_period_q.filter(Collection.fecha_cobro_efectiva <= dt_to)
+
+    cobrado_period_count = int(cobrado_period_q.order_by(None).count() or 0)
+
+    top_pending_companies = [
+
+        {"name": str(name or "-"), "count": int(count or 0)}
+
+        for name, count in (
+
+            coll_base_q
+
+            .join(Company, Order.company_id == Company.id)
+
+            .with_entities(Company.nombre, func.count(Collection.id))
+
+            .filter(Collection.fecha_cobro_efectiva.is_(None))
+
+            .group_by(Company.nombre)
+
+            .order_by(func.count(Collection.id).desc(), Company.nombre.asc())
+
+            .limit(5)
+
+            .all()
+
+        )
+
+    ]
+
+    base_params = {}
+
+    if d_from:
+
+        base_params["from"] = d_from.isoformat()
+
+    if d_to:
+
+        base_params["to"] = d_to.isoformat()
+
+    if company_id:
+
+        base_params["company_id"] = int(company_id)
+
+    company_only_params = {"company_id": int(company_id)} if company_id else {}
+
+    selected_company_name = ""
+
+    if company_id:
+
+        selected_company_name = next(
+
+            (str(c.get("name") or "") for c in companies if int(c.get("id") or 0) == int(company_id)),
+
+            "",
+
+        )
+
+    status_base_params = {
+
+        **({"company_q": selected_company_name} if selected_company_name else {}),
 
     }
 
-    extras = {"urgentes": urgentes}
+    kpi_links = {
 
-    return render_template("index.html", active="dashboard", kpis=kpis, charts=charts, extras=extras)
+        "pedidos_periodo": url_for("main.historial", **base_params),
+
+        "en_camino": url_for("main.status", **{"status": "EN_CAMINO", **status_base_params}),
+
+        "cobranzas_pendientes": url_for("main.deudas_pendientes", status="A_COBRAR", **company_only_params),
+
+        "cobranzas_atrasadas": url_for("main.deudas_pendientes", status="ATRASADO", **company_only_params),
+
+        "entregas_atrasadas": url_for("main.status", **{"status": "ATRASADO", **status_base_params}),
+
+    }
+
+    bars = [
+
+        {
+
+            "key": "EN_CAMINO",
+
+            "label": "En camino",
+
+            "value": int(status_counts.get("EN_CAMINO", 0) or 0),
+
+            "color": "#6b7280",
+
+            "url": url_for("main.deudas_pendientes", status="EN_CAMINO", **company_only_params),
+
+        },
+
+        {
+
+            "key": "A_COBRAR",
+
+            "label": "A cobrar",
+
+            "value": int(status_counts.get("A_COBRAR", 0) or 0),
+
+            "color": "#22c1dc",
+
+            "url": url_for("main.deudas_pendientes", status="A_COBRAR", **company_only_params),
+
+        },
+
+        {
+
+            "key": "PARCIAL",
+
+            "label": "Parcial",
+
+            "value": int(status_counts.get("PARCIAL", 0) or 0),
+
+            "color": "#f5c542",
+
+            "url": url_for("main.deudas_pendientes", status="PARCIAL", **company_only_params),
+
+        },
+
+        {
+
+            "key": "ATRASADO",
+
+            "label": "Atrasado",
+
+            "value": int(status_counts.get("ATRASADO", 0) or 0),
+
+            "color": "#ef4444",
+
+            "url": url_for("main.deudas_pendientes", status="ATRASADO", **company_only_params),
+
+        },
+
+        {
+
+            "key": "COBRADO",
+
+            "label": "Cobrado",
+
+            "value": int(cobrado_period_count),
+
+            "color": "#22a447",
+
+            "url": url_for("main.deudas_pendientes", status="COBRADO", **base_params),
+
+        },
+
+    ]
+
+    chart_counts = [int(chart_counts_map[k] or 0) for k in chart_days_iso]
+
+    return render_template(
+
+        "index.html",
+
+        active="dashboard",
+
+        dashboard={
+
+            "filters": {
+
+                "from": d_from.isoformat() if d_from else "",
+
+                "to": d_to.isoformat() if d_to else "",
+
+                "from_label": d_from.strftime("%d/%m/%Y") if d_from else "",
+
+                "to_label": d_to.strftime("%d/%m/%Y") if d_to else "",
+
+                "period_label": "Período completo" if not d_from and not d_to else "",
+
+                "preset": preset,
+
+                "company_id": int(company_id) if company_id else None,
+
+                "company_options": companies,
+
+            },
+
+            "kpis": {
+
+                "pedidos_periodo": int(kpi_pedidos_periodo),
+
+                "en_camino": int(kpi_en_camino),
+
+                "cobranzas_pendientes": int(status_counts.get("A_COBRAR", 0) or 0),
+
+                "cobranzas_atrasadas": int(status_counts.get("ATRASADO", 0) or 0),
+
+                "entregas_atrasadas": int(kpi_entregas_atrasadas),
+
+            },
+
+            "links": kpi_links,
+
+            "orders_chart": {
+
+                "labels": chart_labels,
+
+                "days": chart_days_iso,
+
+                "values": chart_counts,
+
+            },
+
+            "collections_chart": bars,
+
+            "detail": {
+
+                "selected_day": selected_day,
+
+                "rows": selected_detail_rows,
+
+                "all_rows": detail_all,
+
+                "by_day": detail_by_day,
+
+                "view_day_url": url_for(
+                    "main.historial",
+                    **{
+                        "all": 1,
+                        **({"from": d_from.isoformat()} if d_from else {}),
+                        **({"to": d_to.isoformat()} if d_to else {}),
+                        **({"company_id": int(company_id)} if company_id else {}),
+                    },
+                ),
+
+            },
+
+            "top_companies": top_pending_companies,
+
+            "links_extra": {
+
+                "all_companies": url_for("main.empresas"),
+
+            },
+
+        },
+
+    )
 
 
 
@@ -3901,11 +4138,11 @@ def clientes():
 
         items=items,
 
+        archived_items=archived_items,
+
         companies=companies,
 
         alerts_by_client=alerts_by_client,
-
-        archived_items=archived_items,
 
         total_active_alerts=total_active_alerts,
 
@@ -3926,6 +4163,194 @@ def clientes():
         has_prev=has_prev,
 
     )
+
+
+
+
+
+@bp.post("/empresas/<int:company_id>/archive")
+
+def empresas_archive(company_id: int):
+
+    obj = Company.query.get_or_404(company_id)
+
+    obj.archived = True
+
+    db.session.commit()
+
+    return_to = (request.form.get("return_to") or "").strip()
+
+    if return_to.startswith("/empresas"):
+
+        return redirect(return_to)
+
+    return redirect(url_for("main.empresas"))
+
+
+
+
+
+@bp.post("/empresas/<int:company_id>/unarchive")
+
+def empresas_unarchive(company_id: int):
+
+    obj = Company.query.get_or_404(company_id)
+
+    obj.archived = False
+
+    db.session.commit()
+
+    return_to = (request.form.get("return_to") or "").strip()
+
+    if return_to.startswith("/empresas"):
+
+        return redirect(return_to)
+
+    return redirect(url_for("main.empresas"))
+
+
+
+
+
+@bp.get("/api/empresas/archivadas")
+
+def api_empresas_archivadas():
+
+    q = Company.query.filter(Company.archived.is_(True))
+
+    items = [
+
+        {
+
+            "id": c.id,
+
+            "marca": c.marca,
+
+            "razon_social": c.nombre,
+
+        }
+
+        for c in q.order_by(Company.marca, Company.nombre).all()
+
+    ]
+
+    return jsonify(items)
+
+
+
+
+
+@bp.get("/api/pedidos/notas_previas")
+
+def api_pedidos_notas_previas():
+
+    client_id = request.args.get("client_id", type=int)
+
+    company_id = request.args.get("company_id", type=int)
+
+    limit = request.args.get("limit", default=12, type=int)
+
+    if not client_id:
+
+        abort(400)
+
+    limit = max(1, min(int(limit or 12), 30))
+
+    client = Client.query.get_or_404(client_id)
+
+    _require_owner(client)
+
+    out = []
+
+    seen = set()
+
+    def _append_notes(with_company: bool):
+
+        q = (
+
+            Order.query
+
+            .filter(Order.client_id == client_id)
+
+            .filter(Order.deleted_at.is_(None))
+
+            .outerjoin(LogisticsStatus, LogisticsStatus.order_id == Order.id)
+
+            .options(selectinload(Order.logistics))
+
+        )
+
+        if with_company and company_id:
+
+            q = q.filter(Order.company_id == company_id)
+
+        if not _has_global_access():
+
+            uid = _effective_user_id()
+
+            if uid is not None:
+
+                q = q.filter(Order.owner_user_id == uid)
+
+        try:
+
+            q = q.order_by(func.coalesce(LogisticsStatus.fecha_compra, Order.created_at).desc(), Order.id.desc())
+
+        except Exception:
+
+            q = q.order_by(Order.created_at.desc(), Order.id.desc())
+
+        for o in q.limit(200).all():
+
+            raw_note = (getattr(o, "nota", None) or "")
+
+            note = raw_note.strip()
+
+            if not note:
+
+                continue
+
+            key = " ".join(note.lower().split())
+
+            if key in seen:
+
+                continue
+
+            lg = getattr(o, "logistics", None)
+
+            fc = getattr(lg, "fecha_compra", None) if lg is not None else None
+
+            dt = None
+
+            try:
+
+                dt = fc.date().isoformat() if fc else (o.created_at.date().isoformat() if o.created_at else None)
+
+            except Exception:
+
+                dt = None
+
+            out.append({
+
+                "note": note,
+
+                "date": dt,
+
+            })
+
+            seen.add(key)
+
+            if len(out) >= limit:
+
+                break
+
+    _append_notes(with_company=True)
+
+    if len(out) < limit and company_id:
+
+        _append_notes(with_company=False)
+
+    return jsonify(out[:limit])
 
 
 
@@ -7721,7 +8146,7 @@ def empresas():
 
         per_page = 50
 
-    base = Company.query
+    base = Company.query.filter(Company.archived.is_(False))
 
     if q:
 
@@ -7754,6 +8179,8 @@ def empresas():
         has_prev = page > 1
 
         items = rows
+
+    archived_items = Company.query.filter(Company.archived.is_(True)).order_by(Company.marca, Company.nombre).all()
 
     cq = Client.query
 
@@ -8008,6 +8435,8 @@ def empresas():
         active="empresas",
 
         items=items,
+
+        archived_items=archived_items,
 
         clients=clients,
 
@@ -11037,6 +11466,8 @@ def deudas_pendientes():
 
     sort_col = None
 
+    use_python_vencimiento_asc = bool(sort == "vencimiento" and direction == "asc")
+
     sort_entrega_expr = func.coalesce(
         LogisticsStatus.fecha_entrega_efectiva,
         Collection.fecha_entrega_efectiva,
@@ -11051,23 +11482,129 @@ def deudas_pendientes():
 
         sort_col = func.coalesce(Collection.fecha_pago_estimada, sort_entrega_expr)
 
-    if sort_col is not None:
+    if sort_col is not None and not use_python_vencimiento_asc:
 
         sort_dir = sort_col.desc() if direction == "desc" else sort_col.asc()
 
         q = q.order_by(sort_col.is_(None).asc(), sort_dir, Collection.id.desc())
 
-    else:
+    elif not use_python_vencimiento_asc:
 
         q = q.order_by(Collection.id.desc())
 
-    try:
+    if use_python_vencimiento_asc:
 
-        items = q.limit(per_page).offset((page - 1) * per_page).all()
+        def _as_date(v):
 
-    except Exception:
+            if v is None:
 
-        items = q.limit(per_page).all()
+                return None
+
+            try:
+
+                return v.date() if hasattr(v, "date") else v
+
+            except Exception:
+
+                return None
+
+        def _effective_venc_date(coll):
+
+            try:
+
+                due = _as_date(getattr(coll, "fecha_pago_estimada", None))
+
+                if due is not None:
+
+                    return due
+
+                o = getattr(coll, "order", None)
+
+                lg = getattr(o, "logistics", None) if o is not None else None
+
+                entrega = (
+
+                    getattr(lg, "fecha_entrega_efectiva", None)
+
+                    or getattr(coll, "fecha_entrega_efectiva", None)
+
+                    or getattr(lg, "fecha_entrega_estimada", None)
+
+                )
+
+                entrega = _as_date(entrega)
+
+                if entrega is None:
+
+                    return None
+
+                plazo = 30
+
+                try:
+
+                    if o is not None and getattr(o, "plazo_pago_dias", None) is not None:
+
+                        plazo = int(o.plazo_pago_dias or 0)
+
+                    elif (
+
+                        o is not None
+
+                        and getattr(o, "company", None) is not None
+
+                        and getattr(o.company, "plazo_pago_promedio_dias", None) is not None
+
+                    ):
+
+                        plazo = int(o.company.plazo_pago_promedio_dias or 0)
+
+                except Exception:
+
+                    plazo = 30
+
+                return entrega + timedelta(days=int(plazo or 0))
+
+            except Exception:
+
+                return None
+
+        try:
+
+            all_items = q.order_by(Collection.id.desc()).all()
+
+        except Exception:
+
+            all_items = q.all()
+
+        decorated = []
+
+        for coll in all_items:
+
+            eff_due = _effective_venc_date(coll)
+
+            coll_id = int(getattr(coll, "id", 0) or 0)
+
+            decorated.append((eff_due is None, eff_due, -coll_id, coll))
+
+        decorated.sort(key=lambda t: (t[0], t[1], t[2]))
+
+        sorted_items = [t[3] for t in decorated]
+
+        start = max(0, (page - 1) * per_page)
+
+        end = start + per_page
+
+        items = sorted_items[start:end]
+
+    else:
+
+        try:
+
+            items = q.limit(per_page).offset((page - 1) * per_page).all()
+
+        except Exception:
+
+            items = q.limit(per_page).all()
 
 
 

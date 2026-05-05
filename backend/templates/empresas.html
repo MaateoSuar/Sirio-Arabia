@@ -10,6 +10,11 @@
   .descuento-group .input-group-text { min-width: 28px; justify-content: center; padding-left: .45rem; padding-right: .45rem; }
   .descuento-group .form-control { min-width: 0; width: 70px; }
   .js-company-sort{ cursor:pointer; user-select:none; }
+  .archive-company-modal .modal-dialog { max-width: 500px; }
+  .archive-company-modal .modal-content { white-space: normal; }
+  .archive-company-modal .modal-body { padding-top: 1rem; padding-bottom: 1rem; }
+  .archive-company-modal .modal-body p { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+  .archive-company-modal .modal-footer { justify-content: flex-end; gap: .5rem; }
 
   @media (max-width: 575.98px) {
     .empresa-search-input { min-width: 0; max-width: none; width: 100%; }
@@ -30,7 +35,10 @@
       <input type="hidden" name="per_page" value="{{ per_page or 10 }}">
     </form>
   </div>
-  <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary btn-create-company">+ Crear Empresa</a>
+  <div class="d-flex gap-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#archivedCompaniesModal">Archivados</button>
+    <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary btn-create-company">+ Crear Empresa</a>
+  </div>
 </div>
 <div class="card table-sticky-card">
   <div class="card-body p-0">
@@ -201,13 +209,35 @@
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item" href="{{ url_for('main.empresas_edit_view', company_id=e.id) }}">Ver legajo</a></li>
                   <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#links{{ e.id }}">Clientes</button></li>
+                  <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#archiveCompany{{ e.id }}">Archivar</button></li>
                   <li><hr class="dropdown-divider"></li>
                   <li>
-                    <form method="post" action="{{ url_for('main.empresas_delete', company_id=e.id) }}" class="mb-0" onsubmit="return confirm('Eliminar empresa?')">
+                    <form method="post" action="{{ url_for('main.empresas_delete', company_id=e.id) }}" class="js-confirm-remove mb-0" data-confirm="¿Eliminar empresa? Esta acción no se puede deshacer.">
                       <button class="dropdown-item text-danger" type="submit">Eliminar</button>
                     </form>
                   </li>
                 </ul>
+              </div>
+              <div class="modal fade archive-company-modal" id="archiveCompany{{ e.id }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title">Archivar empresa</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                      <p class="mb-2">¿Querés archivar esta empresa?</p>
+                      <p class="text-muted mb-0">La empresa dejará de mostrarse en el listado principal, pero podrás recuperarla cuando quieras.</p>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                      <form method="post" action="{{ url_for('main.empresas_archive', company_id=e.id) }}" class="mb-0">
+                        <input type="hidden" name="return_to" value="{{ request.full_path|default('/empresas') }}">
+                        <button class="btn btn-primary" type="submit">Archivar</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="modal fade" id="links{{ e.id }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-lg">
@@ -312,7 +342,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="5" class="text-center text-muted py-4">Sin empresas</td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-4">Sin empresas</td></tr>
         {% endfor %}
         </tbody>
         </table>
@@ -333,6 +363,51 @@
       </div>
     </div>
     <div class="mobile-cards"></div>
+  </div>
+</div>
+<div class="modal fade" id="archivedCompaniesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Empresas archivadas</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Marca</th>
+                <th>Razón social</th>
+                <th class="text-end">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in archived_items %}
+                {% set marca_arch = (a.marca if a.marca and a.marca|lower != 'none' else '-') %}
+                <tr>
+                  <td>{{ marca_arch }}</td>
+                  <td class="fw-semibold">{{ a.nombre }}</td>
+                  <td class="text-end">
+                    <form method="post" action="{{ url_for('main.empresas_unarchive', company_id=a.id) }}" class="d-inline js-confirm-remove" data-confirm="¿Querés desarchivar esta empresa?">
+                      <input type="hidden" name="return_to" value="{{ request.full_path|default('/empresas') }}">
+                      <button type="submit" class="btn btn-sm btn-outline-primary">Desarchivar</button>
+                    </form>
+                  </td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="3" class="text-center text-muted py-3">No hay empresas archivadas</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
   </div>
 </div>
 <script>

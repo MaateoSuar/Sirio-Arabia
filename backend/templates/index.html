@@ -1,230 +1,395 @@
 {% extends 'layout.html' %}
 {% block content %}
+{% set d = dashboard or {} %}
+{% set f = d.filters or {} %}
+{% set k = d.kpis or {} %}
+{% set lnk = d.links or {} %}
+{% set orders_chart = d.orders_chart or {} %}
+{% set coll_chart = d.collections_chart or [] %}
+{% set detail = d.detail or {} %}
+{% set top_companies = d.top_companies or [] %}
+{% set links_extra = d.links_extra or {} %}
+
 <style>
-@media (max-width: 767.98px){
-  .dash .display-6{font-size:1.5rem}
-  .dash .card .card-body{padding:.6rem .75rem}
-  .dash h2.h6{font-size:.95rem}
-  .dash .kpi .small{font-size:.8rem}
-  .dash .chart-sm{height:200px!important}
-}
+  body[data-active="dashboard"] main.col{ padding-top:.85rem !important; padding-bottom:.9rem !important; }
+  body[data-active="dashboard"] main.col > .d-none.d-lg-flex.justify-content-between.align-items-center.mb-2{ margin-bottom:.15rem !important; min-height:0; }
+  body[data-active="dashboard"] main.col > .d-flex.justify-content-end.mb-2{ margin-top:.22rem !important; margin-bottom:.35rem !important; }
+  body[data-active="dashboard"] a[aria-label="Centro de notificaciones"]{ margin-top:.16rem; padding:.26rem .5rem; }
+  .db-wrap{ --db-bg:#f4f7f9; --db-card:#fff; --db-text:#0f172a; --db-muted:#64748b; --db-border:#e2e8f0; --db-shadow:0 8px 18px rgba(2, 16, 36, .06); }
+  .db-title{ color:#0f766e; font-weight:700; letter-spacing:.01em; font-size:2rem; }
+  .db-panel{ background:var(--db-card); border:1px solid var(--db-border); border-radius:14px; box-shadow:var(--db-shadow); }
+  .db-filter-bar{ padding:.58rem .65rem; }
+  .db-filter-label{ font-size:.68rem; color:#64748b; margin-bottom:.18rem; line-height:1; }
+  .db-filter-bar .form-control-sm,
+  .db-filter-bar .form-select-sm,
+  .db-filter-bar .btn-sm{ min-height:30px; height:30px; padding:.18rem .5rem; font-size:.78rem; }
+  .db-range{ display:flex; align-items:center; border:1px solid #d4dce6; border-radius:8px; background:#fff; padding:.1rem .35rem; gap:.25rem; }
+  .db-range .form-control{ border:0; box-shadow:none; padding:.12rem .2rem; min-height:26px; height:26px; font-size:.77rem; background:transparent; }
+  .db-range-sep{ color:#94a3b8; font-size:.72rem; line-height:1; }
+  .db-range-state{ margin-top:.15rem; font-size:.68rem; color:#64748b; line-height:1; }
+  .db-quick-row{ display:flex; align-items:center; gap:.3rem; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; }
+  .db-chip{ border:1px solid #d6dde6; background:#fff; color:#334155; border-radius:7px; font-size:.74rem; line-height:1; padding:.18rem .5rem; white-space:nowrap; flex:0 0 auto; }
+  .db-chip.active{ background:#0f766e; border-color:#0f766e; color:#fff; }
+  .db-kpi{ display:flex; align-items:center; gap:.58rem; padding:.62rem .72rem; text-decoration:none; color:inherit; min-height:72px; height:100%; }
+  .db-kpi:hover{ text-decoration:none; color:inherit; background:rgba(15,118,110,.03); }
+  .db-kpi-icon{ width:2rem; height:2rem; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:.93rem; }
+  .db-kpi-title{ font-size:.69rem; color:var(--db-muted); line-height:1.05; white-space:nowrap; }
+  .db-kpi-value{ font-size:2rem; font-weight:700; line-height:1; color:#0f172a; margin-top:.06rem; }
+  .db-kpi-arrow{ margin-left:auto; color:#64748b; }
+  .db-head{ font-weight:700; color:#0f334a; font-size:1.02rem; margin-bottom:.35rem; line-height:1.1; }
+  .db-chart-wrap{ height:190px; }
+  .db-mini-note{ font-size:.69rem; color:#475569; background:#f0f9ff; border:1px solid #bae6fd; border-radius:.45rem; padding:.24rem .46rem; line-height:1.15; }
+  .db-table thead th{ font-size:.76rem; text-transform:uppercase; letter-spacing:.02em; color:#0f172a; background:#e9f2f4; }
+  .db-table tbody td{ font-size:.8rem; color:#0f172a; padding:.3rem .45rem; vertical-align:middle; }
+  .db-link{ font-size:.84rem; text-decoration:none; color:#0f766e; font-weight:600; }
+  .db-link:hover{ text-decoration:underline; }
+  .db-top td:first-child{ width:32px; color:#475569; }
+  .db-btn-secondary{ white-space:nowrap; }
+  .db-actions{ display:flex; align-items:end; justify-content:flex-end; gap:.35rem; flex-wrap:nowrap; }
+  @media (max-width: 991.98px){
+    .db-title{ font-size:1.75rem; }
+    .db-chart-wrap{ height:198px; }
+    .db-kpi-title{ white-space:normal; }
+  }
+  @media (max-width: 767.98px){
+    .db-filter-bar .row > div{ margin-bottom:.45rem; }
+    .db-kpi{ padding:.75rem; }
+    .db-kpi-value{ font-size:1.45rem; }
+    .db-chart-wrap{ height:220px; }
+  }
 </style>
-<div class="dash">
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Dashboard</h1>
-</div>
 
-<!-- KPIs operativos: Urgentes / Atrasadas / Próximos 7 días -->
-<div class="row g-3 mb-3">
-  <div class="col-sm-6 col-lg-4">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #dc3545">
-      <div class="card-body">
-        <div class="text-secondary small">Urgentes de hoy</div>
-        <div class="display-6 text-danger">{{ kpis.urgentes_hoy }}</div>
-      </div>
-    </div>
+<div class="db-wrap">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h1 class="h3 mb-0 db-title">Dashboard</h1>
   </div>
-  <div class="col-sm-6 col-lg-4">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #dc3545">
-      <div class="card-body">
-        <div class="text-secondary small">Atrasadas totales</div>
-        <div class="display-6">{{ kpis.atrasadas_total }}</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-4">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #ffc107">
-      <div class="card-body">
-        <div class="text-secondary small">Próximos 7 días</div>
-        <div class="display-6">{{ kpis.proximas7 }}</div>
-      </div>
-    </div>
-  </div>
-</div>
 
-<!-- KPIs de negocio -->
-<div class="row g-3 mb-3">
-  <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #0f766e">
-      <div class="card-body">
-        <div class="text-secondary small">Pedidos (mes)</div>
-        <div class="display-6">{{ kpis.pedidos_mes }}</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #0ea5a3">
-      <div class="card-body">
-        <div class="text-secondary small">Ventas del mes</div>
-        <div class="display-6">${{ '%.0f'|format(kpis.ventas_mes_val) }}</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #64748b">
-      <div class="card-body">
-        <div class="text-secondary small">Cobranzas pendientes</div>
-        <div class="display-6">{{ kpis.cobranzas_pend_count }}</div>
-        <div class="small text-secondary">${{ '%.0f'|format(kpis.cobranzas_pend_monto) }}</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card shadow-sm border-0 kpi" style="border-top:4px solid #dc3545">
-      <div class="card-body">
-        <div class="text-secondary small">En camino / Atrasados</div>
-        <div class="display-6">{{ kpis.en_camino }} / <span class="text-danger">{{ kpis.atrasados }}</span></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="row g-3 align-items-stretch mb-1">
-  <div class="col-12 col-md-6">
-    <div class="card shadow-sm">
-      <div class="card-body d-flex flex-column" style="height: 100%">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h2 class="h6 mb-0">Ventas últimos 30 días</h2>
+  <form id="dashboardFilterForm" method="get" action="{{ url_for('main.index') }}" class="db-panel db-filter-bar mb-2">
+    <input type="hidden" name="day" id="dashboardDayInput" value="{{ detail.selected_day or '' }}">
+    <input type="hidden" name="preset" id="dashboardPresetInput" value="{{ f.preset or 'month_current' }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-lg-4">
+        <label class="form-label db-filter-label">Período</label>
+        <div class="db-range" aria-label="Rango de período">
+          <input type="date" class="form-control form-control-sm" name="from" id="dashboardFrom" value="{{ f.from or '' }}" aria-label="Fecha inicial">
+          <span class="db-range-sep">a</span>
+          <input type="date" class="form-control form-control-sm" name="to" id="dashboardTo" value="{{ f.to or '' }}" aria-label="Fecha final">
         </div>
-        <div class="chart-sm" style="height: 280px"><canvas id="salesChart"></canvas></div>
+        {% if not (f.from or f.to) %}
+        <div class="db-range-state">{{ f.period_label or 'Período completo' }}</div>
+        {% endif %}
       </div>
-    </div>
-  </div>
-  <div class="col-12 col-md-6">
-    <div class="card shadow-sm">
-      <div class="card-body d-flex flex-column" style="height: 100%">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h2 class="h6 mb-0">Top empresas por ventas</h2>
+      <div class="col-12 col-lg-4">
+        <label class="form-label db-filter-label">Rápidos</label>
+        <div class="db-quick-row">
+          <button type="button" class="btn btn-sm db-chip js-db-preset {{ 'active' if (f.preset or '')=='today' else '' }}" data-preset="today">Hoy</button>
+          <button type="button" class="btn btn-sm db-chip js-db-preset {{ 'active' if (f.preset or '')=='last_30' else '' }}" data-preset="last_30">Últimos 30 días</button>
+          <button type="button" class="btn btn-sm db-chip js-db-preset {{ 'active' if (f.preset or '')=='month_current' else '' }}" data-preset="month_current">Mes actual</button>
+          <button type="button" class="btn btn-sm db-chip js-db-preset {{ 'active' if (f.preset or '')=='month_prev' else '' }}" data-preset="month_prev">Mes anterior</button>
         </div>
-        <div class="chart-sm" style="height: 280px"><canvas id="topEmpChart"></canvas></div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label db-filter-label">Empresa</label>
+        <select class="form-select form-select-sm" name="company_id" id="dashboardCompany">
+          <option value="">Todas</option>
+          {% for c in f.company_options or [] %}
+            <option value="{{ c.id }}" {{ 'selected' if (f.company_id and c.id == f.company_id) else '' }}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-lg-2">
+        <label class="form-label db-filter-label d-none d-lg-block">Acciones</label>
+        <div class="db-actions">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Aplicar</button>
+          <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-info db-btn-secondary">Limpiar filtros</a>
+        </div>
       </div>
     </div>
-  </div>
-</div>
+  </form>
 
-<!-- Tabla resumida: Urgentes (top 10) -->
-<div class="row g-3 mb-3">
-  <div class="col-12">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h2 class="h6 mb-0">Centro de Alertas (resumen)</h2>
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg">
+      <a class="db-panel db-kpi" href="{{ lnk.pedidos_periodo or '#' }}">
+        <span class="db-kpi-icon" style="background:#e6f7ff;color:#0284c7"><i class="bi bi-clipboard2-check"></i></span>
+        <div>
+          <div class="db-kpi-title">Pedidos del período</div>
+          <div class="db-kpi-value">{{ k.pedidos_periodo or 0 }}</div>
+        </div><i class="bi bi-chevron-right db-kpi-arrow"></i>
+      </a>
+    </div>
+    <div class="col-6 col-lg">
+      <a class="db-panel db-kpi" href="{{ lnk.en_camino or '#' }}">
+        <span class="db-kpi-icon" style="background:#eef2f7;color:#475569"><i class="bi bi-truck"></i></span>
+        <div>
+          <div class="db-kpi-title">En camino</div>
+          <div class="db-kpi-value">{{ k.en_camino or 0 }}</div>
+        </div><i class="bi bi-chevron-right db-kpi-arrow"></i>
+      </a>
+    </div>
+    <div class="col-6 col-lg">
+      <a class="db-panel db-kpi" href="{{ lnk.cobranzas_pendientes or '#' }}">
+        <span class="db-kpi-icon" style="background:#e0f7ff;color:#0891b2"><i class="bi bi-cash-stack"></i></span>
+        <div>
+          <div class="db-kpi-title">Cobranzas pendientes</div>
+          <div class="db-kpi-value">{{ k.cobranzas_pendientes or 0 }}</div>
+        </div><i class="bi bi-chevron-right db-kpi-arrow"></i>
+      </a>
+    </div>
+    <div class="col-6 col-lg">
+      <a class="db-panel db-kpi" href="{{ lnk.cobranzas_atrasadas or '#' }}">
+        <span class="db-kpi-icon" style="background:#feecec;color:#dc2626"><i class="bi bi-clock-history"></i></span>
+        <div>
+          <div class="db-kpi-title">Cobranzas atrasadas</div>
+          <div class="db-kpi-value" style="color:#dc2626">{{ k.cobranzas_atrasadas or 0 }}</div>
+        </div><i class="bi bi-chevron-right db-kpi-arrow"></i>
+      </a>
+    </div>
+    <div class="col-6 col-lg">
+      <a class="db-panel db-kpi" href="{{ lnk.entregas_atrasadas or '#' }}">
+        <span class="db-kpi-icon" style="background:#fff4e8;color:#ea580c"><i class="bi bi-exclamation-triangle"></i></span>
+        <div>
+          <div class="db-kpi-title">Entregas atrasadas</div>
+          <div class="db-kpi-value" style="color:#ea580c">{{ k.entregas_atrasadas or 0 }}</div>
+        </div><i class="bi bi-chevron-right db-kpi-arrow"></i>
+      </a>
+    </div>
+  </div>
+
+  <div class="row g-2 mb-2">
+    <div class="col-12 col-lg-7">
+      <div class="db-panel p-2 h-100">
+        <div class="db-head">Pedidos en el período seleccionado</div>
+        <div class="db-chart-wrap"><canvas id="ordersChart"></canvas></div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5">
+      <div class="db-panel p-2 h-100">
+        <div class="db-head">Estado de cobranzas</div>
+        <div class="db-chart-wrap"><canvas id="collectionsChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-2">
+    <div class="col-12 col-lg-8">
+      <div class="db-panel p-2 h-100">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="db-head mb-0">Detalle de pedidos</div>
         </div>
-        <div class="desktop-table">
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>Categoría</th>
-                <th>Tipo</th>
-                <th>Cliente</th>
-                <th>Empresa</th>
-                <th>Fecha</th>
-                <th>Monto</th>
-              </tr>
+        <div class="db-mini-note mb-1"><i class="bi bi-info-circle"></i> Los datos se actualizan según el día seleccionado en el gráfico.</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle db-table mb-1">
+            <thead>
+              <tr><th>Fecha</th><th>Cliente</th><th>Empresa</th><th>Pedido</th></tr>
             </thead>
             <tbody>
-              {% for r in extras.urgentes %}
+              {% for r in detail.rows or [] %}
                 <tr>
-                  <td>
-                    {% if r.categorias %}
-                      {% for cat in r.categorias %}
-                        {% set cls = 'bg-secondary' %}
-                        {% if cat == 'Urg de hoy' %}{% set cls = 'bg-danger' %}{% elif cat == 'Prox 7 días' %}{% set cls = 'bg-warning text-dark' %}{% endif %}
-                        <span class="badge {{ cls }} me-1 mb-1">{{ cat }}</span>
-                      {% endfor %}
-                    {% elif r.categoria %}
-                      <span class="badge bg-secondary">{{ r.categoria }}</span>
-                    {% else %}
-                      <span class="text-muted">-</span>
-                    {% endif %}
-                  </td>
-                  <td><span class="badge {{ 'bg-danger' if r.tipo=='Cobranza' else 'bg-warning text-dark' }}">{{ r.tipo }}</span></td>
-                  <td>{{ r.cliente }}</td>
-                  <td>{{ r.empresa }}</td>
-                  <td>{{ r.fecha }}</td>
-                  <td>{% if r.monto is not none %}${{ '%.0f'|format(r.monto) }}{% else %}-{% endif %}</td>
+                  <td>{{ r.date_label }}</td>
+                  <td>{{ r.client }}</td>
+                  <td>{{ r.company }}</td>
+                  <td><a class="db-link" href="{{ r.order_url }}">{{ r.order_code }}</a></td>
                 </tr>
               {% else %}
-                <tr><td colspan="6" class="text-center text-muted">Sin alertas</td></tr>
+                <tr><td colspan="4" class="text-muted text-center py-3">Sin pedidos para el período seleccionado.</td></tr>
               {% endfor %}
             </tbody>
-            </table>
-          </div>
+          </table>
         </div>
+        <a class="db-link" id="dashboardViewAllDay" href="{{ detail.view_day_url or '#' }}">Ver todos los pedidos del día</a>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="db-panel p-2 h-100">
+        <div class="db-head">Empresas con mayor deuda pendiente</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle db-table db-top mb-1">
+            <thead><tr><th>#</th><th>Empresa</th><th class="text-end">Registros</th></tr></thead>
+            <tbody>
+              {% for r in top_companies %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td>{{ r.name }}</td>
+                  <td class="text-end">{{ r.count }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="text-muted text-center py-3">Sin datos en el período.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <a class="db-link" href="{{ links_extra.all_companies or url_for('main.empresas') }}">Ver todas las empresas</a>
       </div>
     </div>
   </div>
-</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script id="dashboardDataJson" type="application/json">{{ {
+  "filters": f,
+  "orders_chart": orders_chart,
+  "coll_chart": coll_chart,
+  "detail": detail
+}|tojson }}</script>
 <script>
 (function(){
-  const raw = '{{ {"labels": charts.labels, "daily_sales": charts.daily_sales, "top_emp_labels": charts.top_emp_labels, "top_emp_values": charts.top_emp_values} | tojson | safe }}';
-  const data = JSON.parse(raw);
-  const labels = data.labels || [];
-  const sales = data.daily_sales || [];
-  const topLabels = data.top_emp_labels || [];
-  const topValues = data.top_emp_values || [];
-  const teal = '#0f766e';
-  const tealLight = '#0ea5a3';
-  const palette = ['#0f766e','#0ea5a3','#1e3a8a','#0891b2','#16a34a','#d97706','#dc2626','#7c3aed','#059669','#365314'];
+  var data = {};
+  try {
+    var rawNode = document.getElementById('dashboardDataJson');
+    data = rawNode ? JSON.parse(rawNode.textContent || '{}') : {};
+  } catch(e) {
+    data = {};
+  }
 
-  const ctx1 = document.getElementById('salesChart');
-  if (ctx1) {
-    new Chart(ctx1, {
+  var form = document.getElementById('dashboardFilterForm');
+  var fromInput = document.getElementById('dashboardFrom');
+  var toInput = document.getElementById('dashboardTo');
+  var dayInput = document.getElementById('dashboardDayInput');
+  var presetInput = document.getElementById('dashboardPresetInput');
+  var viewAllDay = document.getElementById('dashboardViewAllDay');
+
+  function fmtIso(d){
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + dd;
+  }
+
+  function monthRange(refDate){
+    var d = new Date(refDate.getFullYear(), refDate.getMonth(), 1);
+    var e = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0);
+    return { from: fmtIso(d), to: fmtIso(e) };
+  }
+
+  function setPresetRange(preset){
+    var t = new Date();
+    t.setHours(0,0,0,0);
+    var from = null;
+    var to = null;
+    if (preset === 'today') {
+      from = fmtIso(t); to = fmtIso(t);
+    } else if (preset === 'last_30') {
+      var d30 = new Date(t); d30.setDate(t.getDate() - 29);
+      from = fmtIso(d30); to = fmtIso(t);
+    } else if (preset === 'month_prev') {
+      var prev = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+      var r2 = monthRange(prev); from = r2.from; to = r2.to;
+    } else {
+      var r = monthRange(t); from = r.from; to = r.to;
+      preset = 'month_current';
+    }
+    if (fromInput) fromInput.value = from;
+    if (toInput) toInput.value = to;
+    if (presetInput) presetInput.value = preset;
+    if (dayInput) dayInput.value = '';
+  }
+
+  document.querySelectorAll('.js-db-preset').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var p = btn.getAttribute('data-preset') || '';
+      if (!p) return;
+      setPresetRange(p);
+      form && form.submit();
+    });
+  });
+
+  if (fromInput) fromInput.addEventListener('change', function(){ if (presetInput) presetInput.value = 'custom'; if (dayInput) dayInput.value = ''; });
+  if (toInput) toInput.addEventListener('change', function(){ if (presetInput) presetInput.value = 'custom'; if (dayInput) dayInput.value = ''; });
+
+  var chartLabels = (data.orders_chart && data.orders_chart.labels) || [];
+  var chartDays = (data.orders_chart && data.orders_chart.days) || [];
+  var chartValues = (data.orders_chart && data.orders_chart.values) || [];
+  var selectedDay = (data.detail && data.detail.selected_day) || '';
+  var selectedIdx = Math.max(0, chartDays.indexOf(selectedDay));
+
+  var octx = document.getElementById('ordersChart');
+  if (octx) {
+    new Chart(octx, {
       type: 'line',
       data: {
-        labels: labels,
+        labels: chartLabels,
         datasets: [{
-          label: 'Ventas ($)',
-          data: sales,
+          label: 'Pedidos',
+          data: chartValues,
+          borderColor: '#0f766e',
+          backgroundColor: 'rgba(15, 118, 110, 0.16)',
           fill: true,
-          borderColor: teal,
-          backgroundColor: 'rgba(15, 118, 110, 0.12)',
-          tension: .25,
-          pointRadius: 0,
-          pointHoverRadius: 3
+          tension: .34,
+          pointRadius: chartValues.map(function(_, idx){ return idx === selectedIdx ? 4 : 2; }),
+          pointBackgroundColor: chartValues.map(function(_, idx){ return idx === selectedIdx ? '#0f766e' : '#2f9f97'; }),
+          pointHoverRadius: 5
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+        plugins: { legend: { display: false } },
         scales: {
           x: { grid: { display: false } },
-          y: { grid: { color: 'rgba(0,0,0,.06)' }, beginAtZero: true }
+          y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(15, 23, 42, 0.08)' } }
+        },
+        onClick: function(evt, els){
+          if (!els || !els.length) return;
+          var i = els[0].index;
+          if (i < 0 || i >= chartDays.length) return;
+          if (dayInput) dayInput.value = chartDays[i];
+          if (presetInput && !presetInput.value) presetInput.value = 'custom';
+          form && form.submit();
         }
       }
     });
   }
 
-  const ctx2 = document.getElementById('topEmpChart');
-  if (ctx2) {
-    new Chart(ctx2, {
+  var bars = data.coll_chart || [];
+  var cctx = document.getElementById('collectionsChart');
+  if (cctx) {
+    new Chart(cctx, {
       type: 'bar',
       data: {
-        labels: topLabels,
+        labels: bars.map(function(b){ return b.label; }),
         datasets: [{
-          label: 'Ventas ($)',
-          data: topValues,
-          backgroundColor: topLabels.map((_,i) => palette[i % palette.length]),
-          borderColor: topLabels.map((_,i) => palette[i % palette.length]),
-          borderWidth: 1
+          data: bars.map(function(b){ return b.value; }),
+          backgroundColor: bars.map(function(b){ return b.color; }),
+          borderColor: bars.map(function(b){ return b.color; }),
+          borderWidth: 1,
+          borderRadius: 4
         }]
       },
       options: {
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { mode: 'nearest', intersect: true } },
+        plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: 'rgba(0,0,0,.06)' }, beginAtZero: true },
+          x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: 'rgba(15, 23, 42, 0.08)' } },
           y: { grid: { display: false } }
+        },
+        onClick: function(evt, els){
+          if (!els || !els.length) return;
+          var idx = els[0].index;
+          var target = bars[idx] && bars[idx].url;
+          if (target) window.location.href = target;
         }
       }
     });
+  }
+
+  if (viewAllDay) {
+    try {
+      var u = new URL(viewAllDay.href, window.location.origin);
+      var selected = (dayInput && dayInput.value) ? dayInput.value : '';
+      if (selected) {
+        u.searchParams.set('from', selected);
+        u.searchParams.set('to', selected);
+      } else {
+        var fromVal = fromInput ? (fromInput.value || '') : '';
+        var toVal = toInput ? (toInput.value || '') : '';
+        if (fromVal) { u.searchParams.set('from', fromVal); } else { u.searchParams.delete('from'); }
+        if (toVal) { u.searchParams.set('to', toVal); } else { u.searchParams.delete('to'); }
+      }
+      u.searchParams.set('all', '1');
+      viewAllDay.href = u.pathname + '?' + u.searchParams.toString();
+    } catch(e) {}
   }
 })();
 </script>
