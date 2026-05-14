@@ -7,7 +7,7 @@
 {% set orders_chart = d.orders_chart or {} %}
 {% set coll_chart = d.collections_chart or [] %}
 {% set detail = d.detail or {} %}
-{% set top_companies = d.top_companies or [] %}
+{% set top_ranking = d.top_ranking or {} %}
 {% set links_extra = d.links_extra or {} %}
 
 <style>
@@ -27,9 +27,13 @@
   .db-range .form-control{ border:0; box-shadow:none; padding:.12rem .2rem; min-height:26px; height:26px; font-size:.77rem; background:transparent; }
   .db-range-sep{ color:#94a3b8; font-size:.72rem; line-height:1; }
   .db-range-state{ margin-top:.15rem; font-size:.68rem; color:#64748b; line-height:1; }
-  .db-quick-row{ display:flex; align-items:center; gap:.3rem; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; }
+  .db-quick-row{ display:flex; align-items:center; gap:.3rem; flex-wrap:nowrap; overflow-x:visible; overflow-y:hidden; }
   .db-chip{ border:1px solid #d6dde6; background:#fff; color:#334155; border-radius:7px; font-size:.74rem; line-height:1; padding:.18rem .5rem; white-space:nowrap; flex:0 0 auto; }
   .db-chip.active{ background:#0f766e; border-color:#0f766e; color:#fff; }
+  .db-filter-bar .form-select-sm{ width:100%; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .db-scope-wrap{ width:100%; }
+  .db-scope-grid{ display:grid; grid-template-columns:minmax(108px, .9fr) minmax(0, 1.1fr); gap:.5rem; width:100%; }
+  .db-scope-field{ min-width:0; }
   .db-kpi{ display:flex; align-items:center; gap:.58rem; padding:.62rem .72rem; text-decoration:none; color:inherit; min-height:72px; height:100%; }
   .db-kpi:hover{ text-decoration:none; color:inherit; background:rgba(15,118,110,.03); }
   .db-kpi-icon{ width:2rem; height:2rem; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:.93rem; }
@@ -50,6 +54,11 @@
     .db-title{ font-size:1.75rem; }
     .db-chart-wrap{ height:198px; }
     .db-kpi-title{ white-space:normal; }
+    .db-quick-row{ overflow-x:auto; scrollbar-width:thin; }
+  }
+  @media (min-width: 992px){
+    .db-quick-row{ gap:.22rem; }
+    .db-chip{ font-size:.71rem; padding:.16rem .42rem; }
   }
   @media (max-width: 767.98px){
     .db-filter-bar .row > div{ margin-bottom:.45rem; }
@@ -88,20 +97,32 @@
           <button type="button" class="btn btn-sm db-chip js-db-preset {{ 'active' if (f.preset or '')=='month_prev' else '' }}" data-preset="month_prev">Mes anterior</button>
         </div>
       </div>
-      <div class="col-6 col-lg-2">
-        <label class="form-label db-filter-label">Empresa</label>
-        <select class="form-select form-select-sm" name="company_id" id="dashboardCompany">
-          <option value="">Todas</option>
-          {% for c in f.company_options or [] %}
-            <option value="{{ c.id }}" {{ 'selected' if (f.company_id and c.id == f.company_id) else '' }}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-12 col-lg-2">
-        <label class="form-label db-filter-label d-none d-lg-block">Acciones</label>
-        <div class="db-actions">
-          <button type="submit" class="btn btn-sm btn-outline-secondary">Aplicar</button>
-          <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-info db-btn-secondary">Limpiar filtros</a>
+      <div class="col-12 col-lg-4">
+        <div class="db-scope-wrap">
+          <div class="db-scope-grid">
+            <div class="db-scope-field">
+            <label class="form-label db-filter-label">Vista</label>
+            <select class="form-select form-select-sm" name="view" id="dashboardViewMode">
+              <option value="company" {{ 'selected' if (f.view_mode or 'company') == 'company' else '' }}>Empresas</option>
+              <option value="client" {{ 'selected' if (f.view_mode or 'company') == 'client' else '' }}>Clientes</option>
+            </select>
+            </div>
+            <div class="db-scope-field">
+            <label class="form-label db-filter-label" id="dashboardScopeLabel">{{ 'Cliente' if (f.view_mode or 'company') == 'client' else 'Empresa' }}</label>
+            <select class="form-select form-select-sm" name="company_id" id="dashboardCompany" {{ 'disabled' if (f.view_mode or 'company') == 'client' else '' }}>
+              <option value="">Todas</option>
+              {% for c in f.company_options or [] %}
+                <option value="{{ c.id }}" {{ 'selected' if (f.company_id and c.id == f.company_id) else '' }} title="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <select class="form-select form-select-sm {{ '' if (f.view_mode or 'company') == 'client' else 'd-none' }}" name="client_id" id="dashboardClient" {{ '' if (f.view_mode or 'company') == 'client' else 'disabled' }}>
+              <option value="">Todos</option>
+              {% for c in f.client_options or [] %}
+                <option value="{{ c.id }}" {{ 'selected' if (f.client_id and c.id == f.client_id) else '' }} title="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -201,16 +222,22 @@
     </div>
     <div class="col-12 col-lg-4">
       <div class="db-panel p-2 h-100">
-        <div class="db-head">Empresas con mayor deuda pendiente</div>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="db-head mb-0">{{ top_ranking.title or 'Empresas con mayor cantidad de deudas pendientes' }}</div>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Criterio ranking">
+            <a class="btn btn-sm {{ 'btn-primary' if (top_ranking.mode or 'pending') == 'pending' else 'btn-outline-secondary' }}" href="{{ (top_ranking.switch_links or {}).pending or '#' }}">Deuda pendiente</a>
+            <a class="btn btn-sm {{ 'btn-primary' if (top_ranking.mode or 'pending') == 'orders' else 'btn-outline-secondary' }}" href="{{ (top_ranking.switch_links or {}).orders or '#' }}">Cantidad de pedidos</a>
+          </div>
+        </div>
         <div class="table-responsive">
           <table class="table table-sm align-middle db-table db-top mb-1">
-            <thead><tr><th>#</th><th>Empresa</th><th class="text-end">Registros</th></tr></thead>
+            <thead><tr><th>#</th><th>{{ top_ranking.entity_label or 'Empresa' }}</th><th class="text-end">{{ top_ranking.value_label or 'Deudas pendientes' }}</th></tr></thead>
             <tbody>
-              {% for r in top_companies %}
+              {% for r in top_ranking.rows or [] %}
                 <tr>
                   <td>{{ loop.index }}</td>
                   <td>{{ r.name }}</td>
-                  <td class="text-end">{{ r.count }}</td>
+                  <td class="text-end">{{ r.value }}</td>
                 </tr>
               {% else %}
                 <tr><td colspan="3" class="text-muted text-center py-3">Sin datos en el período.</td></tr>
@@ -218,7 +245,7 @@
             </tbody>
           </table>
         </div>
-        <a class="db-link" href="{{ links_extra.all_companies or url_for('main.empresas') }}">Ver todas las empresas</a>
+        <a class="db-link" href="{{ top_ranking.footer_url or links_extra.all_companies or url_for('main.empresas') }}">{{ top_ranking.footer_label or 'Ver todas las empresas' }}</a>
       </div>
     </div>
   </div>
@@ -244,9 +271,50 @@
   var form = document.getElementById('dashboardFilterForm');
   var fromInput = document.getElementById('dashboardFrom');
   var toInput = document.getElementById('dashboardTo');
+  var viewModeInput = document.getElementById('dashboardViewMode');
+  var companyInput = document.getElementById('dashboardCompany');
+  var clientInput = document.getElementById('dashboardClient');
+  var scopeLabel = document.getElementById('dashboardScopeLabel');
   var dayInput = document.getElementById('dashboardDayInput');
   var presetInput = document.getElementById('dashboardPresetInput');
   var viewAllDay = document.getElementById('dashboardViewAllDay');
+
+  var submitTimer = null;
+
+  function submitFiltersDebounced(waitMs){
+    if (!form) return;
+    if (submitTimer) {
+      clearTimeout(submitTimer);
+      submitTimer = null;
+    }
+    submitTimer = setTimeout(function(){
+      form.submit();
+    }, Math.max(0, waitMs || 0));
+  }
+
+  function toggleScopeFilter(mode){
+    var isClient = mode === 'client';
+    if (scopeLabel) scopeLabel.textContent = isClient ? 'Cliente' : 'Empresa';
+    if (companyInput) {
+      companyInput.disabled = isClient;
+      companyInput.classList.toggle('d-none', isClient);
+      if (isClient) companyInput.value = '';
+    }
+    if (clientInput) {
+      clientInput.disabled = !isClient;
+      clientInput.classList.toggle('d-none', !isClient);
+      if (!isClient) clientInput.value = '';
+    }
+  }
+
+  if (viewModeInput) {
+    viewModeInput.addEventListener('change', function(){
+      toggleScopeFilter(viewModeInput.value || 'company');
+      if (dayInput) dayInput.value = '';
+      submitFiltersDebounced(120);
+    });
+    toggleScopeFilter(viewModeInput.value || 'company');
+  }
 
   function fmtIso(d){
     var y = d.getFullYear();
@@ -295,6 +363,11 @@
 
   if (fromInput) fromInput.addEventListener('change', function(){ if (presetInput) presetInput.value = 'custom'; if (dayInput) dayInput.value = ''; });
   if (toInput) toInput.addEventListener('change', function(){ if (presetInput) presetInput.value = 'custom'; if (dayInput) dayInput.value = ''; });
+
+  if (fromInput) fromInput.addEventListener('change', function(){ submitFiltersDebounced(140); });
+  if (toInput) toInput.addEventListener('change', function(){ submitFiltersDebounced(140); });
+  if (companyInput) companyInput.addEventListener('change', function(){ if (dayInput) dayInput.value = ''; submitFiltersDebounced(120); });
+  if (clientInput) clientInput.addEventListener('change', function(){ if (dayInput) dayInput.value = ''; submitFiltersDebounced(120); });
 
   var chartLabels = (data.orders_chart && data.orders_chart.labels) || [];
   var chartDays = (data.orders_chart && data.orders_chart.days) || [];

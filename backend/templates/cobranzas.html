@@ -2,11 +2,11 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="cob-toolbar d-flex flex-column gap-2 mb-3">
 
   <div>
 
-    <h1 class="h4 mb-0">Deudas pendientes</h1>
+    <h1 class="h4 mb-0 cob-title">Deudas pendientes</h1>
 
   </div>
 
@@ -168,6 +168,132 @@
 
     .cob-sort-link.active .cob-sort-arrow { opacity:.95; }
 
+    .cob-search-input { min-height: 40px; }
+
+    @media (max-width: 767.98px) {
+      .cob-toolbar {
+        margin-top: .35rem !important;
+        margin-bottom: .8rem !important;
+        gap: .65rem !important;
+      }
+
+      .cob-title {
+        font-size: 1.42rem;
+        line-height: 1.2;
+      }
+
+      .cob-filter-wrap {
+        margin-top: .2rem !important;
+        align-items: stretch !important;
+        gap: .45rem !important;
+      }
+
+      .cob-filter-wrap .btn-group {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        margin-left: 0 !important;
+      }
+
+      .cob-filter-wrap .btn-group .btn {
+        flex: 1 1 auto;
+        min-width: 86px;
+        padding: .38rem .5rem;
+        font-size: .84rem;
+      }
+
+      .cob-type-group .btn {
+        min-width: 96px;
+      }
+
+      .cob-date-range {
+        width: 100% !important;
+        min-width: 0;
+      }
+
+      .cob-clear-wrap {
+        width: 100%;
+      }
+
+      .cob-search-bar {
+        justify-content: stretch !important;
+        gap: .5rem !important;
+        margin-bottom: .55rem !important;
+      }
+
+      .cob-search-input {
+        width: 100%;
+        max-width: none !important;
+      }
+
+      #cobResults .table-responsive {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      #cobResults .table-responsive > .table {
+        min-width: 920px !important;
+      }
+
+      #cobTable th,
+      #cobTable td {
+        padding: .4rem .45rem;
+        line-height: 1.22;
+        vertical-align: top;
+      }
+
+      #cobTable td.col-client,
+      #cobTable td.col-company {
+        max-width: 175px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      #cobTable th.col-money,
+      #cobTable td.col-money {
+        min-width: 132px;
+      }
+
+      #cobTable td.col-money input.js-cob-monto {
+        width: 84px;
+        max-width: 84px;
+        flex: 0 0 84px;
+      }
+
+      #cobTable td.col-date .form-control,
+      #cobTable td.col-entrega .form-control {
+        width: 104px;
+      }
+
+      #cobTable .w-actions {
+        min-width: 50px;
+        width: 50px;
+      }
+
+      #cobPagination {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: .55rem;
+      }
+
+      #cobPagination .btn-group {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .45rem;
+        width: 100%;
+      }
+
+      #cobPagination .btn-group .btn {
+        width: 100%;
+      }
+
+      #cobPagination #cobPerPage {
+        width: 100% !important;
+        max-width: 140px;
+      }
+    }
+
     body[data-active="deudas"] .table-cobranzas.table-sticky thead th {
 
       position: sticky !important;
@@ -192,7 +318,7 @@
 
   </style>
 
-  <form id="cobFilter" class="d-flex align-items-end gap-2 mt-3 flex-wrap" method="get">
+  <form id="cobFilter" class="cob-filter-wrap d-flex align-items-end gap-2 mt-2 flex-wrap" method="get">
 
     <div class="btn-group cob-filter" role="group" aria-label="Filtros de cobranza">
 
@@ -214,7 +340,7 @@
 
     {% endfor %}
 
-    <div class="btn-group ms-2" role="group" aria-label="Tipo de comprobante">
+    <div class="cob-type-group btn-group ms-2" role="group" aria-label="Tipo de comprobante">
 
       {% set tipos_sel = request.args.getlist('tipo') %}
 
@@ -246,7 +372,7 @@
 
     <input type="hidden" name="per_page" id="cobPerPageH" value="{{ per_page if per_page is defined else 20 }}">
 
-    <div class="input-group input-group-sm date-soft" style="width: 320px; overflow: hidden;">
+    <div class="cob-date-range input-group input-group-sm date-soft" style="width: 320px; overflow: hidden;">
 
       <span class="input-group-text" id="cob-range-addon" style="background:#f8f9fa">
 
@@ -260,17 +386,19 @@
 
     </div>
 
-    <button class="btn btn-sm btn-outline-dark" type="button" id="cobBtnClearAll">Limpiar filtros</button>
+    <div class="cob-clear-wrap d-flex gap-2">
+      <button class="btn btn-sm btn-outline-dark" type="button" id="cobBtnClearAll">Limpiar filtros</button>
+    </div>
 
   </form>
 
 </div>
 
-<div class="d-flex justify-content-end mb-2 gap-2 flex-wrap">
+<div class="cob-search-bar d-flex justify-content-end mb-2 gap-2 flex-wrap">
 
-  <input type="text" id="cobClientQ" name="client_q" form="cobFilter" class="form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar cliente" value="{{ request.args.get('client_q','') }}">
+  <input type="text" id="cobClientQ" name="client_q" form="cobFilter" class="cob-search-input form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar cliente" value="{{ request.args.get('client_q','') }}">
 
-  <input type="text" id="cobCompanyQ" name="company_q" form="cobFilter" class="form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar empresa" value="{{ request.args.get('company_q','') }}">
+  <input type="text" id="cobCompanyQ" name="company_q" form="cobFilter" class="cob-search-input form-control form-control-sm" style="max-width: 240px;" placeholder="Buscar empresa" value="{{ request.args.get('company_q','') }}">
 
 </div>
 
@@ -282,7 +410,7 @@
 
     <div class="table-responsive table-mobile-cards">
 
-      <table class="table table-hover align-middle mb-0 table-cobranzas table-sticky">
+      <table class="table table-hover align-middle mb-0 table-cobranzas table-sticky" id="cobTable">
 
         <thead class="table-light">
 
@@ -292,7 +420,7 @@
 
             <th class="col-company js-sort-text" data-sort-type="text" style="cursor:pointer;">Empresa</th>
 
-            <th class="d-none d-md-table-cell js-sort-date col-orderdate" data-sort-type="date" style="cursor:pointer;">Fecha pedido</th>
+            <th class="d-none d-md-table-cell js-sort-date col-orderdate" data-sort-type="date" style="cursor:pointer;">Fecha compra</th>
 
             {% set _entrega_active = (current_sort == 'entrega_efectiva') %}
 
@@ -354,7 +482,8 @@
 
             <td class="col-company">{{ c.order.company.nombre }}</td>
 
-            <td class="d-none d-md-table-cell col-orderdate">{{ c.order.created_at.strftime('%d/%m/%Y') if c.order and c.order.created_at else '' }}</td>
+            {% set fecha_compra_ref = (c.order.logistics.fecha_compra if c.order and c.order.logistics and c.order.logistics.fecha_compra else (c.order.created_at if c.order and c.order.created_at else None)) %}
+            <td class="d-none d-md-table-cell col-orderdate">{{ fecha_compra_ref.strftime('%d/%m/%Y') if fecha_compra_ref else '' }}</td>
 
             <td class="d-none d-md-table-cell col-date col-entrega">
 
@@ -854,7 +983,7 @@
 
 {% if total_count is defined and per_page is defined and page is defined %}
 
-  <div class="d-flex justify-content-between align-items-center mt-2">
+  <div id="cobPagination" class="d-flex justify-content-between align-items-center mt-2">
 
     <div class="d-flex align-items-center gap-2">
 
@@ -2550,7 +2679,7 @@
 
     // Índice fijo (0-based) de la columna "Días" para esta tabla:
 
-    // Cliente(0), Empresa(1), Fecha pedido(2), Entrega efectiva(3), Monto(4), Forma pago(5), Vencimiento(6), Días(7), Cobro efectivo(8), Status(9), Acciones(10)
+    // Cliente(0), Empresa(1), Fecha compra(2), Entrega efectiva(3), Monto(4), Forma pago(5), Vencimiento(6), Días(7), Cobro efectivo(8), Status(9), Acciones(10)
 
     var cell = (tds && tds.length > 7) ? tds[7] : null;
 

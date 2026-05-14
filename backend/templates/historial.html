@@ -95,11 +95,11 @@
 
                         <div class="col-12 col-md-4">
                           <label class="form-label">Fecha entrega efectiva</label>
-                          <input type="date" class="form-control" name="fecha_entrega_efectiva" value="{{ o.logistics.fecha_entrega_efectiva.date().isoformat() if o.logistics and o.logistics.fecha_entrega_efectiva else '' }}">
+                          <input type="date" class="form-control" name="fecha_entrega_efectiva" value="{{ o.logistics.fecha_entrega_efectiva.isoformat()[:10] if o.logistics and o.logistics.fecha_entrega_efectiva else '' }}">
                         </div>
                         <div class="col-12 col-md-4">
                           <label class="form-label">Fecha cobro efectiva</label>
-                          <input type="date" class="form-control" name="fecha_cobro_efectiva" value="{{ o.collection.fecha_cobro_efectiva.date().isoformat() if o.collection and o.collection.fecha_cobro_efectiva else '' }}">
+                          <input type="date" class="form-control" name="fecha_cobro_efectiva" value="{{ o.collection.fecha_cobro_efectiva.isoformat()[:10] if o.collection and o.collection.fecha_cobro_efectiva else '' }}">
                         </div>
                         <div class="col-12 col-md-4">
                           <label class="form-label">Monto</label>

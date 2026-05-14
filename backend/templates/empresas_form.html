@@ -1,60 +1,222 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="container" style="max-width: 860px;">
-  <h1 class="h4 text-dark mb-4">{{ 'Legajo de empresa' if company else 'Nueva empresa' }}</h1>
+<div class="container-fluid px-2 px-md-3 px-xl-4" style="max-width: 1240px;">
+  <div class="empresa-page-header">
+    <h1 class="empresa-page-title">{{ 'Legajo de empresa' if company else 'Nueva empresa' }}</h1>
+    {% if company and (company.marca or company.nombre) %}
+    <p class="empresa-page-subtitle">{{ (company.marca or '-') ~ (' — ' ~ company.nombre if company.nombre else '') }}</p>
+    {% endif %}
+  </div>
 
-  <div class="card shadow-sm">
+  <div class="card shadow-sm empresa-form-shell">
     <form method="post" id="empresa-form">
       {% if company %}<input type="hidden" id="empresa_id" value="{{ company.id }}">{% endif %}
       <div class="card-body">
       <style>
-        /* Títulos y etiquetas más estéticos en esta vista */
-        .form-label { color: #0f766e; font-weight: 600; letter-spacing: .2px; }
-        /* Títulos de secciones del legajo de empresa, alineados con clientes */
-        .empresa-section-title {
-          font-size: 1.3rem;
+        .empresa-form-shell {
+          border: 1px solid #dce6ee;
+          border-radius: 1rem;
+          overflow: hidden;
+        }
+        .empresa-page-header {
+          margin: .2rem 0 .9rem;
+        }
+        .empresa-page-title {
+          margin: 0;
+          font-size: clamp(1.8rem, 2.2vw, 2.35rem);
           font-weight: 700;
-          color: #0b1120;
-          letter-spacing: .3px;
-          padding-top: .75rem;
-          margin-top: .25rem;
-          margin-bottom: .75rem;
-          text-align: center;
+          color: #0f334a;
+          letter-spacing: .01em;
+          line-height: 1.1;
+        }
+        .empresa-page-subtitle {
+          margin: .28rem 0 0;
+          color: #475569;
+          font-size: .95rem;
+          font-weight: 500;
+        }
+        .form-label {
+          color:#0f766e;
+          font-weight:600;
+          letter-spacing:.18px;
+          font-size:.82rem;
+          margin-bottom:.28rem;
+        }
+        .empresa-section-title {
+          font-size: 1.24rem;
+          font-weight: 700;
+          color: #0f172a;
+          letter-spacing: .012em;
+          margin: 0;
+          text-align: left;
+          line-height: 1.2;
         }
         .empresa-subsection-title {
-          font-size: 1.15rem;
+          font-size: 1.05rem;
           font-weight: 700;
-          color: #111827;
-          padding-top: .5rem;
-          margin-top: .25rem;
-          margin-bottom: .5rem;
-          text-align: center;
+          color: #0f172a;
+          margin: 0;
+          line-height: 1.25;
         }
-        /* Botón colapsable: mantener legible en hover/active */
-        .btn-outline-secondary[data-bs-target="#clients-collapse"] { border-width: 2px; }
-        .btn-outline-secondary[data-bs-target="#clients-collapse"]:hover,
-        .btn-outline-secondary[data-bs-target="#clients-collapse"].active,
-        .btn-outline-secondary[data-bs-target="#clients-collapse"]:focus {
-          color: #0f766e; background-color: #f8fafc; border-color: #cfd8dc;
+        .empresa-basic-head {
+          margin-bottom: .3rem;
+          padding-bottom: .55rem;
+          border-bottom: 1px solid #e2e8f0;
         }
-        /* Badges de seleccionados */
-        .badge-client { background-color: #0f766e; }
+        .empresa-basic-grid {
+          margin-top: .2rem;
+        }
+        .empresa-mails-box {
+          border: 1px solid #e2e8f0;
+          border-radius: .72rem;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fbfe 100%);
+          padding: .6rem .7rem;
+          min-height: 100%;
+        }
+        .empresa-mails-selected-list {
+          min-height: 30px;
+        }
+        .empresa-mails-empty {
+          font-size: .82rem;
+          color: #64748b;
+        }
+        .empresa-mail-chip {
+          display:inline-flex;
+          align-items:center;
+          gap:.32rem;
+          background:#e8f5f3;
+          color:#0f766e;
+          border:1px solid #bfe4dd;
+          border-radius:999px;
+          font-size:.74rem;
+          font-weight:600;
+          padding:.16rem .5rem;
+          margin-right:.3rem;
+          margin-bottom:.3rem;
+        }
+        .empresa-mail-chip .btn {
+          line-height:1;
+          border:none;
+          background:rgba(255,255,255,.65);
+          color:#0f766e;
+        }
+        .empresa-collapse-head {
+          padding: .78rem .85rem;
+          border: 1px solid #dce6ee;
+          border-radius: .8rem;
+          background: #fff;
+          box-shadow: 0 2px 6px rgba(15, 23, 42, .04);
+        }
+        .empresa-chevron {
+          color:#64748b;
+          transition: transform .18s ease;
+        }
+        .empresa-chevron.is-open {
+          transform: rotate(90deg);
+        }
+        .empresa-collapse-title-stack {
+          display: inline-flex;
+          align-items: baseline;
+          gap: .35rem;
+          min-width: 0;
+        }
+        .empresa-collapse-subtitle {
+          color: #64748b;
+          font-size: .72rem;
+          font-weight: 600;
+          letter-spacing: .06em;
+          text-transform: uppercase;
+        }
+        .empresa-main-body {
+          margin-top: .45rem;
+        }
+        .empresa-panel-group {
+          border: 1px solid #e5e7eb;
+          border-radius: .75rem;
+          padding: .78rem;
+          background: #fff;
+          margin-top: .35rem;
+        }
+        .empresa-table-wrap {
+          border: 1px solid #dce6ee;
+          border-radius: .72rem;
+          overflow: hidden;
+          background:#fff;
+        }
+        .empresa-table-wrap .table thead th {
+          background: #e7f1f2;
+          color: #0f334a;
+          font-size: .78rem;
+          text-transform: uppercase;
+          letter-spacing: .02em;
+          border-bottom: 1px solid #d8e2ec;
+          padding: .5rem .55rem;
+        }
+        .empresa-table-wrap .table tbody td {
+          padding: .48rem .55rem;
+          vertical-align: middle;
+        }
+        .empresa-table-wrap .table tbody tr:hover {
+          background: #f8fbfe;
+        }
+        .empresa-status-badge {
+          display:inline-flex;
+          align-items:center;
+          padding:.18rem .5rem;
+          border-radius:999px;
+          font-size:.74rem;
+          font-weight:600;
+          border:1px solid transparent;
+          line-height:1.05;
+          white-space:nowrap;
+        }
+        .empresa-status-badge--work {
+          background:#e8f7ef;
+          color:#0f766e;
+          border-color:#bae6d2;
+        }
+        .empresa-status-badge--add {
+          background:#fff5db;
+          color:#a16207;
+          border-color:#fde68a;
+        }
+        .empresa-companies-preview {
+          display:none !important;
+        }
+        .empresa-footer-actions {
+          padding: .9rem 1rem;
+          background: #f8fafc;
+          border-top: 1px solid #dce6ee;
+        }
+        @media (max-width: 767.98px) {
+          .empresa-page-title { font-size: 1.62rem; }
+          .empresa-section-title { font-size: 1.12rem; }
+          .empresa-subsection-title { font-size: .98rem; }
+          .empresa-collapse-head { padding: .62rem .68rem; }
+          .empresa-panel-group { padding: .6rem; }
+          .empresa-collapse-title-stack {
+            gap: .28rem;
+            flex-wrap: wrap;
+          }
+        }
         .js-sortable-table thead th[data-sort]{ cursor:pointer; user-select:none; }
       </style>
       <div class="row g-3">
-        <div class="col-12 mt-1">
-          <h2 class="empresa-section-title mb-2">Información básica de la empresa</h2>
+        <div class="col-12 empresa-basic-head">
+          <h2 class="empresa-section-title">Información básica de la empresa</h2>
         </div>
-        <div class="col-md-4">
+        <div class="col-12">
+          <div class="row g-2 g-lg-3 empresa-basic-grid">
+        <div class="col-md-6 col-lg-4">
           <label class="form-label">Marca</label>
           {% set marca_val = (company.marca if company and company.marca and company.marca|lower != 'none' else '') %}
           <input name="marca" type="text" class="form-control" value="{{ marca_val }}">
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6 col-lg-4">
           <label class="form-label">Razón social</label>
           <input name="nombre" type="text" class="form-control" value="{{ company.nombre or '' if company else '' }}">
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6 col-lg-4">
           <label class="form-label">CUIT/CUIL</label>
           <input name="cuit" type="text" class="form-control" value="{{ company.cuit or '' if company else '' }}">
         </div>
@@ -84,9 +246,9 @@
             <option value="NO_SE_SABE" {{ 'selected' if fpd=='NO_SE_SABE' else '' }}>No se sabe</option>
           </select>
         </div>
-        <div class="col-md-6">
+        <div class="col-12 {{ 'col-lg-6' if is_admin else 'col-lg-12' }}">
           {% if company %}<input type="hidden" id="company_mail_pedido_raw" value="{{ company.mail_pedido or '' }}">{% endif %}
-          <div class="mt-3">
+          <div class="empresa-mails-box">
             <div class="d-flex align-items-center justify-content-between">
               <label class="form-label m-0">Mails de pedido</label>
               <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-collapse" aria-expanded="false" aria-controls="cmp-mails-collapse">Seleccionar mails</button>
@@ -102,17 +264,16 @@
                 <button type="button" id="btnConfirmarCmpMails" class="btn btn-sm btn-primary">Confirmar selección</button>
               </div>
             </div>
-            <div class="mt-2">
-              <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
-              <div id="cmp-mails-selected" class="mt-1"></div>
+            <div class="mt-2 empresa-mails-selected-list">
+              <div id="cmp-mails-selected" class="mt-1"><span class="empresa-mails-empty">Sin mails confirmados</span></div>
               <div id="cmp-mails-hidden"></div>
             </div>
           </div>
         </div>
-        <div class="col-md-6">
-          {% if is_admin %}
+        {% if is_admin %}
+        <div class="col-12 col-lg-6">
             {% if company %}<input type="hidden" id="company_mail_pago_raw" value="{{ company.mail_pago or '' }}">{% endif %}
-            <div class="mt-3">
+            <div class="empresa-mails-box">
               <div class="d-flex align-items-center justify-content-between">
                 <label class="form-label m-0">Mails de pagos</label>
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#cmp-mails-pago-collapse" aria-expanded="false" aria-controls="cmp-mails-pago-collapse">Seleccionar mails</button>
@@ -128,28 +289,26 @@
                   <button type="button" id="btnConfirmarCmpMailsPago" class="btn btn-sm btn-primary">Confirmar selección</button>
                 </div>
               </div>
-              <div class="mt-2">
-                <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
-                <div id="cmp-mails-pago-selected" class="mt-1"></div>
+              <div class="mt-2 empresa-mails-selected-list">
+                <div id="cmp-mails-pago-selected" class="mt-1"><span class="empresa-mails-empty">Sin mails confirmados</span></div>
                 <div id="cmp-mails-pago-hidden"></div>
               </div>
             </div>
-          {% endif %}
+          </div>
+        {% endif %}
+          </div>
         </div>
         {% if company %}
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#companyLinksCollapse" aria-expanded="false" aria-controls="companyLinksCollapse">
-            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
-              Clientes vinculados
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h3>
-            <i class="bi bi-chevron-right"></i>
+          <div class="d-flex align-items-center justify-content-between empresa-collapse-head" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#companyLinksCollapse" aria-expanded="false" aria-controls="companyLinksCollapse">
+            <h3 class="empresa-subsection-title" style="flex:1; text-align:left;">Clientes vinculados</h3>
+            <i class="bi bi-chevron-right empresa-chevron" id="companyLinksChevron"></i>
           </div>
         </div>
         <div class="col-12 collapse" id="companyLinksCollapse">
-          <div class="d-flex align-items-center justify-content-between">
-            <label class="form-label m-0">Clientes</label>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#clients-collapse" aria-expanded="false" aria-controls="clients-collapse">Clientes</button>
+          <div class="empresa-panel-group empresa-main-body">
+          <div class="d-flex align-items-center justify-content-end">
+            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#clients-collapse" aria-expanded="false" aria-controls="clients-collapse">Modificar clientes</button>
           </div>
           <div id="clients-collapse" class="collapse mt-2">
             <div id="clients-checklist" class="border rounded p-2" style="max-height: 260px; overflow: auto;">
@@ -164,31 +323,17 @@
               <button type="button" id="btnConfirmarClientes" class="btn btn-sm btn-primary">Confirmar selección</button>
             </div>
           </div>
-          <div id="clients-selected-wrapper" class="mt-3">
-            <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Clientes confirmados</div>
-            <div id="clients-selected" class="mt-1">
-              {% set _links = (visible_links if visible_links is defined else []) %}
-              {% if _links %}
-                {% for l in _links %}
-                  <span class="badge badge-client me-1 mb-1" data-client-id="{{ l.client_id }}">
-                    {{ l.client.apellido }}
-                    <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-client-del" data-client-id="{{ l.client_id }}">×</button>
-                  </span>
-                {% endfor %}
-              {% else %}
-                <span class="text-muted">Ninguno</span>
-              {% endif %}
-            </div>
-            <div id="clients-hidden">
-              {% if _links %}
-                {% for l in _links %}
-                  <input type="hidden" name="client_ids" value="{{ l.client_id }}">
-                {% endfor %}
-              {% endif %}
-            </div>
+          {% set _links = (visible_links if visible_links is defined else []) %}
+          <div id="clients-selected" class="empresa-companies-preview"></div>
+          <div id="clients-hidden">
+            {% if _links %}
+              {% for l in _links %}
+                <input type="hidden" name="client_ids" value="{{ l.client_id }}">
+              {% endfor %}
+            {% endif %}
           </div>
           <div class="desktop-table">
-            <div class="table-responsive border rounded mt-2">
+            <div class="table-responsive empresa-table-wrap mt-2">
               <table class="table table-sm mb-0 align-middle js-sortable-table">
                 <thead>
                   <tr>
@@ -203,7 +348,16 @@
                     {% for l in _links %}
                       <tr>
                         <td>{{ l.client.apellido if l.client else '-' }} {{ l.client.nombre if l.client else '' }}</td>
-                        <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
+                        <td>
+                          {% set status_raw = (l.status.value if l.status is defined and l.status is not none else '') %}
+                          {% if status_raw %}
+                            {% set status_label = 'A incorporar' if status_raw == 'A_INCORPORAR' else ('Trabajaba' if status_raw == 'TRABAJABA' else status_raw.replace('_', ' ')|title) %}
+                            {% set status_badge_class = 'empresa-status-badge--add' if status_raw == 'A_INCORPORAR' else ('empresa-status-badge--work' if status_raw == 'TRABAJABA' else '') %}
+                            <span class="empresa-status-badge {{ status_badge_class }}">{{ status_label }}</span>
+                          {% else %}
+                            -
+                          {% endif %}
+                        </td>
                         <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
                         <td class="text-end">
                           {% if l.client %}
@@ -221,21 +375,20 @@
               </table>
             </div>
           </div>
+          </div>
         </div>
         {% endif %}
 
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaRecomCollapse" aria-expanded="false" aria-controls="empresaRecomCollapse">
-            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
-              Recomendaciones
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h3>
-            <i class="bi bi-chevron-right"></i>
+          <div class="d-flex align-items-center justify-content-between empresa-collapse-head" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaRecomCollapse" aria-expanded="false" aria-controls="empresaRecomCollapse">
+            <h3 class="empresa-subsection-title" style="flex:1; text-align:left;">Recomendaciones</h3>
+            <i class="bi bi-chevron-right empresa-chevron" id="empresaRecomChevron"></i>
           </div>
         </div>
 
         <div class="col-12 collapse" id="empresaRecomCollapse">
-          <div class="row g-3 mt-1">
+          <div class="empresa-panel-group empresa-main-body">
+          <div class="row g-3">
             <div class="col-12">
               <input type="hidden" name="pedido_estandar_recomendado" id="recom_pedido" value="{{ company.pedido_estandar_recomendado or '' if company else '' }}">
               <div class="card shadow-sm">
@@ -285,19 +438,22 @@
             </div>
           </div>
         </div>
+        </div>
 
         {% if company %}
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaProductosCollapse" aria-expanded="false" aria-controls="empresaProductosCollapse">
+          <div class="d-flex align-items-center justify-content-between empresa-collapse-head" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaProductosCollapse" aria-expanded="false" aria-controls="empresaProductosCollapse">
             <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
-              Planilla de productos
-              <small class="text-muted" style="font-size:.85rem;">(CSV / XLSX)</small>
+              <span class="empresa-collapse-title-stack">
+                <span>Planilla de productos</span>
+                <span class="empresa-collapse-subtitle">CSV / XLSX</span>
+              </span>
             </h3>
-            <i class="bi bi-chevron-right"></i>
+            <i class="bi bi-chevron-right empresa-chevron" id="empresaProductosChevron"></i>
           </div>
         </div>
         <div class="col-12 collapse" id="empresaProductosCollapse">
-          <div class="card shadow-sm mt-2">
+          <div class="card shadow-sm border-0 mt-2 empresa-panel-group empresa-main-body">
             <div class="card-body">
               {% set last_sheet = (company.product_sheets|sort(attribute='uploaded_at', reverse=True)|first) if company.product_sheets else none %}
               {% set sheet_error = request.args.get('sheet_error') %}
@@ -328,6 +484,16 @@
                     {% if last_sheet.uploaded_at %} ({{ last_sheet.uploaded_at.strftime('%d/%m/%Y %H:%M') }}){% endif %}
                   </div>
                   <div class="d-flex align-items-center gap-2" style="white-space: nowrap;">
+                    <button
+                      class="btn btn-sm btn-outline-secondary js-share-sheet-btn"
+                      type="button"
+                      title="Compartir planilla"
+                      aria-label="Compartir planilla"
+                      data-sheet-filename="{{ last_sheet.filename }}"
+                      data-download-url="{{ url_for('main.empresas_productos_download', company_id=company.id) }}"
+                    >
+                      <i class="bi bi-share"></i>
+                    </button>
                     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('main.empresas_productos_download', company_id=company.id) }}" title="Descargar planilla" aria-label="Descargar planilla">
                       <i class="bi bi-download"></i>
                     </a>
@@ -394,22 +560,19 @@
     <div class="card-body pt-0">
       <div class="row g-3">
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" id="empresaInfoCompToggle" style="cursor:pointer;">
-            <h3 class="empresa-subsection-title mb-0" style="flex:1; text-align:left;">
-              Información complementaria
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h3>
-            <i class="bi bi-chevron-right" id="empresaInfoCompChevron"></i>
+          <div class="d-flex align-items-center justify-content-between empresa-collapse-head" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#empresaInfoCompExtra" aria-expanded="false" aria-controls="empresaInfoCompExtra">
+            <h3 class="empresa-subsection-title" style="flex:1; text-align:left;">Información complementaria</h3>
+            <i class="bi bi-chevron-right empresa-chevron" id="empresaInfoCompChevron"></i>
           </div>
         </div>
-      </div>
 
-      <div class="mt-3 d-none" id="empresaInfoCompExtra">
-        <h2 class="empresa-section-title mb-3">Documentación</h2>
+      <div class="col-12 collapse" id="empresaInfoCompExtra">
+        <div class="empresa-panel-group empresa-main-body">
+        <h3 class="empresa-subsection-title mb-3">Documentación</h3>
         {% if company %}
         <div class="row g-3">
       <div class="col-md-6">
-        <div class="card shadow-sm">
+        <div class="card shadow-sm border-0">
           <div class="card-header bg-light">
             <strong>Constancias</strong>
           </div>
@@ -421,7 +584,7 @@
                 <button class="btn btn-primary" type="submit">Subir</button>
               </div>
             </form>
-            <div class="table-responsive">
+            <div class="table-responsive empresa-table-wrap">
               <table class="table table-sm mb-0">
                 <thead>
                   <tr>
@@ -591,9 +754,9 @@
     </div>
     {% endif %}
     <div class="mt-4">
-      <h2 class="empresa-subsection-title mb-3">Compartir información a Cliente</h2>
+      <h3 class="empresa-subsection-title mb-3">Compartir información al cliente</h3>
       {% if company %}
-      <div class="row g-2 align-items-end">
+      <div class="row g-2 align-items-start">
         <div class="col-md-6">
           <label class="form-label">Seleccionar cliente</label>
           <select name="share_client_id" class="form-select">
@@ -608,14 +771,9 @@
           <label class="form-label">Comentario para el cliente</label>
           <textarea name="share_client_comment" class="form-control" rows="1" placeholder="Texto adicional para el cliente"></textarea>
         </div>
-        <div class="col-12 mt-3">
-          <label class="form-label">Previsualización del mail a enviar</label>
-          <textarea id="share_client_body_preview" class="form-control" rows="6" placeholder="Aquí verás el texto completo del mail que se enviará al cliente. Podés editarlo antes de enviar."></textarea>
-          <div class="form-text">Este texto se enviará junto con las constancias y catálogos adjuntos de la empresa.</div>
-        </div>
         <div class="col-12 mt-2 d-flex align-items-center gap-2 flex-wrap">
-          <button type="button" id="btnSendCompanyShareMail" class="btn btn-outline-primary btn-sm">Compartir</button>
-          <small class="text-muted">Se enviará el mail al cliente con este texto y los archivos adjuntos de la empresa.</small>
+          <button type="button" id="btnSendCompanyShareMail" class="btn btn-outline-primary btn-sm">Enviar mail</button>
+          <small class="text-muted">Se abrirá Gmail con el mail prearmado para revisar y enviar manualmente.</small>
         </div>
       </div>
       {% else %}
@@ -624,33 +782,35 @@
       </div>
       {% endif %}
     </div>
+    </div>
       </div>
+    </div>
 
-      <div class="mt-4 d-grid gap-2 d-sm-flex justify-content-sm-end">
-        <a href="{{ url_for('main.empresas') }}" class="btn btn-light">Cancelar</a>
+      <div class="mt-4 d-grid gap-2 d-sm-flex justify-content-sm-end empresa-footer-actions">
+        <a href="{{ url_for('main.empresas') }}" class="btn btn-outline-secondary">Cancelar</a>
         <button class="btn btn-primary" type="submit" form="empresa-form">{{ 'Guardar cambios' if company else 'Guardar' }}</button>
       </div>
     </div>
   </div>
 </div>
 <script>
+// Sincronizar chevrons de secciones colapsables Bootstrap
 (function(){
-  var header = document.getElementById('empresaInfoCompToggle');
-  var extra = document.getElementById('empresaInfoCompExtra');
-  var chev = document.getElementById('empresaInfoCompChevron');
-  if (!header || !extra || !chev) return;
-  header.addEventListener('click', function(){
-    var closed = extra.classList.contains('d-none');
-    if (closed){
-      extra.classList.remove('d-none');
-      chev.classList.remove('bi-chevron-right');
-      chev.classList.add('bi-chevron-down');
-    } else {
-      extra.classList.add('d-none');
-      chev.classList.remove('bi-chevron-down');
-      chev.classList.add('bi-chevron-right');
-    }
-  });
+  function bindChevron(collapseId, chevronId){
+    var collapseEl = document.getElementById(collapseId);
+    var chevEl = document.getElementById(chevronId);
+    if (!collapseEl || !chevEl) return;
+    collapseEl.addEventListener('show.bs.collapse', function(){
+      chevEl.classList.add('is-open');
+    });
+    collapseEl.addEventListener('hide.bs.collapse', function(){
+      chevEl.classList.remove('is-open');
+    });
+  }
+  bindChevron('companyLinksCollapse', 'companyLinksChevron');
+  bindChevron('empresaRecomCollapse', 'empresaRecomChevron');
+  bindChevron('empresaProductosCollapse', 'empresaProductosChevron');
+  bindChevron('empresaInfoCompExtra', 'empresaInfoCompChevron');
 })();
 </script>
 <script>
@@ -848,7 +1008,7 @@
   var box = document.getElementById('clients-checklist');
   var list = document.getElementById('clients-selected');
   var hidWrap = document.getElementById('clients-hidden');
-  if (!box || !list || !hidWrap) return;
+  if (!box || !hidWrap) return;
   var confirmed = new Map(); // id -> label
   // Pre-cargar seleccionados desde los inputs hidden existentes (caso edición)
   var initialHidden = hidWrap.querySelectorAll('input[type="hidden"][name="client_ids"]');
@@ -860,56 +1020,46 @@
     confirmed.set(id, label);
   });
   function render(){
-    if (confirmed.size === 0) {
-      list.innerHTML = '<span class="text-muted">Ninguno</span>';
-      hidWrap.innerHTML = '';
-      return;
-    }
-    var html = [];
     var hidden = [];
     confirmed.forEach(function(label, id){
-      var esc = String(label).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      html.push('<span class="badge badge-client me-1 mb-1" data-client-id="'+ id +'">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-client-del" data-client-id="'+ id +'">×</button></span>');
       hidden.push('<input type="hidden" name="client_ids" value="'+ id +'">');
     });
-  // Asegurar que antes de enviar el formulario se confirme lo pendiente
-  try {
-    var form = document.querySelector('form.card');
-    if (form) {
-      form.addEventListener('submit', function(){
-        confirmSelection();
-      });
-    }
-  } catch(e){}
-    list.innerHTML = html.join('');
+    if (list) list.innerHTML = '';
     hidWrap.innerHTML = hidden.join('');
+    syncChecks();
+  }
+  function syncChecks(){
+    box.querySelectorAll('.js-client-chk').forEach(function(chk){
+      var id = String(chk.value);
+      chk.checked = confirmed.has(id);
+    });
   }
   function confirmSelection(){
+    confirmed.clear();
     var checks = box.querySelectorAll('.js-client-chk:checked');
     checks.forEach(function(chk){
       var id = String(chk.value);
       var lbl = box.querySelector('label[for="'+ chk.id +'"]');
       var label = lbl ? lbl.textContent.trim() : ('Cliente '+id);
       confirmed.set(id, label);
-      chk.checked = false;
     });
     render();
   }
+  // Asegurar que antes de enviar el formulario se confirme lo pendiente
+  try {
+    var form = document.getElementById('empresa-form');
+    if (form) {
+      form.addEventListener('submit', function(){
+        confirmSelection();
+      });
+    }
+  } catch(e){}
   document.addEventListener('click', function(e){
     var t = e.target;
     if (t && t.id === 'btnConfirmarClientes') {
       e.preventDefault();
       confirmSelection();
       return;
-    }
-    var delBtn = (t && t.classList && t.classList.contains('js-client-del')) ? t : (t && t.closest ? t.closest('.js-client-del') : null);
-    if (delBtn){
-      e.preventDefault();
-      var cid = delBtn.getAttribute('data-client-id');
-      if (cid && confirmed.has(cid)){
-        confirmed.delete(cid);
-        render();
-      }
     }
   });
   render();
@@ -928,7 +1078,7 @@
   var confirmed = new Map();
   function render(){
     if (confirmed.size === 0){
-      list.innerHTML = '<span class="text-muted">Ninguno</span>';
+      list.innerHTML = '<span class="empresa-mails-empty">Sin mails confirmados</span>';
       hidWrap.innerHTML = '';
       return;
     }
@@ -936,7 +1086,7 @@
     var hidden = [];
     confirmed.forEach(function(_, email){
       var esc = email.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      chips.push('<span class="badge bg-success text-white me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-chip-del" data-email="'+ esc +'">×</button></span>');
+      chips.push('<span class="empresa-mail-chip">'+ esc +' <button type="button" class="btn btn-sm p-0 px-1 js-chip-del" data-email="'+ esc +'">×</button></span>');
       hidden.push('<input type="hidden" name="mail_pedido_list" value="'+ email +'">');
     });
     list.innerHTML = chips.join('');
@@ -1043,7 +1193,7 @@
   var confirmed = new Map();
   function render(){
     if (confirmed.size === 0){
-      list.innerHTML = '<span class="text-muted">Ninguno</span>';
+      list.innerHTML = '<span class="empresa-mails-empty">Sin mails confirmados</span>';
       hidWrap.innerHTML = '';
       return;
     }
@@ -1051,7 +1201,7 @@
     var hidden = [];
     confirmed.forEach(function(_, email){
       var esc = email.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      chips.push('<span class="badge bg-success text-white me-1 mb-1">'+ esc +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-chip-del-pago" data-email="'+ esc +'">×</button></span>');
+      chips.push('<span class="empresa-mail-chip">'+ esc +' <button type="button" class="btn btn-sm p-0 px-1 js-chip-del-pago" data-email="'+ esc +'">×</button></span>');
       hidden.push('<input type="hidden" name="mail_pago_list" value="'+ email +'">');
     });
     list.innerHTML = chips.join('');
@@ -1202,114 +1352,64 @@
 })();
 </script>
 <script>
-// Botón "Compartir": arma un mail de empresa hacia el cliente (abre Gmail)
+// Botón "Enviar mail": abre Gmail con borrador prearmado
 (function(){
   var btn = document.getElementById('btnSendCompanyShareMail');
   if (!btn) return;
-  var previewEl = document.getElementById('share_client_body_preview');
+  if (btn.dataset.gmailComposeBound === '1') return;
+  btn.dataset.gmailComposeBound = '1';
   var commentEl = document.querySelector('[name="share_client_comment"]');
 
-  // Generar texto estándar de cuerpo a partir de los datos actuales de la empresa y comentario
-  function buildDefaultBody(){
-    try {
-      var razon = (document.querySelector('input[name="nombre"]') || {}).value || '';
-      var marca = (document.querySelector('input[name="marca"]') || {}).value || '';
-      var cuit = (document.querySelector('input[name="cuit"]') || {}).value || '';
-      var cuenta = (document.querySelector('textarea[name="cuenta_bancaria_notas"]') || {}).value || '';
-      var comentario = (commentEl && commentEl.value) ? commentEl.value.trim() : '';
-      var lines = [];
-      lines.push('INFORMACIÓN DE EMPRESA');
-      lines.push('');
-      lines.push('Razón social: ' + (razon.trim() || '-'));
-      lines.push('Marca: ' + (marca.trim() || '-'));
-      lines.push('CUIL/CUIT: ' + (cuit.trim() || '-'));
-      lines.push('');
-      lines.push('Constancias AFIP y Rentas: adjuntas en este correo (si corresponden).');
-      lines.push('Catálogos: adjuntos en este correo (si corresponden).');
-      lines.push('');
-      lines.push('Cuenta bancaria:');
-      lines.push((cuenta || '').trim() || '-');
-      if (comentario){
-        lines.push('');
-        lines.push('Comentario adicional:');
-        lines.push(comentario);
-      }
-      return lines.join('\n');
-    } catch(e){
-      return '';
+  function notify(msg, variant){
+    if (window.showToast){
+      window.showToast(msg, variant || 'primary');
+    } else {
+      alert(msg);
     }
   }
 
-  // Rellenar preview al cargar, solo si está vacío
-  if (previewEl && !previewEl.value){
-    var defBody = buildDefaultBody();
-    if (defBody) previewEl.value = defBody;
-  }
-
-  // Marcar cuando el usuario edita manualmente la previsualización
-  if (previewEl){
-    previewEl.addEventListener('input', function(){ previewEl.dataset.userEdited = '1'; });
-  }
-
-  // Si cambia el comentario y el usuario no editó manualmente, regenerar texto
-  if (commentEl){
-    commentEl.addEventListener('input', function(){
-      if (!previewEl || previewEl.dataset.userEdited === '1') return;
-      var defBody2 = buildDefaultBody();
-      if (defBody2) previewEl.value = defBody2;
+  function parseJsonResponse(resp){
+    return resp.json().catch(function(){ return {}; }).then(function(data){
+      return { status: resp.status, data: data || {} };
     });
   }
+
+  function openGmailDraft(draft){
+    var toAll = Array.isArray(draft.to_all) ? draft.to_all.filter(Boolean) : [];
+    if (!toAll.length){
+      notify('El cliente seleccionado no tiene mails cargados.', 'warning');
+      return;
+    }
+
+    var subject = String(draft.subject || '').trim();
+    var body = String(draft.body_text || '').trim();
+    var gmailUrl =
+      'https://mail.google.com/mail/?view=cm&fs=1'
+      + '&to=' + encodeURIComponent(toAll.join(', '))
+      + '&su=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(body);
+
+    var win = window.open(gmailUrl, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      notify('No se pudo abrir Gmail en una nueva pestaña. Revisá el bloqueo de pop-ups del navegador.', 'warning');
+    }
+  }
+
   btn.addEventListener('click', function(e){
     e.preventDefault();
+    e.stopPropagation();
     var sel = document.querySelector('select[name="share_client_id"]');
     if (!sel || !sel.value){
-      alert('Seleccioná primero un cliente al que enviar la información.');
+      notify('Seleccioná primero un cliente al que enviar la información.', 'warning');
       return;
     }
     var opt = sel.options[sel.selectedIndex];
     var mails = (opt.getAttribute('data-mail-cliente') || '').trim();
     if (!mails){
-      alert('El cliente seleccionado no tiene mails cargados.');
+      notify('El cliente seleccionado no tiene mails cargados.', 'warning');
       return;
     }
-    // comentario opcional y cuerpo editable que se enviarán al backend
-    function val(name){
-      var el = document.querySelector('[name="'+name+'"]');
-      return el && el.value ? el.value.trim() : '';
-    }
-    var comentario = val('share_client_comment');
-    var bodyText = previewEl && previewEl.value ? previewEl.value.trim() : '';
-
-    // Si no hay cuerpo escrito, generar uno por defecto similar al del backend
-    if (!bodyText){
-      try {
-        var razon = (document.querySelector('input[name="nombre"]')?.value || '').trim();
-        var marca = (document.querySelector('input[name="marca"]')?.value || '').trim();
-        var cuit = (document.querySelector('input[name="cuit"]')?.value || '').trim();
-        var cuenta = (document.querySelector('textarea[name="cuenta_bancaria_notas"]')?.value || '').trim();
-        var lines = [];
-        lines.push('INFORMACIÓN DE EMPRESA');
-        lines.push('');
-        lines.push('Razón social: ' + (razon || '-'));
-        lines.push('Marca: ' + (marca || '-'));
-        lines.push('CUIL/CUIT: ' + (cuit || '-'));
-        lines.push('');
-        lines.push('Constancias AFIP y Rentas: adjuntas en este correo (si corresponden).');
-        lines.push('Catálogos: adjuntos en este correo (si corresponden).');
-        lines.push('');
-        lines.push('Cuenta bancaria:');
-        lines.push(cuenta || '-');
-        if (comentario){
-          lines.push('');
-          lines.push('Comentario adicional:');
-          lines.push(comentario);
-        }
-        bodyText = lines.join('\n');
-        if (previewEl){ previewEl.value = bodyText; }
-      } catch(err) {
-        // silencioso, deja bodyText vacío y el backend generará algo
-      }
-    }
+    var comentario = (commentEl && commentEl.value) ? commentEl.value.trim() : '';
 
     var companyId = null;
     try {
@@ -1318,9 +1418,11 @@
       companyId = isNaN(parsed) ? null : parsed;
     } catch(e) { companyId = null; }
     if (!companyId){
-      alert('Guardá primero la empresa antes de compartir la información.');
+      notify('Guardá primero la empresa antes de compartir la información.', 'warning');
       return;
     }
+
+    btn.disabled = true;
 
     fetch('/empresas/' + companyId + '/share_to_client', {
       method: 'POST',
@@ -1330,32 +1432,117 @@
       body: JSON.stringify({
         client_id: opt.value,
         comment: comentario,
-        body: bodyText
+        preview: true
       })
-    }).then(function(resp){
-      return resp.json().then(function(data){ return { status: resp.status, data: data }; });
-    }).then(function(res){
+    }).then(parseJsonResponse)
+    .then(function(res){
       if (res.status >= 200 && res.status < 300 && res.data && res.data.ok){
-        if (window.showToast){
-          window.showToast('Mail enviado al cliente', 'success');
-        } else {
-          alert('Mail enviado al cliente');
-        }
+        openGmailDraft(res.data);
       } else {
         var msg = (res.data && res.data.error) || 'No se pudo enviar el mail.';
-        if (window.showToast){
-          window.showToast(msg, 'danger');
-        } else {
-          alert(msg);
+        notify(msg, 'danger');
+      }
+    }).catch(function(){
+      notify('Error de red al generar el borrador de mail.', 'danger');
+    }).finally(function(){
+      btn.disabled = false;
+    });
+  });
+})();
+</script>
+<script>
+// Compartir planilla de productos (Web Share API con fallback a link copiado)
+(function(){
+  function notify(msg, level){
+    try {
+      if (window.showToast) {
+        window.showToast(msg, level || 'success');
+      } else {
+        alert(msg);
+      }
+    } catch (e) {
+      alert(msg);
+    }
+  }
+
+  async function copyToClipboard(text){
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  async function shareSheet(btn){
+    if (!btn) return;
+    var relativeUrl = btn.getAttribute('data-download-url') || '';
+    if (!relativeUrl) return;
+    var filename = (btn.getAttribute('data-sheet-filename') || 'planilla_productos').trim() || 'planilla_productos';
+    var downloadUrl = new URL(relativeUrl, window.location.origin).href;
+    var shareTitle = 'Planilla de productos';
+
+    if (navigator.share) {
+      try {
+        var fileShared = false;
+        try {
+          var resp = await fetch(downloadUrl, { credentials: 'same-origin' });
+          if (resp && resp.ok) {
+            var blob = await resp.blob();
+            var mimeType = blob.type || 'application/octet-stream';
+            var file = new File([blob], filename, { type: mimeType });
+            var filePayload = { title: shareTitle, files: [file] };
+            if (navigator.canShare && navigator.canShare(filePayload)) {
+              await navigator.share(filePayload);
+              fileShared = true;
+            }
+          }
+        } catch (fileErr) {
+          fileShared = false;
+        }
+
+        if (!fileShared) {
+          await navigator.share({
+            title: shareTitle,
+            text: 'Te comparto la planilla de productos.',
+            url: downloadUrl
+          });
+        }
+        return;
+      } catch (shareErr) {
+        if (shareErr && shareErr.name === 'AbortError') {
+          return;
         }
       }
-    }).catch(function(err){
-      if (window.showToast){
-        window.showToast('Error de red al enviar el mail', 'danger');
-      } else {
-        alert('Error de red al enviar el mail');
-      }
-    });
+    }
+
+    var copied = await copyToClipboard(downloadUrl);
+    if (copied) {
+      notify('Link de la planilla copiado para compartir.', 'success');
+    } else {
+      notify('No se pudo compartir automáticamente. Copiá este link: ' + downloadUrl, 'warning');
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    var btn = e.target && e.target.closest ? e.target.closest('.js-share-sheet-btn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    shareSheet(btn);
   });
 })();
 </script>

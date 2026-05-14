@@ -18,30 +18,107 @@
   main.col { padding-top: 2rem !important; }
   /* Filtro provincia input */
   .prov-input { max-width: 240px; }
+  .alertas-input { max-width: 200px; }
   /* (revertido) */
   .btn-create-client { white-space: nowrap; min-width: 160px; }
   /* Buscador de clientes: más ancho para ver el placeholder completo */
   .cliente-search-input { min-width: 320px; max-width: 420px; }
   /* Título de sección en verde corporativo */
   .clientes-title { color: #0f766e; }
+  .clientes-toolbar-actions .form-select,
+  .clientes-toolbar-actions .btn { min-height: 40px; }
+
+  @media (max-width: 767.98px) {
+    main.col { padding: .85rem .65rem !important; }
+    .clientes-toolbar {
+      margin-top: .35rem !important;
+      margin-bottom: .8rem !important;
+      gap: .7rem !important;
+    }
+    .clientes-title {
+      font-size: 1.4rem;
+      line-height: 1.2;
+      margin-bottom: .45rem !important;
+    }
+    .clientes-toolbar-main,
+    .clientes-toolbar-actions,
+    .clientes-search-form { width: 100%; }
+    .clientes-search-form { gap: .5rem !important; }
+    .cliente-search-input,
+    .prov-input,
+    .alertas-input {
+      min-width: 0;
+      max-width: none !important;
+      width: 100%;
+    }
+    .clientes-toolbar-actions {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem !important;
+      align-items: stretch !important;
+    }
+    .clientes-toolbar-actions .prov-input,
+    .clientes-toolbar-actions .alertas-input { grid-column: 1 / -1; }
+    .clientes-toolbar-actions .btn-create-client,
+    .clientes-toolbar-actions .btn-outline-secondary {
+      width: 100%;
+      justify-content: center;
+      font-size: .98rem;
+      padding: .52rem .72rem;
+    }
+    .card-clients .desktop-table { padding-bottom: 1rem; }
+    .card-clients .table-responsive {
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    #clientes-table { min-width: 640px; }
+    #clientes-table th,
+    #clientes-table td {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      vertical-align: top;
+      line-height: 1.28;
+    }
+    #clientesPagination {
+      flex-direction: column;
+      align-items: stretch !important;
+      gap: .55rem;
+    }
+    #clientesPagination > .d-flex {
+      display: grid !important;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: .45rem !important;
+      width: 100%;
+    }
+    #clientesPagination .btn {
+      width: 100%;
+      text-align: center;
+      white-space: nowrap;
+      padding: .48rem .35rem;
+    }
+  }
 
   @media (max-width: 575.98px) {
     .cliente-search-input { min-width: 0; max-width: none; width: 100%; }
     .prov-input { max-width: none; }
-    #alertasSelect { max-width: none !important; }
+    .alertas-input { max-width: none !important; }
     .btn-create-client { width: 100%; }
   }
+
+  @media (max-width: 399.98px) {
+    #clientesPagination > .d-flex { grid-template-columns: 1fr; }
+  }
 </style>
-<div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
-  <div>
+<div class="clientes-toolbar d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
+  <div class="clientes-toolbar-main">
     <h1 class="h4 mb-1 clientes-title">Legajo de Clientes</h1>
-    <form method="get" id="clientesFiltersForm" class="d-flex flex-column flex-sm-row gap-2">
+    <form method="get" id="clientesFiltersForm" class="clientes-search-form d-flex flex-column flex-sm-row gap-2">
       <input type="text" id="clienteSearch" name="q" value="{{ q or '' }}" class="form-control form-control-sm cliente-search-input" placeholder="Buscar por razón social o nombre">
       <input type="hidden" name="page" value="1">
       <input type="hidden" name="per_page" value="{{ per_page or 10 }}">
     </form>
   </div>
-  <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2 flex-wrap justify-content-end">
+  <div class="clientes-toolbar-actions d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2 flex-wrap justify-content-end">
     <select id="provSelect" name="prov" form="clientesFiltersForm" class="form-select form-select-sm prov-input" aria-label="Filtrar por provincia">
       <option value="">Todas las provincias</option>
       <option value="tucuman" {{ 'selected' if (prov or '')|lower == 'tucuman' else '' }}>Tucumán</option>
@@ -52,7 +129,7 @@
       <option value="la rioja" {{ 'selected' if (prov or '')|lower == 'la rioja' else '' }}>La Rioja</option>
       <option value="mendoza" {{ 'selected' if (prov or '')|lower == 'mendoza' else '' }}>Mendoza</option>
     </select>
-    <select id="alertasSelect" name="alertas" form="clientesFiltersForm" class="form-select form-select-sm" style="max-width: 200px;" aria-label="Filtrar por alertas">
+    <select id="alertasSelect" name="alertas" form="clientesFiltersForm" class="form-select form-select-sm alertas-input" aria-label="Filtrar por alertas">
       <option value="" {{ 'selected' if not alertas else '' }}>Todas</option>
       <option value="CON_ALERTAS" {{ 'selected' if alertas == 'CON_ALERTAS' else '' }}>Con alertas</option>
     </select>

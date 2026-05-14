@@ -32,6 +32,10 @@ import requests
 
 import json
 
+import re
+
+import unicodedata
+
 from ..extensions import db
 
 from ..models import Client, Company, ClientCompanyLink, ClientCompanyBalance, RelationStatus, Order, LogisticsStatus, Collection, CollectionPayment, PaymentMethod, ClientBranch, ClientDeliveryPlace, ClientBirthday, OrderAttachment, ClientDocument, CompanyDocument, CompanyProductSheet, ClientAlertState, CommissionState, AppUser, CollectionDraft, OrderDraft
@@ -324,13 +328,27 @@ def _get_company_mail_to(company: Company) -> list:
 
         return []
 
-    return [m.strip() for m in raw.split(",") if m.strip()]
+    return [m.strip() for m in re.split(r"[;,]", raw) if m.strip()]
 
 
 
 
 
-def _send_email(subject: str, to_all: list, body_text: str, body_html: Optional[str] = None):
+def _send_email(
+
+    subject: str,
+
+    to_all: list,
+
+    body_text: str,
+
+    body_html: Optional[str] = None,
+
+    attachments: Optional[list] = None,
+
+    log_tag: str = "mail",
+
+):
 
     msg = EmailMessage()
 
@@ -352,17 +370,39 @@ def _send_email(subject: str, to_all: list, body_text: str, body_html: Optional[
 
         msg.add_alternative(body_html, subtype="html")
 
+    for att in attachments or []:
+
+        try:
+
+            content = att.get("content")
+
+            if not content:
+
+                continue
+
+            maintype = (att.get("maintype") or "application").strip() or "application"
+
+            subtype = (att.get("subtype") or "octet-stream").strip() or "octet-stream"
+
+            filename = (att.get("filename") or "adjunto.bin").strip() or "adjunto.bin"
+
+            msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
+
+        except Exception:
+
+            continue
+
 
 
     mail_fake = (os.getenv("MAIL_FAKE") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     if mail_fake:
 
-        print("[mail_pagos] MAIL_FAKE activo - no se envía mail real")
+        print(f"[{log_tag}] MAIL_FAKE activo - no se envía mail real")
 
-        print("[mail_pagos] From:", msg["From"], "To:", msg["To"])
+        print(f"[{log_tag}] From:", msg["From"], "To:", msg["To"])
 
-        print("[mail_pagos] Subject:", msg["Subject"])
+        print(f"[{log_tag}] Subject:", msg["Subject"])
 
         return {"ok": True, "fake": True}
 
@@ -441,7 +481,6 @@ def mail_pagos():
             selectinload(CollectionPayment.order).selectinload(Order.company),
 
         )
-
     )
 
     if not _has_global_access():
@@ -3028,7 +3067,21 @@ def index():
 
         preset = ""
 
+    view_mode = (request.args.get("view") or "company").strip().lower()
+
+    if view_mode not in {"company", "client"}:
+
+        view_mode = "company"
+
     company_id = request.args.get("company_id", type=int)
+
+    client_id = request.args.get("client_id", type=int)
+
+    rank_mode = (request.args.get("rank") or "pending").strip().lower()
+
+    if rank_mode not in {"pending", "orders"}:
+
+        rank_mode = "pending"
 
     def _parse_filter_date(s: str):
 
@@ -3098,7 +3151,45 @@ def index():
 
     ]
 
+    base_clients_q = (
+
+        db.session.query(Client.id, Client.apellido, Client.nombre)
+
+        .join(Order, Order.client_id == Client.id)
+
+        .filter(Order.deleted_at.is_(None))
+
+        .distinct()
+
+    )
+
+    if uid is not None:
+
+        base_clients_q = base_clients_q.filter(Order.owner_user_id == uid)
+
+    clients = []
+
+    for cid, capellido, cnombre in base_clients_q.order_by(Client.apellido.asc(), Client.nombre.asc()).all():
+
+        razon_social = str(capellido or "").strip()
+
+        fallback_nombre = str(cnombre or "").strip()
+
+        clients.append({"id": int(cid), "name": razon_social or fallback_nombre or "-"})
+
     if company_id and not any(int(c["id"]) == int(company_id) for c in companies):
+
+        company_id = None
+
+    if client_id and not any(int(c["id"]) == int(client_id) for c in clients):
+
+        client_id = None
+
+    if view_mode == "company":
+
+        client_id = None
+
+    else:
 
         company_id = None
 
@@ -3122,9 +3213,13 @@ def index():
 
         base_orders_q = base_orders_q.filter(Order.owner_user_id == uid)
 
-    if company_id:
+    if view_mode == "company" and company_id:
 
         base_orders_q = base_orders_q.filter(Order.company_id == int(company_id))
+
+    if view_mode == "client" and client_id:
+
+        base_orders_q = base_orders_q.filter(Order.client_id == int(client_id))
 
     if dt_from is not None:
 
@@ -3299,9 +3394,13 @@ def index():
 
         status_merch_q = status_merch_q.filter(Order.owner_user_id == uid)
 
-    if company_id:
+    if view_mode == "company" and company_id:
 
         status_merch_q = status_merch_q.filter(Order.company_id == int(company_id))
+
+    if view_mode == "client" and client_id:
+
+        status_merch_q = status_merch_q.filter(Order.client_id == int(client_id))
 
     now_utc = datetime.utcnow()
 
@@ -3354,9 +3453,13 @@ def index():
 
         coll_base_q = coll_base_q.filter(or_(Order.owner_user_id == uid, Order.owner_user_id.is_(None)))
 
-    if company_id:
+    if view_mode == "company" and company_id:
 
         coll_base_q = coll_base_q.filter(Order.company_id == int(company_id))
+
+    if view_mode == "client" and client_id:
+
+        coll_base_q = coll_base_q.filter(Order.client_id == int(client_id))
 
     try:
 
@@ -3502,49 +3605,207 @@ def index():
 
     cobrado_period_count = int(cobrado_period_q.order_by(None).count() or 0)
 
-    top_pending_companies = [
+    pending_rank_rows = []
 
-        {"name": str(name or "-"), "count": int(count or 0)}
+    if view_mode == "company":
 
-        for name, count in (
+        pending_rank_rows = [
 
-            coll_base_q
+            {"name": str(name or "-"), "value": int(total or 0)}
 
-            .join(Company, Order.company_id == Company.id)
+            for _cid, name, total in (
 
-            .with_entities(Company.nombre, func.count(Collection.id))
+                coll_base_q
 
-            .filter(Collection.fecha_cobro_efectiva.is_(None))
+                .join(Company, Order.company_id == Company.id)
 
-            .group_by(Company.nombre)
+                .with_entities(
 
-            .order_by(func.count(Collection.id).desc(), Company.nombre.asc())
+                    Company.id,
 
-            .limit(5)
+                    Company.nombre,
 
-            .all()
+                    func.count(Collection.id).label("total"),
 
-        )
+                )
 
-    ]
+                .filter(Collection.fecha_cobro_efectiva.is_(None))
+
+                .group_by(Company.id, Company.nombre)
+
+                .order_by(func.count(Collection.id).desc(), Company.nombre.asc())
+
+                .limit(5)
+
+                .all()
+
+            )
+
+        ]
+
+    else:
+
+        pending_rank_rows = [
+
+            {
+
+                "name": (" ".join([x for x in [str(last_name or "").strip(), str(first_name or "").strip()] if x]).strip() or "-"),
+
+                "value": int(total or 0),
+
+            }
+
+            for _clid, last_name, first_name, total in (
+
+                coll_base_q
+
+                .join(Client, Order.client_id == Client.id)
+
+                .with_entities(
+
+                    Client.id,
+
+                    Client.apellido,
+
+                    Client.nombre,
+
+                    func.count(Collection.id).label("total"),
+
+                )
+
+                .filter(Collection.fecha_cobro_efectiva.is_(None))
+
+                .group_by(Client.id, Client.apellido, Client.nombre)
+
+                .order_by(func.count(Collection.id).desc(), Client.apellido.asc(), Client.nombre.asc())
+
+                .limit(5)
+
+                .all()
+
+            )
+
+        ]
+
+    orders_rank_q = (
+
+        db.session.query(Order.id)
+
+        .filter(Order.deleted_at.is_(None))
+
+    )
+
+    if uid is not None:
+
+        orders_rank_q = orders_rank_q.filter(Order.owner_user_id == uid)
+
+    if view_mode == "company" and company_id:
+
+        orders_rank_q = orders_rank_q.filter(Order.company_id == int(company_id))
+
+    if view_mode == "client" and client_id:
+
+        orders_rank_q = orders_rank_q.filter(Order.client_id == int(client_id))
+
+    orders_rank_rows = []
+
+    if view_mode == "company":
+
+        orders_rank_rows = [
+
+            {"name": str(name or "-"), "value": int(total or 0)}
+
+            for _cid, name, total in (
+
+                orders_rank_q
+
+                .join(Company, Order.company_id == Company.id)
+
+                .with_entities(Company.id, Company.nombre, func.count(Order.id).label("total"))
+
+                .group_by(Company.id, Company.nombre)
+
+                .order_by(func.count(Order.id).desc(), Company.nombre.asc())
+
+                .limit(5)
+
+                .all()
+
+            )
+
+        ]
+
+    else:
+
+        orders_rank_rows = [
+
+            {
+
+                "name": (" ".join([x for x in [str(last_name or "").strip(), str(first_name or "").strip()] if x]).strip() or "-"),
+
+                "value": int(total or 0),
+
+            }
+
+            for _clid, last_name, first_name, total in (
+
+                orders_rank_q
+
+                .join(Client, Order.client_id == Client.id)
+
+                .with_entities(Client.id, Client.apellido, Client.nombre, func.count(Order.id).label("total"))
+
+                .group_by(Client.id, Client.apellido, Client.nombre)
+
+                .order_by(func.count(Order.id).desc(), Client.apellido.asc(), Client.nombre.asc())
+
+                .limit(5)
+
+                .all()
+
+            )
+
+        ]
 
     base_params = {}
+
+    base_dashboard_params = {
+
+        "view": view_mode,
+
+    }
 
     if d_from:
 
         base_params["from"] = d_from.isoformat()
 
+        base_dashboard_params["from"] = d_from.isoformat()
+
     if d_to:
 
         base_params["to"] = d_to.isoformat()
 
-    if company_id:
+        base_dashboard_params["to"] = d_to.isoformat()
+
+    if preset:
+
+        base_dashboard_params["preset"] = preset
+
+    if view_mode == "company" and company_id:
 
         base_params["company_id"] = int(company_id)
 
-    company_only_params = {"company_id": int(company_id)} if company_id else {}
+        base_dashboard_params["company_id"] = int(company_id)
+
+    if view_mode == "client" and client_id:
+
+        base_params["client_id"] = int(client_id)
+
+        base_dashboard_params["client_id"] = int(client_id)
 
     selected_company_name = ""
+
+    selected_client_name = ""
 
     if company_id:
 
@@ -3556,11 +3817,35 @@ def index():
 
         )
 
-    status_base_params = {
+    if client_id:
 
-        **({"company_q": selected_company_name} if selected_company_name else {}),
+        selected_client_name = next(
 
-    }
+            (str(c.get("name") or "") for c in clients if int(c.get("id") or 0) == int(client_id)),
+
+            "",
+
+        )
+
+    status_base_params = {}
+
+    if view_mode == "company" and selected_company_name:
+
+        status_base_params["company_q"] = selected_company_name
+
+    if view_mode == "client" and selected_client_name:
+
+        status_base_params["client_q"] = selected_client_name
+
+    debt_base_params = {}
+
+    if view_mode == "company" and selected_company_name:
+
+        debt_base_params["company_q"] = selected_company_name
+
+    if view_mode == "client" and selected_client_name:
+
+        debt_base_params["client_q"] = selected_client_name
 
     kpi_links = {
 
@@ -3568,9 +3853,9 @@ def index():
 
         "en_camino": url_for("main.status", **{"status": "EN_CAMINO", **status_base_params}),
 
-        "cobranzas_pendientes": url_for("main.deudas_pendientes", status="A_COBRAR", **company_only_params),
+        "cobranzas_pendientes": url_for("main.deudas_pendientes", status="A_COBRAR", **debt_base_params),
 
-        "cobranzas_atrasadas": url_for("main.deudas_pendientes", status="ATRASADO", **company_only_params),
+        "cobranzas_atrasadas": url_for("main.deudas_pendientes", status="ATRASADO", **debt_base_params),
 
         "entregas_atrasadas": url_for("main.status", **{"status": "ATRASADO", **status_base_params}),
 
@@ -3588,7 +3873,7 @@ def index():
 
             "color": "#6b7280",
 
-            "url": url_for("main.deudas_pendientes", status="EN_CAMINO", **company_only_params),
+            "url": url_for("main.deudas_pendientes", status="EN_CAMINO", **debt_base_params),
 
         },
 
@@ -3602,7 +3887,7 @@ def index():
 
             "color": "#22c1dc",
 
-            "url": url_for("main.deudas_pendientes", status="A_COBRAR", **company_only_params),
+            "url": url_for("main.deudas_pendientes", status="A_COBRAR", **debt_base_params),
 
         },
 
@@ -3616,7 +3901,7 @@ def index():
 
             "color": "#f5c542",
 
-            "url": url_for("main.deudas_pendientes", status="PARCIAL", **company_only_params),
+            "url": url_for("main.deudas_pendientes", status="PARCIAL", **debt_base_params),
 
         },
 
@@ -3630,7 +3915,7 @@ def index():
 
             "color": "#ef4444",
 
-            "url": url_for("main.deudas_pendientes", status="ATRASADO", **company_only_params),
+            "url": url_for("main.deudas_pendientes", status="ATRASADO", **debt_base_params),
 
         },
 
@@ -3651,6 +3936,60 @@ def index():
     ]
 
     chart_counts = [int(chart_counts_map[k] or 0) for k in chart_days_iso]
+
+    ranking_rows_source = pending_rank_rows if rank_mode == "pending" else orders_rank_rows
+
+    ranking_rows = []
+
+    for r in ranking_rows_source:
+
+        row_name = str((r or {}).get("name") or "-")
+
+        row_value_raw = (r or {}).get("value", 0)
+
+        ranking_rows.append(
+
+            {
+
+                "name": row_name,
+
+                "value": str(int(row_value_raw or 0)),
+
+            }
+
+        )
+
+    if view_mode == "company":
+
+        ranking_title = "Empresas con mayor cantidad de deudas pendientes" if rank_mode == "pending" else "Empresas con mayor cantidad de pedidos"
+
+        ranking_entity_label = "Empresa"
+
+        ranking_footer_label = "Ver todas las empresas"
+
+        ranking_footer_url = url_for("main.empresas")
+
+    else:
+
+        ranking_title = "Clientes con mayor cantidad de deudas pendientes" if rank_mode == "pending" else "Clientes con mayor cantidad de pedidos"
+
+        ranking_entity_label = "Cliente"
+
+        ranking_footer_label = "Ver todos los clientes"
+
+        ranking_footer_url = url_for("main.clientes")
+
+    ranking_value_label = "Deudas pendientes" if rank_mode == "pending" else "Pedidos"
+
+    ranking_links = {
+
+        "pending": url_for("main.index", **{**base_dashboard_params, "rank": "pending"}),
+
+        "orders": url_for("main.index", **{**base_dashboard_params, "rank": "orders"}),
+
+    }
+
+    clear_filters_params = {"view": view_mode, "preset": "month_current"}
 
     return render_template(
 
@@ -3674,9 +4013,17 @@ def index():
 
                 "preset": preset,
 
+                "view_mode": view_mode,
+
+                "rank_mode": rank_mode,
+
                 "company_id": int(company_id) if company_id else None,
 
                 "company_options": companies,
+
+                "client_id": int(client_id) if client_id else None,
+
+                "client_options": clients,
 
             },
 
@@ -3725,16 +4072,37 @@ def index():
                         **({"from": d_from.isoformat()} if d_from else {}),
                         **({"to": d_to.isoformat()} if d_to else {}),
                         **({"company_id": int(company_id)} if company_id else {}),
+                        **({"client_id": int(client_id)} if client_id else {}),
                     },
                 ),
 
             },
 
-            "top_companies": top_pending_companies,
+            "top_ranking": {
+
+                "mode": rank_mode,
+
+                "title": ranking_title,
+
+                "entity_label": ranking_entity_label,
+
+                "value_label": ranking_value_label,
+
+                "rows": ranking_rows,
+
+                "switch_links": ranking_links,
+
+                "footer_label": ranking_footer_label,
+
+                "footer_url": ranking_footer_url,
+
+            },
 
             "links_extra": {
 
                 "all_companies": url_for("main.empresas"),
+
+                "clear_filters": url_for("main.index", **clear_filters_params),
 
             },
 
@@ -4574,80 +4942,6 @@ def notificaciones():
 
         active_alerts = []
 
-    try:
-
-        viewed_rows = (
-
-            ClientAlertState.query
-
-            .filter(ClientAlertState.dismissed_at.isnot(None))
-
-            .filter(True if _has_global_access() else (ClientAlertState.owner_user_id == _effective_user_id()))
-
-            .order_by(ClientAlertState.dismissed_at.desc())
-
-            .limit(200)
-
-            .all()
-
-        )
-
-    except Exception:
-
-        try:
-
-            db.session.rollback()
-
-        except Exception:
-
-            pass
-
-        viewed_rows = []
-
-    # Map para mostrar nombre de cliente en historial
-
-    client_ids = sorted({r.client_id for r in viewed_rows if r and r.client_id})
-
-    q_clients = Client.query.filter(Client.id.in_(client_ids)) if client_ids else None
-
-    if q_clients is not None and not _has_global_access():
-
-        uid = _effective_user_id()
-
-        if uid is not None:
-
-            q_clients = q_clients.filter(Client.owner_user_id == uid)
-
-    clients = q_clients.all() if q_clients is not None else []
-
-    client_name_map = {c.id: f"{c.apellido} {c.nombre}" for c in clients}
-
-    viewed = [
-
-        {
-
-            "client_id": r.client_id,
-
-            "client_name": client_name_map.get(r.client_id, "-"),
-
-            "order_id": r.order_id,
-
-            "kind": r.kind,
-
-            "company": r.company,
-
-            "severity": r.severity,
-
-            "message": r.message,
-
-            "dismissed_at": r.dismissed_at,
-
-        }
-
-        for r in viewed_rows
-
-    ]
-
     return render_template(
 
         "notificaciones.html",
@@ -4655,8 +4949,6 @@ def notificaciones():
         active="notificaciones",
 
         active_alerts=active_alerts,
-
-        viewed_alerts=viewed,
 
     )
 
@@ -7400,6 +7692,439 @@ def clientes_update(client_id: int):
 
 
 
+@bp.post("/clientes/<int:client_id>/share_to_company")
+
+def clientes_share_to_company(client_id: int):
+
+    client = Client.query.get_or_404(client_id)
+
+    _require_owner(client)
+
+    data = request.get_json(silent=True) or {}
+
+    company_id_raw = data.get("company_id")
+
+    if company_id_raw is None:
+
+        company_id_raw = request.form.get("company_id")
+
+    try:
+
+        company_id = int(company_id_raw) if company_id_raw else None
+
+    except Exception:
+
+        company_id = None
+
+    if not company_id:
+
+        return jsonify({"ok": False, "error": "company_id requerido"}), 400
+
+    company = Company.query.get_or_404(company_id)
+
+    to_all = [m.strip() for m in re.split(r"[;,]", (company.mail_pedido or "")) if m and m.strip()]
+
+    if not to_all:
+
+        return jsonify({"ok": False, "error": "La empresa seleccionada no tiene mails de pedido cargados"}), 400
+
+    comment = (data.get("comment") or request.form.get("comment") or "").strip()
+
+    def _as_bool(v):
+
+        if isinstance(v, bool):
+
+            return v
+
+        if v is None:
+
+            return False
+
+        return str(v).strip().lower() in {"1", "true", "yes", "si", "on"}
+
+    preview_mode = _as_bool(data.get("preview") if "preview" in data else request.form.get("preview"))
+
+    confirm_send = _as_bool(data.get("confirm_send") if "confirm_send" in data else request.form.get("confirm_send"))
+
+    def _safe(v):
+
+        try:
+
+            s = (v or "").strip()
+
+            return s or "-"
+
+        except Exception:
+
+            return "-"
+
+    def _normalize_note(v):
+
+        txt = (v or "").strip().lower()
+
+        if not txt:
+
+            return ""
+
+        try:
+
+            txt = "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+
+        except Exception:
+
+            pass
+
+        return txt
+
+    def _has_meaningful_text(v):
+
+        txt = (v or "").strip()
+
+        if not txt:
+
+            return False
+
+        normalized = txt.lower()
+
+        return normalized not in {"-", "--", "---", "—", "n/a", "na", "s/d", "sin datos"}
+
+    def _direccion_compuesta(place):
+
+        if not place:
+
+            return _safe(client.direccion_principal)
+
+        direccion = (getattr(place, "nombre", None) or "").strip()
+
+        provincia = (getattr(place, "provincia", None) or "").strip()
+
+        if direccion and provincia:
+
+            return f"{direccion} - {provincia}"
+
+        return direccion or provincia or "-"
+
+    delivery_places = list(getattr(client, "delivery_places", None) or [])
+
+    deposito = None
+
+    for p in delivery_places:
+
+        if "deposito" in _normalize_note(getattr(p, "nota", None)):
+
+            deposito = p
+
+            break
+
+    if deposito is None and delivery_places:
+
+        deposito = delivery_places[0]
+
+    sucursales = [p for p in delivery_places if not deposito or p.id != deposito.id]
+
+    direccion_deposito = _direccion_compuesta(deposito)
+
+    horario_deposito = _safe(getattr(deposito, "horario", None) or client.delivery_schedule)
+
+    contacto_deposito = _safe(getattr(deposito, "contacto", None) or client.delivery_contact)
+
+    telefono_deposito = _safe(getattr(deposito, "telefono", None) or client.delivery_phone or client.telefono)
+
+    sucursales_data = []
+
+    for p in sucursales:
+
+        sucursales_data.append(
+
+            {
+
+                "direccion": _direccion_compuesta(p),
+
+                "horario": _safe(getattr(p, "horario", None)),
+
+                "contacto": _safe(getattr(p, "contacto", None)),
+
+                "telefono": _safe(getattr(p, "telefono", None)),
+
+            }
+
+        )
+
+    const_docs = (
+
+        ClientDocument.query.filter_by(client_id=client.id)
+
+        .order_by(ClientDocument.uploaded_at.desc())
+
+        .all()
+
+    )
+
+    constancia_names = []
+
+    seen_names = set()
+
+    for d in const_docs:
+
+        cat = (getattr(d, "category", None) or "CONSTANCIA").upper()
+
+        if cat != "CONSTANCIA":
+
+            continue
+
+        fn = (getattr(d, "filename", None) or f"documento_{d.id}").strip() or f"documento_{d.id}"
+
+        key = fn.lower()
+
+        if key in seen_names:
+
+            continue
+
+        seen_names.add(key)
+
+        constancia_names.append(fn)
+
+    attachments = []
+
+    attached_files = []
+
+    attached_keys = set()
+
+    for d in const_docs:
+
+        cat = (getattr(d, "category", None) or "CONSTANCIA").upper()
+
+        if cat != "CONSTANCIA":
+
+            continue
+
+        filename = (getattr(d, "filename", None) or f"documento_{d.id}").strip() or f"documento_{d.id}"
+
+        key = filename.lower()
+
+        if key in attached_keys:
+
+            continue
+
+        content = None
+
+        try:
+
+            if getattr(d, "data", None):
+
+                content = d.data
+
+            elif getattr(d, "filepath", None):
+
+                r = requests.get(d.filepath, timeout=15)
+
+                if r.ok:
+
+                    content = r.content
+
+        except Exception:
+
+            content = None
+
+        if not content:
+
+            continue
+
+        maintype = "application"
+
+        subtype = "octet-stream"
+
+        mtype = getattr(d, "mimetype", None)
+
+        if mtype and "/" in mtype:
+
+            try:
+
+                maintype, subtype = mtype.split("/", 1)
+
+            except Exception:
+
+                maintype, subtype = "application", "octet-stream"
+
+        attachments.append(
+
+            {
+
+                "content": content,
+
+                "maintype": maintype,
+
+                "subtype": subtype,
+
+                "filename": filename,
+
+            }
+
+        )
+
+        attached_files.append(filename)
+
+        attached_keys.add(key)
+
+    cliente_nombre = " ".join([(client.apellido or "").strip(), (client.nombre or "").strip()]).strip()
+
+    company_label = (company.nombre or "").strip() or "Empresa"
+
+    subject = f"ALTA cliente - {cliente_nombre or client.apellido or 'Cliente'} - {company_label}"
+
+    body_lines = [
+
+        subject,
+
+        "",
+
+        f"Empresa destino: {company_label}",
+
+        "",
+
+        "Datos del cliente:",
+
+        f"Razón social: {_safe(client.apellido)}",
+
+        f"Nombre: {_safe(client.nombre)}",
+
+        f"CUIL/CUIT: {_safe(client.cuit)}",
+
+        "",
+
+        "Datos de depósito:",
+
+        f"Dirección: {direccion_deposito}",
+
+        f"Horarios de entrega: {horario_deposito}",
+
+        f"Contacto: {contacto_deposito}",
+
+        f"Teléfono: {telefono_deposito}",
+    ]
+
+    if sucursales_data:
+
+        body_lines.extend(["", "Dirección de sucursales puntuales:", ""])
+
+        for idx, suc in enumerate(sucursales_data):
+
+            body_lines.extend(
+
+                [
+
+                    "Sucursal puntual:",
+
+                    f"Dirección: {suc['direccion']}",
+
+                    f"Horarios de entrega: {suc['horario']}",
+
+                    f"Contacto: {suc['contacto']}",
+
+                    f"Teléfono: {suc['telefono']}",
+
+                ]
+
+            )
+
+            if idx < len(sucursales_data) - 1:
+
+                body_lines.append("")
+
+    comment_text = (comment or "").strip()
+
+    if _has_meaningful_text(comment_text):
+
+        body_lines.extend(["", "Información complementaria:", comment_text])
+
+    warning = None
+
+    if not constancia_names:
+
+        warning = "No hay constancias cargadas para adjuntar."
+
+    elif constancia_names and not attached_files:
+
+        warning = "Hay constancias cargadas, pero no se pudieron adjuntar automáticamente."
+
+    body_text = "\n".join(body_lines)
+
+    preview_attachments = attached_files or constancia_names
+
+    if preview_mode and not confirm_send:
+
+        return jsonify(
+
+            {
+
+                "ok": True,
+
+                "preview": True,
+
+                "to_all": to_all,
+
+                "subject": subject,
+
+                "body_text": body_text,
+
+                "attachment_names": preview_attachments,
+
+                "warning": warning,
+
+            }
+
+        )
+
+    try:
+
+        _send_email(
+
+            subject=subject,
+
+            to_all=to_all,
+
+            body_text=body_text,
+
+            attachments=attachments,
+
+            log_tag="clientes_share_to_company",
+
+        )
+
+    except Exception as e:
+
+        err_text = str(e) or "Error desconocido enviando el mail"
+
+        if "Network is unreachable" in err_text:
+
+            user_msg = "No se pudo conectar al servidor de correo (sin conexión o bloqueado)."
+
+        else:
+
+            user_msg = err_text
+
+        return jsonify({"ok": False, "error": user_msg}), 500
+
+    return jsonify(
+
+        {
+
+            "ok": True,
+
+            "warning": warning,
+
+            "attached_count": len(attached_files),
+
+            "attached_files": attached_files,
+
+        }
+
+    )
+
+
+
+
+
 @bp.post("/clientes/<int:client_id>/delete")
 
 def clientes_delete(client_id: int):
@@ -8596,7 +9321,7 @@ def empresas_create():
 
 def empresas_share_to_client(company_id: int):
 
-    """Enviar mail desde una empresa a un cliente con adjuntos (constancias y catálogos)."""
+    """Generar (y opcionalmente enviar) un mail desde empresa a cliente."""
 
     company = Company.query.get_or_404(company_id)
 
@@ -8606,7 +9331,33 @@ def empresas_share_to_client(company_id: int):
 
     comment = (data.get("comment") or request.form.get("comment") or "").strip()
 
-    body_override = (data.get("body") or request.form.get("body") or "").strip()
+    def _as_bool(v):
+
+        if isinstance(v, bool):
+
+            return v
+
+        if v is None:
+
+            return False
+
+        return str(v).strip().lower() in {"1", "true", "yes", "si", "on"}
+
+    preview_mode = _as_bool(data.get("preview") if "preview" in data else request.form.get("preview"))
+
+    confirm_send = _as_bool(data.get("confirm_send") if "confirm_send" in data else request.form.get("confirm_send"))
+
+    def _has_meaningful_text(v):
+
+        txt = (v or "").strip()
+
+        if not txt:
+
+            return False
+
+        normalized = txt.lower()
+
+        return normalized not in {"-", "--", "---", "—", "n/a", "na", "s/d", "sin datos"}
 
 
 
@@ -8634,7 +9385,7 @@ def empresas_share_to_client(company_id: int):
 
 
 
-    # Construir asunto y cuerpo (permitiendo override explícito desde frontend)
+    # Construir asunto y cuerpo
 
     razon_social = (company.nombre or "").strip()
 
@@ -8648,49 +9399,53 @@ def empresas_share_to_client(company_id: int):
 
     subject = f"Información de empresa - {razon_social or marca or 'Empresa'}"
 
+    body_lines = []
 
+    body_lines.append("INFORMACIÓN DE EMPRESA")
 
-    if body_override:
+    body_lines.append("")
 
-        body = body_override
+    body_lines.append(f"Razón social: {razon_social or '-'}")
 
-    else:
+    body_lines.append(f"Marca: {marca or '-'}")
 
-        body_lines = []
+    body_lines.append(f"CUIL/CUIT: {cuit or '-'}")
 
-        body_lines.append("INFORMACIÓN DE EMPRESA")
+    body_lines.append("")
 
-        body_lines.append("")
+    body_lines.append("Cuenta bancaria:")
 
-        body_lines.append(f"Razón social: {razon_social or '-'}")
+    body_lines.append(cuenta_bancaria or "-")
 
-        body_lines.append(f"Marca: {marca or '-'}")
-
-        body_lines.append(f"CUIL/CUIT: {cuit or '-'}")
-
-        body_lines.append("")
-
-        body_lines.append("Constancias AFIP y Rentas: adjuntas en este correo (si corresponden).")
-
-        body_lines.append("Catálogos: adjuntos en este correo (si corresponden).")
+    if _has_meaningful_text(comment):
 
         body_lines.append("")
 
-        body_lines.append("Cuenta bancaria:")
+        body_lines.append("Comentario:")
 
-        body_lines.append(cuenta_bancaria or "-")
+        body_lines.append(comment)
 
-        if comment:
+    body = "\n".join(body_lines)
 
-            body_lines.append("")
+    if preview_mode and not confirm_send:
 
-            body_lines.append("Comentario adicional:")
+        return jsonify(
 
-            body_lines.append(comment)
+            {
 
+                "ok": True,
 
+                "preview": True,
 
-        body = "\n".join(body_lines)
+                "to_all": to_all,
+
+                "subject": subject,
+
+                "body_text": body,
+
+            }
+
+        )
 
 
 
@@ -8711,78 +9466,6 @@ def empresas_share_to_client(company_id: int):
     msg["To"] = ", ".join(to_all)
 
     msg.set_content(body)
-
-
-
-    # Adjuntar solo el documento más reciente de cada tipo (CONSTANCIA / CATALOGO)
-
-    docs = (
-
-        CompanyDocument.query.filter_by(company_id=company.id)
-
-        .order_by(CompanyDocument.uploaded_at.desc())
-
-        .all()
-
-    )
-
-    attached_by_cat = set()
-
-    for d in docs:
-
-        cat = (d.category or "").upper()
-
-        if cat not in ("CONSTANCIA", "CATALOGO"):
-
-            continue
-
-        if cat in attached_by_cat:
-
-            continue
-
-        content = None
-
-        try:
-
-            if getattr(d, "data", None):
-
-                content = d.data
-
-            elif d.filepath:
-
-                try:
-
-                    r = requests.get(d.filepath, timeout=15)
-
-                    if r.ok:
-
-                        content = r.content
-
-                except Exception:
-
-                    content = None
-
-            if not content:
-
-                continue
-
-            maintype = "application"
-
-            subtype = "octet-stream"
-
-            if d.mimetype and "/" in d.mimetype:
-
-                maintype, subtype = d.mimetype.split("/", 1)
-
-            filename = d.filename or f"documento_{d.id}"
-
-            msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
-
-            attached_by_cat.add(cat)
-
-        except Exception:
-
-            continue
 
 
 
@@ -15604,6 +16287,30 @@ def historial():
 
     direction = (request.args.get("dir") or "desc").strip().lower()
 
+    company_id_raw = (request.args.get("company_id") or "").strip()
+
+    client_id_raw = (request.args.get("client_id") or "").strip()
+
+    desde = (request.args.get("desde") or "").strip()
+
+    hasta = (request.args.get("hasta") or "").strip()
+
+    try:
+
+        company_id = int(company_id_raw) if company_id_raw else None
+
+    except Exception:
+
+        company_id = None
+
+    try:
+
+        client_id = int(client_id_raw) if client_id_raw else None
+
+    except Exception:
+
+        client_id = None
+
     show_all = request.args.get("all") == "1"
 
     page = request.args.get("page", default=1, type=int) or 1
@@ -15647,6 +16354,44 @@ def historial():
     )
 
     base = base.filter(Order.deleted_at.is_(None))
+
+    if company_id:
+
+        base = base.filter(Order.company_id == company_id)
+
+    if client_id:
+
+        base = base.filter(Order.client_id == client_id)
+
+    order_date_expr = func.coalesce(LogisticsStatus.fecha_compra, Order.created_at)
+
+    if desde:
+
+        try:
+
+            d_from = _parse_datetime_like(desde)
+
+            if d_from is not None:
+
+                base = base.filter(order_date_expr >= d_from)
+
+        except Exception:
+
+            pass
+
+    if hasta:
+
+        try:
+
+            d_to = _parse_datetime_like(hasta)
+
+            if d_to is not None:
+
+                base = base.filter(order_date_expr <= d_to)
+
+        except Exception:
+
+            pass
 
 
 

@@ -15,27 +15,98 @@
   .archive-company-modal .modal-body { padding-top: 1rem; padding-bottom: 1rem; }
   .archive-company-modal .modal-body p { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
   .archive-company-modal .modal-footer { justify-content: flex-end; gap: .5rem; }
+  .empresas-toolbar-actions .btn,
+  .empresas-toolbar-actions .form-control { min-height: 40px; }
+
+  @media (max-width: 767.98px) {
+    main.col { padding: .85rem .65rem !important; }
+    .empresas-toolbar {
+      margin-top: .35rem !important;
+      margin-bottom: .8rem !important;
+      gap: .7rem !important;
+    }
+    .empresas-title {
+      font-size: 1.4rem;
+      line-height: 1.2;
+      margin-bottom: .45rem !important;
+    }
+    .empresas-toolbar-main,
+    .empresas-toolbar-actions,
+    .empresas-search-form { width: 100%; }
+    .empresas-search-form { gap: .5rem !important; }
+    .empresa-search-input {
+      min-width: 0;
+      max-width: none !important;
+      width: 100%;
+    }
+    .empresas-toolbar-actions {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem !important;
+      align-items: stretch !important;
+    }
+    .empresas-toolbar-actions .btn-create-company,
+    .empresas-toolbar-actions .btn-outline-secondary {
+      width: 100%;
+      justify-content: center;
+      font-size: .98rem;
+      padding: .52rem .72rem;
+    }
+    .table-responsive {
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    #empresas-table { min-width: 640px; }
+    #empresas-table th,
+    #empresas-table td {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      vertical-align: top;
+      line-height: 1.28;
+    }
+    #empresas-table td:nth-child(1),
+    #empresas-table td:nth-child(2) {
+      min-width: 170px;
+    }
+    #empresasPagination {
+      flex-direction: column;
+      align-items: stretch !important;
+      gap: .55rem;
+    }
+    #empresasPagination > .d-flex {
+      display: grid !important;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: .45rem !important;
+      width: 100%;
+    }
+    #empresasPagination .btn {
+      width: 100%;
+      text-align: center;
+      white-space: nowrap;
+      padding: .48rem .35rem;
+    }
+  }
 
   @media (max-width: 575.98px) {
     .empresa-search-input { min-width: 0; max-width: none; width: 100%; }
     .btn-create-company { width: 100%; }
   }
 
-  @media (max-width: 575.98px) {
-    .empresa-search-input { min-width: 0; max-width: none; width: 100%; }
-    .btn-create-company { width: 100%; }
+  @media (max-width: 399.98px) {
+    #empresasPagination > .d-flex { grid-template-columns: 1fr; }
   }
 </style>
-<div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
-  <div>
+<div class="empresas-toolbar d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-3 mt-3">
+  <div class="empresas-toolbar-main">
     <h1 class="h4 mb-1 empresas-title">Legajo de Empresas</h1>
-    <form method="get" id="empresasFiltersForm" class="d-flex flex-column flex-sm-row gap-2">
+    <form method="get" id="empresasFiltersForm" class="empresas-search-form d-flex flex-column flex-sm-row gap-2">
       <input type="text" id="empresaSearch" name="q" value="{{ q or '' }}" class="form-control form-control-sm empresa-search-input" placeholder="Buscar por marca o razón social">
       <input type="hidden" name="page" value="1">
       <input type="hidden" name="per_page" value="{{ per_page or 10 }}">
     </form>
   </div>
-  <div class="d-flex gap-2">
+  <div class="empresas-toolbar-actions d-flex gap-2">
     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#archivedCompaniesModal">Archivados</button>
     <a href="{{ url_for('main.empresas_new') }}" class="btn btn-primary btn-create-company">+ Crear Empresa</a>
   </div>

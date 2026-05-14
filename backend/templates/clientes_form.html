@@ -1,47 +1,209 @@
 {% extends 'layout.html' %}
 {% block content %}
-<div class="container" style="max-width: 860px;">
-  <h1 class="h4 text-dark mb-4">{{ 'Legajo de cliente' if client else 'Nuevo cliente' }}</h1>
+<div class="container-fluid px-2 px-md-3 px-xl-4" style="max-width: 1240px;">
+  <div class="cliente-page-header">
+    <h1 class="cliente-page-title">{{ 'Legajo de cliente' if client else 'Nuevo cliente' }}</h1>
+    {% if client and (client.apellido or client.nombre) %}
+    <p class="cliente-page-subtitle">{{ (client.apellido or '-') ~ (' — ' ~ client.nombre if client.nombre else '') }}</p>
+    {% endif %}
+  </div>
 
-  <form method="post" action="{{ url_for('main.clientes_update', client_id=client.id) if client else url_for('main.clientes_create') }}" class="card shadow-sm">
+  <form method="post" action="{{ url_for('main.clientes_update', client_id=client.id) if client else url_for('main.clientes_create') }}" class="card shadow-sm cliente-form-shell">
     <div class="card-body">
       <style>
-        .form-label { color:#0f766e; font-weight:600; letter-spacing:.2px; }
-        /* Títulos de secciones del legajo de cliente: más grandes y marcados */
-        .cliente-section-title {
-          font-size: 1.3rem;
+        .cliente-form-shell {
+          border: 1px solid #dce6ee;
+          border-radius: 1rem;
+          overflow: hidden;
+        }
+        .cliente-page-header {
+          margin: .2rem 0 .9rem;
+        }
+        .cliente-page-title {
+          margin: 0;
+          font-size: clamp(1.8rem, 2.2vw, 2.35rem);
           font-weight: 700;
-          color: #0b1120;
-          letter-spacing: .3px;
-          padding-top: .75rem;
-          margin-top: .25rem;
-          margin-bottom: .75rem;
-          text-align: center;
+          color: #0f334a;
+          letter-spacing: .01em;
+          line-height: 1.1;
+        }
+        .cliente-page-subtitle {
+          margin: .28rem 0 0;
+          color: #475569;
+          font-size: .95rem;
+          font-weight: 500;
+        }
+        .form-label {
+          color:#0f766e;
+          font-weight:600;
+          letter-spacing:.18px;
+          font-size: .82rem;
+          margin-bottom: .28rem;
+        }
+        .cliente-section-title {
+          font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+          font-size: 1.24rem;
+          font-weight: 700;
+          color: #0f172a;
+          letter-spacing: .012em;
+          margin: 0;
+          text-align: left;
+          line-height: 1.2;
+        }
+        .cliente-accordion-title {
+          font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+          font-size: 1.08rem;
+          font-weight: 700;
+          color: #0f172a;
+          letter-spacing: .01em;
+          margin: 0;
+          line-height: 1.25;
         }
         .cliente-subsection-title {
-          font-size: 1.15rem;
+          font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+          font-size: 1.01rem;
           font-weight: 700;
-          color: #111827;
-          padding-top: .5rem;
-          margin-top: .25rem;
-          margin-bottom: .5rem;
-          text-align: center;
+          color: #0f334a;
+          margin: 0 0 .45rem;
+          line-height: 1.2;
+        }
+        .cliente-basic-head {
+          margin-bottom: .3rem;
+          padding-bottom: .55rem;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .cliente-basic-grid {
+          margin-top: .2rem;
+        }
+        .cliente-mails-box {
+          border: 1px solid #e2e8f0;
+          border-radius: .72rem;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fbfe 100%);
+          padding: .6rem .7rem;
+          min-height: 100%;
+        }
+        .cliente-mails-selected-list {
+          min-height: 30px;
+        }
+        .cliente-mails-empty {
+          font-size: .82rem;
+          color: #64748b;
+        }
+        .cliente-collapse-head {
+          padding: .78rem .85rem;
+          border: 1px solid #dce6ee;
+          border-radius: .8rem;
+          background: #fff;
+          box-shadow: 0 2px 6px rgba(15, 23, 42, .04);
+        }
+        .cliente-chevron {
+          color:#64748b;
+          transition: transform .18s ease;
+        }
+        .cliente-chevron.is-open {
+          transform: rotate(90deg);
+        }
+        .cliente-panel-group {
+          border: 1px solid #e5e7eb;
+          border-radius: .75rem;
+          padding: .78rem;
+          background: #fff;
+          margin-top: .35rem;
+        }
+        .cliente-main-body {
+          margin-top: .45rem;
+        }
+        .cliente-panel-group + .cliente-panel-group {
+          margin-top: .75rem;
+        }
+        .cliente-companies-head {
+          display:flex;
+          justify-content:flex-end;
+          margin-bottom:.4rem;
+        }
+        .cliente-companies-preview {
+          display:none !important;
+        }
+        .cliente-inline-table {
+          margin-top: .55rem;
+        }
+        .cliente-table-wrap {
+          border: 1px solid #dce6ee;
+          border-radius: .72rem;
+          overflow: hidden;
+          background:#fff;
+        }
+        .cliente-table-wrap .table thead th {
+          background: #e7f1f2;
+          color: #0f334a;
+          font-size: .78rem;
+          text-transform: uppercase;
+          letter-spacing: .02em;
+          border-bottom: 1px solid #d8e2ec;
+          padding: .5rem .55rem;
+        }
+        .cliente-table-wrap .table tbody td {
+          padding: .48rem .55rem;
+          vertical-align: middle;
+        }
+        .cliente-table-wrap .table tbody tr:hover {
+          background: #f8fbfe;
+        }
+        .cliente-status-badge {
+          display:inline-flex;
+          align-items:center;
+          padding:.18rem .5rem;
+          border-radius:999px;
+          font-size:.74rem;
+          font-weight:600;
+          border:1px solid transparent;
+          line-height:1.05;
+          white-space:nowrap;
+        }
+        .cliente-status-badge--work {
+          background:#e8f7ef;
+          color:#0f766e;
+          border-color:#bae6d2;
+        }
+        .cliente-status-badge--add {
+          background:#fff5db;
+          color:#a16207;
+          border-color:#fde68a;
+        }
+        .cliente-footer-actions {
+          padding: .9rem 1rem;
+          background: #f8fafc;
+          border-top: 1px solid #dce6ee;
+        }
+        @media (max-width: 767.98px) {
+          .cliente-page-title { font-size: 1.62rem; }
+          .cliente-section-title { font-size: 1.12rem; }
+          .cliente-accordion-title { font-size: 1rem; }
+          .cliente-subsection-title { font-size: .96rem; }
+          .cliente-collapse-head { padding: .62rem .68rem; }
+          .cliente-panel-group { padding: .6rem; }
+        }
+        .cliente-subsection-title.text-start,
+        .cliente-accordion-title.text-start {
+          text-align: left;
         }
       </style>
       <div class="row g-2 g-md-3">
-        <div class="col-12 mt-1">
-          <h2 class="cliente-section-title mb-2">Información básica del cliente</h2>
+        <div class="col-12 cliente-basic-head">
+          <h2 class="cliente-section-title">Información básica del cliente</h2>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-12">
+          <div class="row g-2 g-lg-3 cliente-basic-grid">
+        <div class="col-md-6 col-lg-3">
           <label class="form-label">Razón social</label>
           <input name="apellido" type="text" class="form-control" value="{{ (client.apellido or '') if client else '' }}">
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6 col-lg-3">
           <label class="form-label">Nombre</label>
           <input name="nombre" type="text" class="form-control" value="{{ (client.nombre or '') if client else '' }}">
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6 col-lg-3">
           <label class="form-label">Provincia</label>
           <select name="provincia" class="form-select">
             <option value="">Seleccionar...</option>
@@ -55,15 +217,15 @@
             <option value="Mendoza" {{ 'selected' if pv=='Mendoza' else '' }}>Mendoza</option>
           </select>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6 col-lg-3">
           <label class="form-label">CUIL/CUIT</label>
           <input name="cuit" type="text" class="form-control" value="{{ (client.cuit or '') if client else '' }}">
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6 col-lg-3">
           <label class="form-label">Contacto (Nombre y apellido)</label>
           <input name="telefono" type="text" class="form-control" value="{{ (client.telefono or '') if client else '' }}">
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6 col-lg-3">
           <label class="form-label">Forma de pago habitual</label>
           {% set fph = ((client.forma_pago_habitual if client else '') or '') %}
           <select name="forma_pago_habitual" class="form-select">
@@ -77,11 +239,11 @@
             <option value="NO_SE_SABE" {{ 'selected' if fph=='NO_SE_SABE' else '' }}>No se sabe</option>
           </select>
         </div>
-        <div class="col-md-6">
-          {% if client %}<input type="hidden" id="client_mail_raw" value="{{ client.mail or '' }}">{% endif %}
-          <div class="mt-3">
+        <div class="col-12 col-lg-6">
+          <input type="hidden" id="client_mail_raw" value="{{ (client.mail or '') if client else '' }}">
+          <div class="cliente-mails-box">
             <div class="d-flex align-items-center justify-content-between">
-              <label class="form-label m-0">Mails</label>
+              <label class="form-label m-0">Mails confirmados</label>
               <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#client-mails-collapse" aria-expanded="false" aria-controls="client-mails-collapse">Seleccionar mails</button>
             </div>
             <div id="client-mails-collapse" class="collapse mt-2">
@@ -95,11 +257,14 @@
                 <button type="button" id="btnConfirmarClientMails" class="btn btn-sm btn-primary">Confirmar selección</button>
               </div>
             </div>
-            <div class="mt-2">
-              <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Mails confirmados</div>
-              <div id="client-mails-selected" class="mt-1"></div>
+            <div class="mt-2 cliente-mails-selected-list">
+              <div id="client-mails-selected" class="mt-1">
+                <span class="cliente-mails-empty">Sin mails confirmados</span>
+              </div>
               <div id="client-mails-hidden"></div>
             </div>
+          </div>
+        </div>
           </div>
         </div>
 
@@ -115,43 +280,95 @@
         {% endif %}
         ]</script>
 
-        <!-- Sección Transporte (colapsable) -->
+        <!-- Sección principal Personas -->
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#transporteCollapse" aria-expanded="false" aria-controls="transporteCollapse">
-            <h3 class="cliente-subsection-title mb-0" style="flex:1; text-align:left;">
-              Transporte
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h3>
-            <i class="bi bi-chevron-right" id="transporteChevron"></i>
+          <div class="d-flex align-items-center justify-content-between cliente-collapse-head" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#personasCollapse" aria-expanded="false" aria-controls="personasCollapse">
+            <h3 class="cliente-accordion-title" style="flex:1; text-align:left;">Personas</h3>
+            <i class="bi bi-chevron-right cliente-chevron" id="personasChevron"></i>
           </div>
         </div>
-        <div class="col-12 collapse" id="transporteCollapse">
-          <div class="row g-2 mt-2">
-            <div class="col-md-6">
-              <label class="form-label">Nombre de transporte</label>
-              <input name="transporte_nombre" type="text" class="form-control" value="{{ (client.transporte_recomendado or '') if client else '' }}">
+        <div class="col-12 collapse" id="personasCollapse">
+          <div class="cliente-panel-group cliente-main-body">
+          <div class="row g-2">
+            <div class="col-12">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                  <label class="form-label">Nombre y apellido</label>
+                  <input id="birthday_name_input" type="text" class="form-control form-control-sm" placeholder="Nombre">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Puesto</label>
+                  <input id="birthday_role_input" type="text" class="form-control form-control-sm" placeholder="Cargo">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Cumpleaños</label>
+                  <input id="birthday_date_input" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa" data-datepicker>
+                </div>
+                <div class="col-md-2 d-grid">
+                  <label class="form-label">&nbsp;</label>
+                  <button type="button" id="btnAddBirthday" class="btn btn-outline-secondary btn-sm">Agregar</button>
+                </div>
+              </div>
+              <div class="col-12 mt-2">
+                <div class="table-responsive table-mobile-cards cliente-table-wrap">
+                  <table class="table table-sm mb-0" id="personas-table">
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Puesto</th>
+                        <th>Cumpleaños</th>
+                        <th class="text-end" style="width:1%; white-space:nowrap;">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody id="personas-body">
+                      {% if client and client.birthdays %}
+                        {% for b in client.birthdays %}
+                          <tr>
+                            <td data-label="Nombre">
+                              {{ b.nombre }}
+                              <input type="hidden" name="birthday_name_list" value="{{ b.nombre }}">
+                              <input type="hidden" name="birthday_notas_list" value="{{ b.notas or '' }}">
+                            </td>
+                            <td data-label="Puesto">
+                              {{ b.puesto or '' }}
+                              <input type="hidden" name="birthday_role_list" value="{{ b.puesto or '' }}">
+                            </td>
+                            <td data-label="Cumpleaños">
+                              {{ b.fecha.strftime('%d/%m/%Y') if b.fecha else '' }}
+                              <input type="hidden" name="birthday_date_list" value="{{ b.fecha.isoformat() if b.fecha else '' }}">
+                            </td>
+                            <td class="text-end" data-label="Acciones">
+                              <div class="d-flex gap-1 justify-content-end">
+                                <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-notes" title="Notas"><i class="bi bi-journal-text"></i></button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
+                                <button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button>
+                              </div>
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      {% else %}
+                        <tr class="js-persona-empty"><td colspan="4" class="text-center text-muted">Sin personas</td></tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div class="col-md-6">
-              <label class="form-label">Contacto del transporte</label>
-              <input name="transporte_contacto" type="text" class="form-control" value="{{ (client.transporte_contacto or '') if client else '' }}">
-            </div>
+          </div>
           </div>
         </div>
 
         {% if client %}
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#clientLinksCollapse" aria-expanded="false" aria-controls="clientLinksCollapse">
-            <h3 class="cliente-subsection-title mb-0" style="flex:1; text-align:left;">
-              Empresas confirmadas
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h3>
-            <i class="bi bi-chevron-right"></i>
+          <div class="d-flex align-items-center justify-content-between cliente-collapse-head" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#clientLinksCollapse" aria-expanded="false" aria-controls="clientLinksCollapse">
+            <h3 class="cliente-accordion-title" style="flex:1; text-align:left;">Empresas confirmadas</h3>
+            <i class="bi bi-chevron-right cliente-chevron" id="clientLinksChevron"></i>
           </div>
         </div>
         <div class="col-12 collapse" id="clientLinksCollapse">
-          <div class="d-flex align-items-center justify-content-between">
-            <label class="form-label m-0">Empresas</label>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#companies-collapse" aria-expanded="false" aria-controls="companies-collapse">Empresas</button>
+          <div class="cliente-panel-group cliente-main-body">
+          <div class="cliente-companies-head">
+            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#companies-collapse" aria-expanded="false" aria-controls="companies-collapse">Modificar empresas</button>
           </div>
           <div id="companies-collapse" class="collapse mt-2">
             <div id="companies-checklist" class="border rounded p-2" style="max-height: 260px; overflow: auto;">
@@ -166,30 +383,16 @@
               <button type="button" id="btnConfirmarEmpresas" class="btn btn-sm btn-primary">Confirmar selección</button>
             </div>
           </div>
-          <div id="companies-selected-wrapper" class="mt-3">
-            <div class="text-muted small" style="color:#0f766e !important; font-weight:600">Empresas confirmadas</div>
-            <div id="companies-selected" class="mt-1">
-              {% if client and client.links %}
-                {% for l in client.links %}
-                  <span class="badge bg-success me-1 mb-1" data-company-id="{{ l.company_id }}">
-                    {{ l.company.nombre if l.company else '-' }}
-                    <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-company-del" data-company-id="{{ l.company_id }}">×</button>
-                  </span>
-                {% endfor %}
-              {% else %}
-                <span class="text-muted">Ninguno</span>
-              {% endif %}
-            </div>
-            <div id="companies-hidden">
-              {% if client and client.links %}
-                {% for l in client.links %}
-                  <input type="hidden" name="company_ids" value="{{ l.company_id }}">
-                {% endfor %}
-              {% endif %}
-            </div>
+          <div id="companies-selected" class="cliente-companies-preview"></div>
+          <div id="companies-hidden">
+            {% if client and client.links %}
+              {% for l in client.links %}
+                <input type="hidden" name="company_ids" value="{{ l.company_id }}">
+              {% endfor %}
+            {% endif %}
           </div>
           <div class="desktop-table">
-            <div class="table-responsive border rounded mt-2">
+            <div class="table-responsive cliente-table-wrap cliente-inline-table">
               <table class="table table-sm mb-0 align-middle js-sortable-table">
                 <thead>
                   <tr>
@@ -204,7 +407,16 @@
                     {% for l in client.links %}
                       <tr>
                         <td>{{ l.company.nombre if l.company else '-' }}</td>
-                        <td>{{ l.status.value if l.status is defined and l.status is not none else '-' }}</td>
+                        <td>
+                          {% set status_raw = (l.status.value if l.status is defined and l.status is not none else '') %}
+                          {% if status_raw %}
+                            {% set status_label = 'A incorporar' if status_raw == 'A_INCORPORAR' else ('Trabajaba' if status_raw == 'TRABAJABA' else status_raw.replace('_', ' ')|title) %}
+                            {% set status_badge_class = 'cliente-status-badge--add' if status_raw == 'A_INCORPORAR' else ('cliente-status-badge--work' if status_raw == 'TRABAJABA' else '') %}
+                            <span class="cliente-status-badge {{ status_badge_class }}">{{ status_label }}</span>
+                          {% else %}
+                            -
+                          {% endif %}
+                        </td>
                         <td>{{ l.comprobante_tipo if l.comprobante_tipo is defined and l.comprobante_tipo else '-' }}</td>
                         <td class="text-end">
                           {% if l.company %}
@@ -222,23 +434,36 @@
               </table>
             </div>
           </div>
+          </div>
         </div>
         {% endif %}
 
         <!-- Segunda parte: información complementaria del cliente (colapsable) -->
         <div class="col-12 mt-4">
-          <div class="d-flex align-items-center justify-content-between" id="infoCompToggle" style="cursor: pointer;">
-            <h2 class="cliente-section-title mb-0" style="flex:1; text-align:left;">
-              Información complementaria
-              <small class="text-muted" style="font-size:.85rem;">(Tocar para desarrollar)</small>
-            </h2>
-            <i class="bi bi-chevron-right" id="infoCompChevron"></i>
+          <div class="d-flex align-items-center justify-content-between cliente-collapse-head" id="infoCompToggle" style="cursor: pointer;">
+            <h2 class="cliente-accordion-title" style="flex:1; text-align:left;">Información complementaria</h2>
+            <i class="bi bi-chevron-right cliente-chevron" id="infoCompChevron"></i>
           </div>
         </div>
         <div class="col-12 d-none" id="infoCompBody">
-          <div class="row g-2 g-md-3">
+          <div class="row g-2 g-md-3 cliente-main-body">
+            <div class="col-12 cliente-panel-group">
+              <h3 class="cliente-subsection-title text-start mb-2">Transporte</h3>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Nombre de transporte</label>
+                  <input name="transporte_nombre" type="text" class="form-control" value="{{ (client.transporte_recomendado or '') if client else '' }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Contacto del transporte</label>
+                  <input name="transporte_contacto" type="text" class="form-control" value="{{ (client.transporte_contacto or '') if client else '' }}">
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 cliente-panel-group">
+              <h3 class="cliente-subsection-title text-start mb-2">Direcciones</h3>
             <div class="col-12">
-              <label class="form-label m-0">Direcciones</label>
               <div class="row g-2 align-items-end mt-1">
                 <div class="col-md-5">
                   <input type="text" class="form-control form-control-sm" id="new_delivery_name" placeholder="Dirección">
@@ -310,7 +535,7 @@
               </div>
             </div>
             <div class="col-12 mt-2">
-              <div class="table-responsive table-mobile-cards border rounded">
+              <div class="table-responsive table-mobile-cards cliente-table-wrap">
                 <table class="table table-sm mb-0" id="delivery-table">
                   <thead>
                     <tr>
@@ -366,82 +591,14 @@
                 </table>
               </div>
             </div>
-
-            <div class="col-12 mt-4">
-              <h3 class="cliente-subsection-title mb-2">Personas</h3>
-            </div>
-            <div class="col-12">
-              <div class="row g-2 align-items-end">
-                <div class="col-md-4">
-                  <label class="form-label">Nombre y apellido</label>
-                  <input id="birthday_name_input" type="text" class="form-control form-control-sm" placeholder="Nombre">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label">Puesto</label>
-                  <input id="birthday_role_input" type="text" class="form-control form-control-sm" placeholder="Cargo">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label">Cumpleaños</label>
-                  <input id="birthday_date_input" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa" data-datepicker>
-                </div>
-                <div class="col-md-2 d-grid">
-                  <label class="form-label">&nbsp;</label>
-                  <button type="button" id="btnAddBirthday" class="btn btn-outline-secondary btn-sm">Agregar</button>
-                </div>
-              </div>
-              <div class="col-12 mt-2">
-                <div class="table-responsive table-mobile-cards border rounded">
-                  <table class="table table-sm mb-0" id="personas-table">
-                    <thead>
-                      <tr>
-                        <th>Nombre</th>
-                        <th>Puesto</th>
-                        <th>Cumpleaños</th>
-                        <th class="text-end" style="width:1%; white-space:nowrap;">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody id="personas-body">
-                      {% if client and client.birthdays %}
-                        {% for b in client.birthdays %}
-                          <tr>
-                            <td data-label="Nombre">
-                              {{ b.nombre }}
-                              <input type="hidden" name="birthday_name_list" value="{{ b.nombre }}">
-                              <input type="hidden" name="birthday_notas_list" value="{{ b.notas or '' }}">
-                            </td>
-                            <td data-label="Puesto">
-                              {{ b.puesto or '' }}
-                              <input type="hidden" name="birthday_role_list" value="{{ b.puesto or '' }}">
-                            </td>
-                            <td data-label="Cumpleaños">
-                              {{ b.fecha.strftime('%d/%m/%Y') if b.fecha else '' }}
-                              <input type="hidden" name="birthday_date_list" value="{{ b.fecha.isoformat() if b.fecha else '' }}">
-                            </td>
-                            <td class="text-end" data-label="Acciones">
-                              <div class="d-flex gap-1 justify-content-end">
-                                <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-notes" title="Notas"><i class="bi bi-journal-text"></i></button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary js-persona-row-edit" title="Editar"><i class="bi bi-pencil"></i></button>
-                                <button type="button" class="btn btn-sm btn-outline-danger js-persona-row-del" title="Quitar"><i class="bi bi-trash"></i></button>
-                              </div>
-                            </td>
-                          </tr>
-                        {% endfor %}
-                      {% else %}
-                        <tr class="js-persona-empty"><td colspan="4" class="text-center text-muted">Sin personas</td></tr>
-                      {% endif %}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </div>
 
             <!-- Sección Documentación -->
-            <div class="col-12 mt-4">
-              <h3 class="cliente-subsection-title mb-2">Documentación</h3>
-            </div>
+            <div class="col-12 cliente-panel-group">
+              <h3 class="cliente-subsection-title text-start mb-2">Documentación</h3>
             {% if client %}
             <div class="col-12">
-              <div class="card shadow-sm">
+              <div class="card shadow-sm border-0">
                 <div class="card-header bg-light">
                   <strong>Constancias</strong>
                 </div>
@@ -452,7 +609,7 @@
                       <button class="btn btn-primary" type="button" id="clientConstanciasSubmit">Subir</button>
                     </div>
                   </div>
-                  <div class="table-responsive">
+                  <div class="table-responsive cliente-table-wrap">
                     <table class="table table-sm mb-0">
                       <thead>
                         <tr>
@@ -488,37 +645,40 @@
               </div>
             </div>
             {% endif %}
+            </div>
 
-            <div class="col-12 mt-4">
+            <div class="col-12 cliente-panel-group">
               <h3 class="cliente-subsection-title mb-2">Compartir información a empresa</h3>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Seleccionar empresa</label>
-              <select name="share_company_id" class="form-select">
-                <option value="">Seleccionar empresa...</option>
-                {% if companies %}
-                  {% for e in companies %}
-                    <option value="{{ e.id }}" data-mail-pedido="{{ (e.mail_pedido or '')|e }}">{{ e.nombre }}</option>
-                  {% endfor %}
-                {% endif %}
-              </select>
-              <div class="form-text" id="share_company_mails_help"></div>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Comentario para la empresa</label>
-              <textarea name="share_comment" class="form-control" rows="1" placeholder="Información que se enviaría con el pedido"></textarea>
-            </div>
-            <div class="col-12 mt-2 d-flex align-items-center gap-2">
-              <button type="button" id="btnSendShareMail" class="btn btn-outline-primary btn-sm">Enviar mail</button>
-              <small class="text-muted">Se abrirá tu cliente de correo con la información del cliente y empresa seleccionada.</small>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Seleccionar empresa</label>
+                  <select name="share_company_id" class="form-select">
+                    <option value="">Seleccionar empresa...</option>
+                    {% if companies %}
+                      {% for e in companies %}
+                        <option value="{{ e.id }}" data-mail-pedido="{{ (e.mail_pedido or '')|e }}">{{ e.nombre }}</option>
+                      {% endfor %}
+                    {% endif %}
+                  </select>
+                  <div class="form-text" id="share_company_mails_help"></div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Comentario para la empresa</label>
+                  <textarea name="share_comment" class="form-control" rows="1" placeholder="Información que se enviaría con el pedido"></textarea>
+                </div>
+                <div class="col-12 mt-2 d-flex align-items-center gap-2">
+                  <button type="button" id="btnSendShareMail" class="btn btn-outline-primary btn-sm" data-client-id="{{ client.id if client else '' }}">Enviar mail</button>
+                  <small class="text-muted">Se abrirá Gmail con el mail prearmado. Revisá el contenido y adjuntá las constancias antes de enviarlo.</small>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
       </div>
     </div>
-    <div class="card-footer d-grid gap-2 d-sm-flex justify-content-sm-end">
-      <a href="{{ url_for('main.clientes') }}" class="btn btn-light">Cancelar</a>
+    <div class="card-footer d-grid gap-2 d-sm-flex justify-content-sm-end cliente-footer-actions">
+      <a href="{{ url_for('main.clientes') }}" class="btn btn-outline-secondary">Cancelar</a>
       <button class="btn btn-primary" type="submit">{{ 'Guardar cambios' if client else 'Guardar' }}</button>
     </div>
   </form>
@@ -538,6 +698,41 @@
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Quitar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="shareMailPreviewModal" tabindex="-1" aria-labelledby="shareMailPreviewTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="shareMailPreviewTitle">Vista previa del mail</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-1">Destinatarios</label>
+          <div id="shareMailPreviewTo" class="small text-break text-muted">-</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-1">Asunto</label>
+          <div id="shareMailPreviewSubject" class="small text-break">-</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold mb-1">Cuerpo del mail</label>
+          <pre id="shareMailPreviewBody" class="p-3 border rounded bg-light small mb-0" style="white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto;">-</pre>
+        </div>
+        <div>
+          <label class="form-label fw-semibold mb-1">Constancias adjuntas</label>
+          <ul id="shareMailPreviewAttachments" class="mb-0 small ps-3">
+            <li class="text-muted">-</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="shareMailConfirmSendBtn">Confirmar envío</button>
       </div>
     </div>
   </div>
@@ -775,11 +970,203 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 
 (function(){
+  var raw = document.getElementById('client_mail_raw');
+  var box = document.getElementById('client-mails-checklist');
+  var selected = document.getElementById('client-mails-selected');
+  var hiddenWrap = document.getElementById('client-mails-hidden');
+  var alertWrap = document.getElementById('client-mails-alert');
+  var input = document.getElementById('new_client_mail_input');
+  var btnAdd = document.getElementById('btnAddClientMail');
+  var btnConfirm = document.getElementById('btnConfirmarClientMails');
+  if (!box || !selected || !hiddenWrap) return;
+
+  var available = new Map();
+  var confirmed = new Set();
+
+  function normalizeMail(mail){
+    return String(mail || '').trim().toLowerCase();
+  }
+
+  function parseEmails(value){
+    return String(value || '')
+      .split(/[\n,;]+/)
+      .map(function(v){ return v.trim(); })
+      .filter(Boolean);
+  }
+
+  function isValidEmail(mail){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(mail || '').trim());
+  }
+
+  function escapeHtml(str){
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function showAlert(msg, variant){
+    if (!alertWrap) return;
+    if (!msg) {
+      alertWrap.innerHTML = '';
+      return;
+    }
+    var v = variant || 'info';
+    alertWrap.innerHTML = '<div class="alert alert-' + v + ' py-1 px-2 small mb-0" role="alert">' + escapeHtml(msg) + '</div>';
+  }
+
+  function syncHidden(){
+    var ordered = [];
+    available.forEach(function(label, key){
+      if (confirmed.has(key)) ordered.push(label);
+    });
+    hiddenWrap.innerHTML = '<input type="hidden" name="mail" value="' + escapeHtml(ordered.join(', ')) + '">';
+  }
+
+  function renderSelected(){
+    var html = [];
+    available.forEach(function(label, key){
+      if (!confirmed.has(key)) return;
+      html.push(
+        '<span class="badge rounded-pill text-bg-light border me-1 mb-1">'
+        + escapeHtml(label)
+        + ' <button type="button" class="btn-close btn-close-sm ms-1 js-client-mail-remove" data-mail="'
+        + escapeHtml(key)
+        + '" aria-label="Quitar" style="font-size:.55rem;"></button></span>'
+      );
+    });
+    selected.innerHTML = html.join('') || '<span class="cliente-mails-empty">Sin mails confirmados</span>';
+  }
+
+  function renderChecklist(){
+    var rows = [];
+    available.forEach(function(label, key){
+      var id = 'clientMail_' + key.replace(/[^a-z0-9]/gi, '_');
+      rows.push(
+        '<div class="form-check">'
+        + '<input class="form-check-input js-client-mail-chk" type="checkbox" value="' + escapeHtml(key) + '" id="' + id + '"' + (confirmed.has(key) ? ' checked' : '') + '>'
+        + '<label class="form-check-label small" for="' + id + '">' + escapeHtml(label) + '</label>'
+        + '</div>'
+      );
+    });
+    box.innerHTML = rows.join('') || '<div class="small text-muted">Sin mails cargados</div>';
+  }
+
+  function renderAll(){
+    renderChecklist();
+    renderSelected();
+    syncHidden();
+  }
+
+  function confirmSelection(){
+    var checks = box.querySelectorAll('.js-client-mail-chk:checked');
+    confirmed.clear();
+    checks.forEach(function(chk){
+      var key = normalizeMail(chk.value);
+      if (key && available.has(key)) confirmed.add(key);
+    });
+    renderAll();
+    showAlert('Selección actualizada.', 'success');
+  }
+
+  function addMailFromInput(){
+    if (!input) return;
+    var mail = String(input.value || '').trim();
+    if (!mail) {
+      showAlert('Ingresá un mail para agregar.', 'warning');
+      return;
+    }
+    if (!isValidEmail(mail)) {
+      showAlert('El formato del mail no es válido.', 'danger');
+      return;
+    }
+    var key = normalizeMail(mail);
+    if (available.has(key)) {
+      showAlert('Ese mail ya está cargado.', 'warning');
+      return;
+    }
+    available.set(key, mail);
+    confirmed.add(key);
+    input.value = '';
+    renderAll();
+    showAlert('Mail agregado correctamente.', 'success');
+  }
+
+  parseEmails(raw ? raw.value : '').forEach(function(mail){
+    if (!isValidEmail(mail)) return;
+    var key = normalizeMail(mail);
+    if (!available.has(key)) available.set(key, mail);
+    confirmed.add(key);
+  });
+
+  box.addEventListener('change', function(e){
+    var chk = e.target;
+    if (!chk || !chk.classList || !chk.classList.contains('js-client-mail-chk')) return;
+    var key = normalizeMail(chk.value);
+    if (!key || !available.has(key)) return;
+    if (chk.checked) confirmed.add(key);
+    else confirmed.delete(key);
+    renderSelected();
+    syncHidden();
+  });
+
+  selected.addEventListener('click', function(e){
+    var btn = (e.target && e.target.closest) ? e.target.closest('.js-client-mail-remove') : null;
+    if (!btn) return;
+    e.preventDefault();
+    var key = normalizeMail(btn.getAttribute('data-mail'));
+    if (!key || !available.has(key)) return;
+    confirmed.delete(key);
+    renderAll();
+  });
+
+  if (btnAdd) {
+    btnAdd.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      addMailFromInput();
+    });
+  }
+
+  if (input) {
+    input.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      addMailFromInput();
+    });
+  }
+
+  if (btnConfirm) {
+    btnConfirm.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      confirmSelection();
+    });
+  }
+
+  try {
+    var form = document.querySelector('form.card');
+    if (form) {
+      form.addEventListener('submit', function(){
+        var checks = box.querySelectorAll('.js-client-mail-chk');
+        if (checks.length) {
+          confirmed.clear();
+          checks.forEach(function(chk){
+            var key = normalizeMail(chk.value);
+            if (chk.checked && key && available.has(key)) confirmed.add(key);
+          });
+        }
+        syncHidden();
+      });
+    }
+  } catch (e) {}
+
+  renderAll();
+})();
+
+(function(){
   var box = document.getElementById('companies-checklist');
   var list = document.getElementById('companies-selected');
   var hidWrap = document.getElementById('companies-hidden');
   var btn = document.getElementById('btnConfirmarEmpresas');
-  if (!box || !list || !hidWrap) return;
+  if (!box || !hidWrap) return;
   var confirmed = new Map();
 
   var initialHidden = hidWrap.querySelectorAll('input[type="hidden"][name="company_ids"]');
@@ -795,29 +1182,30 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   function render(){
-    if (confirmed.size === 0){
-      list.innerHTML = '<span class="text-muted">Ninguno</span>';
-      hidWrap.innerHTML = '';
-      return;
-    }
-    var html = [];
     var hidden = [];
     confirmed.forEach(function(label, id){
-      html.push('<span class="badge bg-success me-1 mb-1" data-company-id="'+ id +'">'+ esc(label) +' <button type="button" class="btn btn-sm btn-light ms-1 p-0 px-1 js-company-del" data-company-id="'+ id +'">×</button></span>');
       hidden.push('<input type="hidden" name="company_ids" value="'+ id +'">');
     });
-    list.innerHTML = html.join('');
+    if (list) list.innerHTML = '';
     hidWrap.innerHTML = hidden.join('');
+    syncChecks();
+  }
+
+  function syncChecks(){
+    box.querySelectorAll('.js-company-chk').forEach(function(chk){
+      var id = String(chk.value);
+      chk.checked = confirmed.has(id);
+    });
   }
 
   function confirmSelection(){
+    confirmed.clear();
     var checks = box.querySelectorAll('.js-company-chk:checked');
     checks.forEach(function(chk){
       var id = String(chk.value);
       var lbl = box.querySelector('label[for="'+ chk.id +'"]');
       var label = lbl ? lbl.textContent.trim() : ('Empresa ' + id);
       confirmed.set(id, label);
-      chk.checked = false;
     });
     render();
   }
@@ -833,19 +1221,6 @@ document.addEventListener('DOMContentLoaded', function(){
     var form = document.querySelector('form.card');
     if (form) form.addEventListener('submit', function(){ confirmSelection(); });
   } catch(e){}
-
-  document.addEventListener('click', function(e){
-    var t = e.target;
-    var delBtn = (t && t.classList && t.classList.contains('js-company-del')) ? t : (t && t.closest ? t.closest('.js-company-del') : null);
-    if (delBtn){
-      e.preventDefault();
-      var cid = delBtn.getAttribute('data-company-id');
-      if (cid && confirmed.has(cid)){
-        confirmed.delete(cid);
-        render();
-      }
-    }
-  });
 
   render();
 })();
@@ -1346,72 +1721,99 @@ document.addEventListener('DOMContentLoaded', function(){
   update();
 })();
 
-// Botón "Enviar mail": arma un mailto con la info del cliente y empresa
+// Botón "Enviar mail": abre Gmail con borrador prearmado
 (function(){
   var btn = document.getElementById('btnSendShareMail');
   if (!btn) return;
+  if (btn.dataset.gmailComposeBound === '1') return;
+  btn.dataset.gmailComposeBound = '1';
+
+  function notify(msg, variant){
+    if (window.showToast){
+      window.showToast(msg, variant || 'primary');
+    } else {
+      alert(msg);
+    }
+  }
+
+  function parseJsonResponse(resp){
+    return resp.json().catch(function(){ return {}; }).then(function(data){
+      return { status: resp.status, data: data || {} };
+    });
+  }
+
+  function openGmailDraft(draft){
+    var toAll = Array.isArray(draft.to_all) ? draft.to_all.filter(Boolean) : [];
+    if (!toAll.length){
+      notify('La empresa seleccionada no tiene mails de pedido cargados.', 'warning');
+      return;
+    }
+
+    var subject = String(draft.subject || '').trim();
+    var body = String(draft.body_text || '').trim();
+
+    var gmailUrl =
+      'https://mail.google.com/mail/?view=cm&fs=1'
+      + '&to=' + encodeURIComponent(toAll.join(', '))
+      + '&su=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(body);
+
+    var win = window.open(gmailUrl, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      notify('No se pudo abrir Gmail en una nueva pestaña. Revisá el bloqueo de pop-ups del navegador.', 'warning');
+    }
+  }
+
   btn.addEventListener('click', function(e){
     e.preventDefault();
+    e.stopPropagation();
+    var clientId = parseInt(btn.getAttribute('data-client-id') || '', 10);
+    if (!clientId){
+      notify('Guardá primero el cliente para poder enviar la información a una empresa.', 'warning');
+      return;
+    }
     var sel = document.querySelector('select[name="share_company_id"]');
     if (!sel || !sel.value){
-      alert('Seleccioná primero una empresa a la que enviar la información.');
+      notify('Seleccioná primero una empresa a la que enviar la información.', 'warning');
       return;
     }
     var opt = sel.options[sel.selectedIndex];
     var mails = (opt.getAttribute('data-mail-pedido') || '').trim();
     if (!mails){
-      alert('La empresa seleccionada no tiene mails de pedido cargados.');
+      notify('La empresa seleccionada no tiene mails de pedido cargados.', 'warning');
       return;
     }
-    // tomar el primer mail como destinatario principal
-    var to = mails.split(',')[0].trim();
-    var ccList = mails.split(',').slice(1).map(function(s){return s.trim();}).filter(Boolean);
+    var commentEl = document.querySelector('[name="share_comment"]');
+    var comentario = (commentEl && commentEl.value) ? commentEl.value.trim() : '';
 
-    // datos del cliente desde los inputs actuales
-    function val(name){
-      var el = document.querySelector('[name="'+name+'"]');
-      return el && el.value ? el.value.trim() : '';
-    }
-    var razon = val('apellido');
-    var nombre = val('nombre');
-    var cuit = val('cuit');
-    var dirDep = val('direccion_principal');
-    var transporte = val('transporte_recomendado');
-    var tel = val('telefono');
-    var comentario = val('share_comment');
+    btn.disabled = true;
 
-    var empresaNombre = opt.textContent || opt.innerText || '';
-
-    var fullName = (razon + ' ' + nombre).trim();
-    var subject = 'ALTA cliente - ' + (fullName || razon || nombre || 'Nuevo cliente');
-
-    var bodyLines = [];
-    bodyLines.push('ALTA (cliente) - Empresa: ' + empresaNombre);
-    bodyLines.push('');
-    bodyLines.push('Razón social: ' + ((razon + ' ' + nombre).trim() || razon || nombre || '-'));
-    bodyLines.push('CUIL/CUIT: ' + (cuit || '-'));
-    bodyLines.push('');
-    bodyLines.push('Dirección de depósito: ' + (dirDep || '-'));
-    bodyLines.push('Dirección de sucursales puntuales: ver legajo en Sirio.');
-    bodyLines.push('Horarios de entrega: ' + (transporte || '-'));
-    bodyLines.push('Contacto depósito: ' + (tel || '-'));
-    bodyLines.push('');
-    bodyLines.push('Información complementaria:');
-    if (comentario){
-      bodyLines.push('');
-      bodyLines.push('Comentario adicional:');
-      bodyLines.push(comentario);
-    }
-
-    // usar todos los mails de pedido como destinatarios (TO)
-    var toAll = mails;
-    var body = encodeURIComponent(bodyLines.join('\n'));
-    var qs = 'view=cm&to=' + encodeURIComponent(toAll) +
-             '&su=' + encodeURIComponent(subject) +
-             '&body=' + body;
-    // Abrir directamente Gmail en modo redactar
-    var href = 'https://mail.google.com/mail/?' + qs;
-    window.open(href, '_blank');
+    fetch('/clientes/' + clientId + '/share_to_company', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        company_id: sel.value,
+        comment: comentario,
+        preview: true
+      })
+    }).then(parseJsonResponse)
+    .then(function(res){
+      if (res.status >= 200 && res.status < 300 && res.data && res.data.ok){
+        openGmailDraft(res.data);
+        if (res.data.warning){
+          notify(res.data.warning, 'warning');
+        }
+      } else {
+        var msg = (res.data && res.data.error) || 'No se pudo generar el borrador de mail.';
+        notify(msg, 'danger');
+      }
+    }).catch(function(){
+      notify('Error de red al generar el borrador de mail.', 'danger');
+    }).finally(function(){
+      btn.disabled = false;
+    });
   });
 })();
 
@@ -1425,14 +1827,29 @@ document.addEventListener('DOMContentLoaded', function(){
     var closed = body.classList.contains('d-none');
     if (closed){
       body.classList.remove('d-none');
-      chev.classList.remove('bi-chevron-right');
-      chev.classList.add('bi-chevron-down');
+      chev.classList.add('is-open');
     } else {
       body.classList.add('d-none');
-      chev.classList.remove('bi-chevron-down');
-      chev.classList.add('bi-chevron-right');
+      chev.classList.remove('is-open');
     }
   });
+})();
+
+// Sincronizar chevrons de secciones colapsables Bootstrap
+(function(){
+  function bindChevron(collapseId, chevronId){
+    var collapseEl = document.getElementById(collapseId);
+    var chevEl = document.getElementById(chevronId);
+    if (!collapseEl || !chevEl) return;
+    collapseEl.addEventListener('show.bs.collapse', function(){
+      chevEl.classList.add('is-open');
+    });
+    collapseEl.addEventListener('hide.bs.collapse', function(){
+      chevEl.classList.remove('is-open');
+    });
+  }
+  bindChevron('personasCollapse', 'personasChevron');
+  bindChevron('clientLinksCollapse', 'clientLinksChevron');
 })();
 </script>
 {% endblock %}

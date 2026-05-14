@@ -16,8 +16,45 @@ h1,h2{letter-spacing:.2px}
 }
 .sidebar-title{font-size:.85rem;text-transform:uppercase;letter-spacing:.09em;color:#cbe3ec;opacity:.9}
 
+/* Sidebar desktop sticky + compact */
+@media (min-width: 992px){
+  #appSidebar{
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+  #appSidebar .sidebar-inner{
+    height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: .65rem .75rem !important;
+    scrollbar-width: thin;
+  }
+  #appSidebar .sidebar-inner .small{
+    font-size: .75rem;
+  }
+  #appSidebar .nav{
+    gap: .28rem !important;
+    margin-top: .45rem !important;
+  }
+  #appSidebar .nav .nav-item.mt-2{
+    margin-top: .38rem !important;
+    padding-top: .28rem;
+    border-top: 1px solid rgba(255,255,255,.14);
+  }
+  #appSidebar .btn.btn-sm{
+    padding: .2rem .38rem;
+    font-size: .75rem;
+  }
+}
+
 /* Nav link ghost buttons */
-.nav-link-ghost{color:#d9ecf2;border-radius:.5rem;position:relative;padding:.6rem .9rem;font-weight:500}
+.nav-link-ghost{color:#d9ecf2;border-radius:.5rem;position:relative;padding:.5rem .72rem;font-weight:500;font-size:.92rem;line-height:1.2}
+.nav-link-ghost i{margin-right:.45rem !important;font-size:.95em}
 .nav-link-ghost:hover{background:rgba(255,255,255,.08);color:#fff;transform:translateX(2px)}
 .nav-link-ghost:focus{outline:2px solid rgba(13,110,253,.35);outline-offset:2px}
 .nav-link-ghost.active{background:linear-gradient(180deg, rgba(13,110,253,.22), rgba(13,110,253,.18));color:#fff;border:1px solid rgba(13,110,253,.35)}

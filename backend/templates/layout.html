@@ -117,6 +117,16 @@
       body.sidebar-collapsed #appSidebar { display: none !important; }
       body.sidebar-collapsed #sidebarShowBtn { display: inline-flex !important; }
       #sidebarShowBtn { display: none; }
+
+      @media (max-width: 991.98px) {
+        #topMenu {
+          max-height: calc(100vh - 56px);
+          overflow-y: auto;
+        }
+        body.mobile-menu-open {
+          overflow: hidden;
+        }
+      }
     </style>
   </head>
   <body class="bg-light" data-active="{{ active }}">
@@ -446,6 +456,63 @@
     </script>
     <script>
       (function(){
+        var topMenu = document.getElementById('topMenu');
+        if (!topMenu) return;
+
+        function isMobileMenuMode(){
+          try {
+            return !!(window.matchMedia && window.matchMedia('(max-width: 991.98px)').matches);
+          } catch (e) {
+            return window.innerWidth < 992;
+          }
+        }
+
+        function hideTopMenu(){
+          if (!isMobileMenuMode()) return;
+          try {
+            if (window.bootstrap && window.bootstrap.Collapse) {
+              var instance = window.bootstrap.Collapse.getOrCreateInstance(topMenu, { toggle: false });
+              instance.hide();
+            } else {
+              topMenu.classList.remove('show');
+            }
+          } catch (e) {
+            topMenu.classList.remove('show');
+          }
+          document.body.classList.remove('mobile-menu-open');
+          try {
+            var toggler = document.querySelector('button.navbar-toggler[data-bs-target="#topMenu"]');
+            if (toggler) toggler.setAttribute('aria-expanded', 'false');
+          } catch (e) {}
+        }
+
+        topMenu.querySelectorAll('a.nav-link').forEach(function(link){
+          link.addEventListener('click', function(){
+            hideTopMenu();
+          });
+        });
+
+        document.querySelectorAll('nav.navbar.d-lg-none a.navbar-brand').forEach(function(link){
+          link.addEventListener('click', function(){
+            hideTopMenu();
+          });
+        });
+
+        topMenu.addEventListener('shown.bs.collapse', function(){
+          if (isMobileMenuMode()) document.body.classList.add('mobile-menu-open');
+        });
+
+        topMenu.addEventListener('hidden.bs.collapse', function(){
+          document.body.classList.remove('mobile-menu-open');
+        });
+
+        window.addEventListener('pageshow', function(){
+          hideTopMenu();
+        });
+      })();
+    </script>
+    <script>
+      (function(){
         function topOffset(){
           var top = 0;
           try {
@@ -651,19 +718,6 @@
         var mo = new MutationObserver(enhanceTables);
         mo.observe(document.body, { childList:true, subtree:true });
         var topMenu = document.getElementById('topMenu');
-        // Abrir menú hamburguesa automáticamente en mobile
-        (function autoOpenMenu(){
-          // No auto-abrir menú en Clientes para evitar empuje del layout
-          var isClientes = '{{ active }}' === 'clientes';
-          if (isClientes) return;
-          if (window.innerWidth < 768) {
-            var el = document.getElementById('topMenu');
-            if (el && window.bootstrap) {
-              var c = window.bootstrap.Collapse.getOrCreateInstance(el, {toggle:false});
-              if (!el.classList.contains('show')) c.show();
-            }
-          }
-        })();
         // Requerir girar el celular para todas las secciones excepto Pedidos
         (function rotateGate(){
           return;

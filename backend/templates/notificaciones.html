@@ -1,9 +1,6 @@
 {% extends 'layout.html' %}
 {% block content %}
 <style>
-  #notifTabs .nav-link{ color:#0f766e; font-weight:600; }
-  #notifTabs .nav-link:hover{ color:#0b5f59; }
-  #notifTabs .nav-link.active{ color:#0f766e; border-color:#0f766e #0f766e #fff; }
   .notif-table{ border:1px solid rgba(15,118,110,.18); border-radius:.6rem; overflow:hidden; background:#fff; }
   .notif-head,
   .notif-row{ display:grid; align-items:center; column-gap:.75rem; }
@@ -33,19 +30,8 @@
   <h1 class="h4 mb-0">Notificaciones</h1>
 </div>
 
-<ul class="nav nav-tabs" id="notifTabs" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="tab-activas" data-bs-toggle="tab" data-bs-target="#panel-activas" type="button" role="tab" aria-controls="panel-activas" aria-selected="true">Activas (<span id="notifActivasCount">{{ active_alerts|length }}</span>)</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="tab-vistas" data-bs-toggle="tab" data-bs-target="#panel-vistas" type="button" role="tab" aria-controls="panel-vistas" aria-selected="false">Vistas</button>
-  </li>
-</ul>
-
-<div class="tab-content" id="notifTabsContent">
-  <div class="tab-pane fade show active" id="panel-activas" role="tabpanel" aria-labelledby="tab-activas" tabindex="0">
-    <div class="card border-top-0 rounded-0 rounded-bottom">
-      <div class="card-body">
+<div class="card">
+  <div class="card-body">
         {% set _k_cob = 'COBRANZA_ATRASADA' %}
         {% set _k_ent = 'ENTREGA_ATRASADA' %}
         {% set _k_inact = 'EMPRESA_INACTIVA' %}
@@ -121,7 +107,7 @@
 
         <ul class="nav nav-pills mb-3 flex-wrap gap-2" id="notifKindTabs" role="tablist">
           <li class="nav-item" role="presentation">
-            <button class="nav-link active" type="button" data-kind="ALL">Todas ({{ active_alerts|length }})</button>
+            <button class="nav-link active" type="button" data-kind="ALL">Todas (<span id="notifActivasCount">{{ active_alerts|length }}</span>)</button>
           </li>
           <li class="nav-item" role="presentation">
             <button class="nav-link" type="button" data-kind="{{ _k_cob }}">Cobranzas ({{ cnt_cob }})</button>
@@ -269,45 +255,6 @@
         {% else %}
           <div class="text-muted">Sin notificaciones activas</div>
         {% endif %}
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-pane fade" id="panel-vistas" role="tabpanel" aria-labelledby="tab-vistas" tabindex="0">
-    <div class="card border-top-0 rounded-0 rounded-bottom">
-      <div class="card-body">
-        {% if viewed_alerts and viewed_alerts|length > 0 %}
-          <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th>Cliente</th>
-                  <th>Alerta</th>
-                  <th>Empresa</th>
-                  <th class="text-end">Vista</th>
-                </tr>
-              </thead>
-              <tbody id="notifVistasTbody">
-                {% for v in viewed_alerts %}
-                  <tr>
-                    <td>{{ v.client_name }}</td>
-                    <td>
-                      <span class="badge {{ 'bg-danger' if v.severity=='danger' else 'bg-warning text-dark' }}">{{ v.message or (v.kind or '-') }}</span>
-                    </td>
-                    <td>{{ v.company or '-' }}</td>
-                    <td class="text-end text-muted">
-                      {{ v.dismissed_at.strftime('%d/%m/%Y %H:%M') if v.dismissed_at else '-' }}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div id="notifVistasEmpty" class="text-muted">Sin historial</div>
-        {% endif %}
-      </div>
-    </div>
   </div>
 </div>
 
@@ -564,32 +511,6 @@
     el.textContent = String(Math.max(0, n - 1));
   }
 
-  function ensureVistasTable(){
-    var tbody = document.getElementById('notifVistasTbody');
-    if (tbody) return tbody;
-    var empty = document.getElementById('notifVistasEmpty');
-    if (!empty) return null;
-    empty.outerHTML = '';
-    var panel = document.getElementById('panel-vistas');
-    if (!panel) return null;
-    var cardBody = panel.querySelector('.card-body');
-    if (!cardBody) return null;
-    var wrap = document.createElement('div');
-    wrap.className = 'table-responsive';
-    wrap.innerHTML = '<table class="table table-sm align-middle mb-0">'
-      + '<thead class="table-light"><tr><th>Cliente</th><th>Alerta</th><th>Empresa</th><th class="text-end">Vista</th></tr></thead>'
-      + '<tbody id="notifVistasTbody"></tbody>'
-      + '</table>';
-    cardBody.appendChild(wrap);
-    return document.getElementById('notifVistasTbody');
-  }
-
-  function prependVistaRow(row){
-    var tbody = ensureVistasTable();
-    if (!tbody) return;
-    tbody.insertAdjacentHTML('afterbegin', row);
-  }
-
   function getBellCount(){
     var el = document.getElementById('notifBellCount');
     if (!el) return 0;
@@ -642,17 +563,6 @@
         if (window.showToast) window.showToast(msg, 'danger');
         return;
       }
-      // mover a historial
-      var clientName = item.getAttribute('data-client-name') || '-';
-      var company = payload.company || '-';
-      var sev = payload.severity || 'warning';
-      var msg = payload.message || (payload.kind || '-');
-      var dt = new Date();
-      var pad = function(x){ return String(x).padStart(2,'0'); };
-      var when = pad(dt.getDate()) + '/' + pad(dt.getMonth()+1) + '/' + dt.getFullYear() + ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
-      var badgeClass = (sev === 'danger') ? 'bg-danger' : 'bg-warning text-dark';
-      prependVistaRow('<tr><td>' + clientName + '</td><td><span class="badge ' + badgeClass + '">' + msg + '</span></td><td>' + company + '</td><td class="text-end text-muted">' + when + '</td></tr>');
-
       var sel = '.js-notif-item[data-client-id="' + payload.client_id + '"][data-order-id="' + payload.order_id + '"][data-kind="' + payload.kind + '"]';
       document.querySelectorAll(sel).forEach(function(n){ try { n.remove(); } catch(e0) {} });
       decActivasCount();
